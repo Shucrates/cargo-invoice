@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Variation 2: Paper Docket Parity</title>
+  <style>
+    :root {
+      --bg: #e5e7eb;
+      --paper: #fefcf3;
+      --ink: #1f2937;
+      --blue-ink: #1e40af;
+      --red-ink: #991b1b;
+      --border: #d1d5db;
+      --stamp-border: #b91c1c;
+      --font-family: 'Courier New', Courier, monospace;
+      --sans-font: system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--sans-font); background: #374151; color: var(--ink); padding: 30px; }
+    .paper-docket { max-width: 900px; margin: 0 auto; background: var(--paper); border: 2px solid #9ca3af; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); position: relative; }
+    .header-block { border-bottom: 2px solid var(--ink); padding-bottom: 15px; margin-bottom: 20px; text-align: center; }
+    .header-block h1 { font-size: 22px; font-weight: 900; text-transform: uppercase; color: var(--blue-ink); letter-spacing: 1px; }
+    .header-block p { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+    .docket-badge { position: absolute; top: 25px; right: 25px; border: 2px dashed var(--stamp-border); color: var(--stamp-border); padding: 8px 12px; font-weight: bold; font-family: var(--font-family); font-size: 14px; text-align: center; transform: rotate(-1deg); }
+    .docket-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); margin-bottom: 20px; }
+    .box { padding: 12px; border-right: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+    .box:nth-child(even) { border-right: none; }
+    .box-title { font-size: 10px; font-weight: 800; text-transform: uppercase; color: var(--blue-ink); margin-bottom: 6px; text-decoration: underline; }
+    .field { font-size: 13px; margin-bottom: 6px; }
+    .field label { font-size: 11px; font-weight: 700; color: #4b5563; }
+    .field input { width: 100%; border: none; border-bottom: 1px dashed #6b7280; background: transparent; font-family: var(--font-family); font-weight: bold; padding: 2px 4px; font-size: 13px; color: var(--blue-ink); }
+    table.paper-table { width: 100%; border-collapse: collapse; border: 1px solid var(--ink); font-size: 12px; }
+    table.paper-table th { border: 1px solid var(--ink); background: #f3f4f6; padding: 6px; text-transform: uppercase; font-size: 10px; font-weight: 800; }
+    table.paper-table td { border: 1px solid var(--ink); padding: 8px; font-family: var(--font-family); font-weight: 600; }
+    .total-box { background: #fef08a; font-weight: bold; color: var(--red-ink); font-size: 14px; }
+    .footer-sign { display: flex; justify-content: space-between; margin-top: 30px; font-size: 11px; text-transform: uppercase; font-weight: bold; }
+    .sign-space { border-top: 1px solid var(--ink); width: 200px; text-align: center; padding-top: 4px; margin-top: 40px; }
+  </style>
+</head>
+<body>
+  <div class="paper-docket">
+    <div class="docket-badge">NON-NEGOTIABLE<br>NO: LR-8942-2026</div>
+    <div class="header-block">
+      <h1>EXPRESS CARGO LOGISTICS INC.</h1>
+      <p>GST TAX INVOICE / LORRY RECEIPT DOCKET</p>
+    </div>
+
+    <div class="docket-grid">
+      <div class="box">
+        <div class="box-title">Consignor (Sender)</div>
+        <div class="field"><label>Name:</label><input type="text" value="Apex Electronics Pvt Ltd"></div>
+        <div class="field"><label>City / PIN:</label><input type="text" value="Mumbai - 400069"></div>
+        <div class="field"><label>GSTIN:</label><input type="text" value="27AAACA12341ZV"></div>
+      </div>
+      <div class="box">
+        <div class="box-title">Consignee (Receiver)</div>
+        <div class="field"><label>Name:</label><input type="text" value="Northern Retailers Ltd"></div>
+        <div class="field"><label>City / PIN:</label><input type="text" value="New Delhi - 110020"></div>
+        <div class="field"><label>GSTIN:</label><input type="text" value="07BBBCA98761ZP"></div>
+      </div>
+    </div>
+
+    <table class="paper-table">
+      <thead>
+        <tr><th>Pkgs</th><th>Said to Contain</th><th>Actual Wt</th><th>Charged Wt</th><th style="text-align:right;">Freight (₹)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>15</td><td>Electronic Goods (Invoice #9942)</td><td>320 KG</td><td>350 KG</td><td style="text-align:right;">14,500.00</td></tr>
+        <tr><td colspan="4" style="text-align:right;">Handling & FOV Charges</td><td style="text-align:right;">800.00</td></tr>
+        <tr><td colspan="4" style="text-align:right;">GST (18%)</td><td style="text-align:right;">2,754.00</td></tr>
+        <tr class="total-box"><td colspan="4" style="text-align:right;">NET PAYABLE (TO PAY)</td><td style="text-align:right;">₹ 18,054.00</td></tr>
+      </tbody>
+    </table>
+
+    <div class="footer-sign">
+      <div class="sign-space">Consignor Signature</div>
+      <div class="sign-space">For Express Cargo Logistics</div>
+    </div>
+  </div>
+</body>
+</html>

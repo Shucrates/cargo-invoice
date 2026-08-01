@@ -1,0 +1,107 @@
+// This is your Prisma schema file,
+// learning more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  staff
+  admin
+}
+
+enum Status {
+  issued
+  voided
+}
+
+enum TransportMode {
+  Road
+  Air
+  Train
+}
+
+enum PaymentMode {
+  Paid    @map("Paid")
+  To_Pay  @map("To Pay")
+  Credit  @map("Credit")
+}
+
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  hashedPassword String   @map("hashed_password")
+  role           Role     @default(staff)
+  fullName       String?  @map("full_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  createdDockets CargoDocket[] @relation("CreatedDockets")
+  voidedDockets  CargoDocket[] @relation("VoidedDockets")
+
+  @@map("users")
+}
+
+model CargoDocket {
+  id            String        @id @default(uuid())
+  docketNo      String        @unique @map("docket_no")
+  createdBy     String        @map("created_by")
+  creator       User          @relation("CreatedDockets", fields: [createdBy], references: [id])
+  status        Status        @default(issued)
+  voidReason    String?       @map("void_reason")
+  voidedAt      DateTime?     @map("voided_at")
+  voidedBy      String?       @map("voided_by")
+  voider        User?         @relation("VoidedDockets", fields: [voidedBy], references: [id])
+
+  bookingDate   DateTime      @default(now()) @map("booking_date") @db.Date
+  transportMode TransportMode @default(Road) @map("transport_mode")
+  isInternational Boolean     @default(false) @map("is_international")
+  fromCity      String        @map("from_city")
+  toCity        String        @map("to_city")
+
+  consignorName    String  @map("consignor_name")
+  consignorAddress String? @map("consignor_address")
+  consignorPin     String? @map("consignor_pin")
+  consignorPhone   String? @map("consignor_phone")
+  consignorGstin   String? @map("consignor_gstin")
+
+  consigneeName    String  @map("consignee_name")
+  consigneeAddress String? @map("consignee_address")
+  consigneePin     String? @map("consignee_pin")
+  consigneePhone   String? @map("consignee_phone")
+  consigneeGstin   String? @map("consignee_gstin")
+
+  packageCount     Int      @default(1) @map("package_count")
+  packingMethod    String?  @map("packing_method")
+  invoiceNo        String?  @map("invoice_no")
+  invoiceValue     Decimal? @map("invoice_value") @db.Decimal(12, 2)
+  actualWeightKg   Decimal? @map("actual_weight_kg") @db.Decimal(10, 2)
+  chargedWeightKg  Decimal? @map("charged_weight_kg") @db.Decimal(10, 2)
+  dimensionsLhb    String?  @map("dimensions_lhb")
+  goodsDescription String?  @map("goods_description")
+
+  freightAmount        Decimal @default(0.00) @map("freight_amount") @db.Decimal(10, 2)
+  riskCharge           Decimal @default(0.00) @map("risk_charge") @db.Decimal(10, 2)
+  handlingCharge       Decimal @default(0.00) @map("handling_charge") @db.Decimal(10, 2)
+  docketCharge         Decimal @default(0.00) @map("docket_charge") @db.Decimal(10, 2)
+  pickupDeliveryCharge Decimal @default(0.00) @map("pickup_delivery_charge") @db.Decimal(10, 2)
+  otherCharge          Decimal @default(0.00) @map("other_charge") @db.Decimal(10, 2)
+  subtotal             Decimal @default(0.00) @map("subtotal") @db.Decimal(10, 2)
+  gstPercentage        Decimal @default(18.00) @map("gst_percentage") @db.Decimal(5, 2)
+  gstAmount            Decimal @default(0.00) @map("gst_amount") @db.Decimal(10, 2)
+  grandTotal           Decimal @default(0.00) @map("grand_total") @db.Decimal(10, 2)
+
+  paymentMode  PaymentMode @default(To_Pay) @map("payment_mode")
+  customerCode String?     @map("customer_code")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("cargo_dockets")
+}

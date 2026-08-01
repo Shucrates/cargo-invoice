@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Variation 3: Modern Enterprise SaaS</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); padding: 24px; }
+    .app-shell { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 280px 1fr; gap: 24px; }
+    .sidebar { background: var(--surface); padding: 20px; border-radius: var(--radius); border: 1px solid var(--border); }
+    .sidebar h2 { font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 16px; }
+    .stat-card { background: #eff6ff; border: 1px solid #bfdbfe; padding: 12px; border-radius: var(--radius); margin-bottom: 12px; }
+    .stat-val { font-size: 20px; font-weight: 800; color: var(--primary); }
+    .stat-lbl { font-size: 12px; color: var(--muted); }
+    .main-form { background: var(--surface); padding: 28px; border-radius: var(--radius); border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .form-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1fr solid var(--border); padding-bottom: 16px; margin-bottom: 24px; }
+    .form-header h1 { font-size: 20px; font-weight: 700; }
+    .badge { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+    .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+    .input-box label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+    .input-box input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+    .input-box input:focus { border-color: var(--primary); ring: 2px solid #bfdbfe; outline: none; }
+    .cta-bar { display: flex; justify-content: flex-end; gap: 12px; }
+    .btn { padding: 10px 18px; border-radius: 6px; font-weight: 600; font-size: 14px; cursor: pointer; border: none; }
+    .btn-primary { background: var(--primary); color: white; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="sidebar">
+      <h2>Cargo Admin Desk</h2>
+      <div class="stat-card">
+        <div class="stat-val">LR-8942</div>
+        <div class="stat-lbl">Next Auto Docket #</div>
+      </div>
+      <div class="stat-card" style="background:#fef3c7; border-color:#fde68a;">
+        <div class="stat-val" style="color:#d97706;">14 Active</div>
+        <div class="stat-lbl">Today's Issued Shipments</div>
+      </div>
+    </div>
+    <div class="main-form">
+      <div class="form-header">
+        <div>
+          <h1>Create New Cargo Docket</h1>
+          <p style="font-size:13px; color: var(--muted);">Auto-assigned Docket LR-2026-8942</p>
+        </div>
+        <span class="badge">Draft Mode</span>
+      </div>
+      <div class="form-grid">
+        <div class="input-box"><label>Consignor Name</label><input type="text" value="Apex Electronics"></div>
+        <div class="input-box"><label>Consignee Name</label><input type="text" value="Northern Retailers"></div>
+        <div class="input-box"><label>Charged Weight (KG)</label><input type="number" value="350"></div>
+      </div>
+      <div class="cta-bar">
+        <button class="btn btn-primary">Save & Issue Invoice</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

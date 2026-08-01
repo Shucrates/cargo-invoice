@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Variation 1: Industrial Slate Utility</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --header-bg: #1e293b;
+      --header-text: #ffffff;
+      --accent: #d97706;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #cbd5e1;
+      --radius: 4px;
+      --mono-font: 'JetBrains Mono', Courier, monospace;
+      --sans-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--sans-font); background: var(--bg); color: var(--text); padding: 24px; line-height: 1.4; font-size: 14px; }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .top-bar { background: var(--header-bg); color: var(--header-text); padding: 16px 24px; border-radius: var(--radius) var(--radius) 0 0; display: flex; justify-content: space-between; align-items: center; }
+    .top-bar h1 { font-size: 18px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .docket-no { font-family: var(--mono-font); background: #334155; padding: 6px 12px; border-radius: var(--radius); color: #f59e0b; font-weight: bold; font-size: 15px; }
+    .docket-card { background: var(--card-bg); border: 1px solid var(--border); border-top: none; padding: 24px; border-radius: 0 0 var(--radius) var(--radius); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+    .section-title { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); border-bottom: 2px solid var(--border); padding-bottom: 4px; margin-bottom: 12px; letter-spacing: 0.5px; }
+    .field-group { margin-bottom: 10px; }
+    .field-group label { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px; }
+    .field-group input, .field-group select { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; background: #fafafa; }
+    .field-group input:focus { border-color: var(--accent); outline: none; background: #fff; }
+    table.charges-table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 20px; font-size: 13px; }
+    table.charges-table th, table.charges-table td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+    table.charges-table th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); }
+    table.charges-table td.amount { text-align: right; font-family: var(--mono-font); font-weight: 600; }
+    .grand-total-row { background: #fef3c7; font-weight: bold; }
+    .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+    .btn { padding: 10px 20px; font-size: 13px; font-weight: 600; border-radius: var(--radius); border: none; cursor: pointer; text-transform: uppercase; }
+    .btn-primary { background: var(--header-bg); color: white; }
+    .btn-accent { background: var(--accent); color: white; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top-bar">
+      <h1>Cargo Lorry Receipt (LR) Docket</h1>
+      <div class="docket-no">DOCKET NO: LR-2026-08942</div>
+    </div>
+    <div class="docket-card">
+      <div class="grid-4">
+        <div class="field-group"><label>Booking Date</label><input type="date" value="2026-07-27"></div>
+        <div class="field-group"><label>Transport Mode</label><select><option>Road Freight</option><option>Air Freight</option><option>Train Freight</option></select></div>
+        <div class="field-group"><label>From City</label><input type="text" value="Mumbai Hub"></div>
+        <div class="field-group"><label>To City</label><input type="text" value="Delhi Depot"></div>
+      </div>
+
+      <div class="grid-2">
+        <div>
+          <div class="section-title">Consignor (Sender)</div>
+          <div class="field-group"><label>Name / Company</label><input type="text" value="Apex Electronics Pvt Ltd"></div>
+          <div class="field-group"><label>Phone & Address</label><input type="text" value="+91 98200 11223, Andheri East, Mumbai"></div>
+          <div class="field-group"><label>GST / TIN No.</label><input type="text" value="27AAACA12341ZV"></div>
+        </div>
+        <div>
+          <div class="section-title">Consignee (Receiver)</div>
+          <div class="field-group"><label>Name / Company</label><input type="text" value="Northern Retailers Ltd"></div>
+          <div class="field-group"><label>Phone & Address</label><input type="text" value="+91 98110 44556, Okhla Ind Area, New Delhi"></div>
+          <div class="field-group"><label>GST / TIN No.</label><input type="text" value="07BBBCA98761ZP"></div>
+        </div>
+      </div>
+
+      <div class="section-title">Charges & Tax Invoice Breakdown</div>
+      <table class="charges-table">
+        <thead>
+          <tr><th>Description</th><th>Package Count / Wt</th><th style="text-align: right;">Amount (₹)</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Freight Charges (15 Cartons, Charged Wt: 350kg)</td><td>15 Cartons</td><td class="amount">₹ 14,500.00</td></tr>
+          <tr><td>Handling & Loading Charges</td><td>-</td><td class="amount">₹ 650.00</td></tr>
+          <tr><td>Docket & Documentation Charges</td><td>1 Unit</td><td class="amount">₹ 150.00</td></tr>
+          <tr><td>Pickup & Door Delivery Charges</td><td>-</td><td class="amount">₹ 1,200.00</td></tr>
+          <tr><td>Subtotal</td><td>-</td><td class="amount">₹ 16,500.00</td></tr>
+          <tr><td>GST (18% Integrated Tax)</td><td>18%</td><td class="amount">₹ 2,970.00</td></tr>
+          <tr class="grand-total-row"><td><strong>GRAND TOTAL (TO PAY)</strong></td><td>-</td><td class="amount" style="color: #b45309; font-size: 15px;">₹ 19,470.00</td></tr>
+        </tbody>
+      </table>
+
+      <div class="actions">
+        <button class="btn btn-primary">Save & Issue LR Docket</button>
+        <button class="btn btn-accent">Generate PDF Invoice</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
