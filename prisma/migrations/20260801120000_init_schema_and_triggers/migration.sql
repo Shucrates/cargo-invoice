@@ -102,7 +102,7 @@ CREATE TRIGGER trg_prevent_docket_delete
 BEFORE DELETE ON cargo_dockets
 FOR EACH ROW EXECUTE PROCEDURE prevent_docket_delete();
 
--- Trigger B: Strict UPDATE protection (only status = 'voided' and void audit fields allowed)
+-- Trigger B: Strict UPDATE protection (protects core financials/route/names, permits tracking_no & courier_partner updates)
 CREATE OR REPLACE FUNCTION prevent_docket_unauthorized_update()
 RETURNS trigger AS $$
 BEGIN
@@ -122,7 +122,19 @@ BEGIN
       RAISE EXCEPTION 'UNAUTHORIZED ALTERATION: Only status and void audit fields can be updated when voiding a docket.';
     END IF;
   ELSE
-    RAISE EXCEPTION 'IMMUTABLE RECORD: Issued dockets cannot be edited. Only status can be changed to voided.';
+    -- Issued Dockets: Protect core business & financial fields, but permit updating courier_partner and tracking_no
+    IF (OLD.docket_no IS DISTINCT FROM NEW.docket_no) OR
+       (OLD.created_by IS DISTINCT FROM NEW.created_by) OR
+       (OLD.booking_date IS DISTINCT FROM NEW.booking_date) OR
+       (OLD.from_city IS DISTINCT FROM NEW.from_city) OR
+       (OLD.to_city IS DISTINCT FROM NEW.to_city) OR
+       (OLD.consignor_name IS DISTINCT FROM NEW.consignor_name) OR
+       (OLD.consignee_name IS DISTINCT FROM NEW.consignee_name) OR
+       (OLD.grand_total IS DISTINCT FROM NEW.grand_total) OR
+       (OLD.freight_amount IS DISTINCT FROM NEW.freight_amount) OR
+       (OLD.subtotal IS DISTINCT FROM NEW.subtotal) THEN
+      RAISE EXCEPTION 'IMMUTABLE RECORD: Core financial and shipment fields cannot be edited. Only tracking details and status can be updated.';
+    END IF;
   END IF;
 
   RETURN NEW;

@@ -11,11 +11,19 @@ export async function GET() {
 
     const dockets = await prisma.cargoDocket.findMany({
       orderBy: { createdAt: 'desc' },
+      include: {
+        creator: { select: { fullName: true, email: true } },
+        voider: { select: { fullName: true, email: true } },
+      },
     });
 
-    // Format Decimal numbers for client compatibility
+    // Format Decimal numbers and relations for client compatibility
     const formatted = dockets.map((d) => ({
       ...d,
+      created_by_name: d.creator?.fullName || d.creator?.email || 'Staff',
+      created_by_email: d.creator?.email || '',
+      voided_by_name: d.voider?.fullName || d.voider?.email || '',
+      voided_by_email: d.voider?.email || '',
       invoice_value: d.invoiceValue ? Number(d.invoiceValue) : 0,
       actual_weight_kg: d.actualWeightKg ? Number(d.actualWeightKg) : 0,
       charged_weight_kg: d.chargedWeightKg ? Number(d.chargedWeightKg) : 0,
@@ -50,6 +58,8 @@ export async function GET() {
       payment_mode: d.paymentMode,
       status: d.status,
       void_reason: d.voidReason || '',
+      tracking_no: d.trackingNo || '',
+      courier_partner: d.courierPartner || 'Self Network',
       created_at: d.createdAt.toISOString(),
       updated_at: d.updatedAt.toISOString(),
     }));
@@ -71,6 +81,8 @@ export async function POST(req: Request) {
     const userId = (session.user as any).id;
 
     const paymentModeEnum = body.payment_mode || 'To Pay';
+    const courierPartner = body.courier_partner || 'Self Network';
+    const trackingNo = body.tracking_no || null;
 
     // Single atomic raw query: generates sequential docket number & inserts record in 1 statement
     const [inserted] = await prisma.$queryRaw<any[]>`
@@ -113,6 +125,8 @@ export async function POST(req: Request) {
         grand_total,
         payment_mode,
         customer_code,
+        tracking_no,
+        courier_partner,
         created_at,
         updated_at
       ) VALUES (
@@ -154,6 +168,8 @@ export async function POST(req: Request) {
         ${body.grand_total || 0},
         ${paymentModeEnum}::"PaymentMode",
         ${body.customer_code || null},
+        ${trackingNo},
+        ${courierPartner},
         NOW(),
         NOW()
       )

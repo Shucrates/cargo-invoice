@@ -2,10 +2,14 @@ export type CargoDocket = {
   id: string;
   docket_no: string;
   created_by: string;
+  created_by_name?: string;
+  created_by_email?: string;
   status: 'issued' | 'voided';
   void_reason?: string;
   voided_at?: string;
   voided_by?: string;
+  voided_by_name?: string;
+  voided_by_email?: string;
   
   booking_date: string;
   transport_mode: 'Road' | 'Air' | 'Train';
@@ -47,6 +51,8 @@ export type CargoDocket = {
   
   payment_mode: 'Paid' | 'To Pay' | 'Credit';
   customer_code: string;
+  tracking_no?: string;
+  courier_partner?: string;
   created_at: string;
   updated_at: string;
 };

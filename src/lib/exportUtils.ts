@@ -14,9 +14,12 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
 
   const headers = [
     'Docket No',
+    'Courier Partner',
+    'Tracking / Waybill No',
     'Booking Date',
     'Status',
     'Transport Mode',
+    'Created By',
     'Consignor Name',
     'Consignor GSTIN',
     'Consignor Phone',
@@ -43,6 +46,7 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
     'GST Amount (INR)',
     'Grand Total (INR)',
     'Payment Mode',
+    'Voided By',
     'Void Reason'
   ];
 
@@ -54,9 +58,12 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
 
   const rows = dockets.map(d => [
     escapeCSVCell(d.docket_no),
+    escapeCSVCell(d.courier_partner || 'Self Network'),
+    escapeCSVCell(d.tracking_no || d.docket_no),
     escapeCSVCell(d.booking_date),
     escapeCSVCell(d.status.toUpperCase()),
     escapeCSVCell(d.transport_mode),
+    escapeCSVCell(d.created_by_name || d.created_by_email || 'Staff'),
     escapeCSVCell(d.consignor_name),
     escapeCSVCell(d.consignor_gstin || ''),
     escapeCSVCell(d.consignor_phone || ''),
@@ -83,6 +90,7 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
     escapeCSVCell((d.gst_amount || 0).toFixed(2)),
     escapeCSVCell((d.grand_total || 0).toFixed(2)),
     escapeCSVCell(d.payment_mode),
+    escapeCSVCell(d.voided_by_name || d.voided_by_email || ''),
     escapeCSVCell(d.void_reason || '')
   ]);
 
@@ -139,28 +147,27 @@ export function exportSummaryPDF(dockets: CargoDocket[], filterLabel: string = '
   // Data Table
   const tableData = dockets.map(d => [
     d.docket_no,
+    d.courier_partner || 'Self',
     d.booking_date,
     d.transport_mode,
-    `${d.consignor_name.slice(0, 18)}...`,
-    `${d.consignee_name.slice(0, 18)}...`,
+    `${d.created_by_name || 'Staff'}`,
+    `${d.consignor_name.slice(0, 14)}...`,
+    `${d.consignee_name.slice(0, 14)}...`,
     `${d.from_city} -> ${d.to_city}`,
     `${d.charged_weight_kg || 0} kg`,
-    `Rs. ${(d.freight_amount || 0).toFixed(2)}`,
-    `Rs. ${(d.gst_amount || 0).toFixed(2)}`,
     `Rs. ${(d.grand_total || 0).toFixed(2)}`,
     d.payment_mode,
-    d.status.toUpperCase()
+    d.status === 'voided' ? `VOIDED (${d.void_reason || ''})` : d.status.toUpperCase()
   ]);
 
   autoTable(doc, {
     startY: 48,
-    head: [['Docket No', 'Date', 'Mode', 'Consignor', 'Consignee', 'Route', 'Charged Wt', 'Freight', 'GST', 'Grand Total', 'Payment', 'Status']],
+    head: [['Docket No', 'Courier', 'Date', 'Mode', 'Created By', 'Consignor', 'Consignee', 'Route', 'Charged Wt', 'Grand Total', 'Payment', 'Status']],
     body: tableData,
     theme: 'grid',
     styles: { fontSize: 8, cellPadding: 2.5 },
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
     columnStyles: {
-      7: { halign: 'right' },
       8: { halign: 'right' },
       9: { halign: 'right', fontStyle: 'bold' }
     }

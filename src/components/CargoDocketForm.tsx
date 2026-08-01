@@ -18,6 +18,8 @@ export default function CargoDocketForm({
   const [transportMode, setTransportMode] = useState<'Road' | 'Air' | 'Train'>('Road');
   const [fromCity, setFromCity] = useState('');
   const [toCity, setToCity] = useState('');
+  const [courierPartner, setCourierPartner] = useState<string>('Self Network');
+  const [trackingNo, setTrackingNo] = useState<string>('');
 
   // Consignor
   const [consignorName, setConsignorName] = useState('');
@@ -66,6 +68,8 @@ export default function CargoDocketForm({
       transport_mode: transportMode,
       from_city: fromCity,
       to_city: toCity,
+      courier_partner: courierPartner,
+      tracking_no: trackingNo,
       consignor_name: consignorName,
       consignor_address: consignorAddress,
       consignor_pin: consignorPin,
@@ -159,7 +163,7 @@ export default function CargoDocketForm({
       )}
 
       {/* Header Fields */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div>
           <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Booking Date</label>
           <input type="date" required value={bookingDate} onChange={(e) => setBookingDate(e.target.value)} className="w-full p-2 border border-[#A1A1A1] rounded text-sm bg-white" />
@@ -179,6 +183,21 @@ export default function CargoDocketForm({
         <div>
           <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">To City</label>
           <input type="text" required placeholder="e.g. Mumbai" value={toCity} onChange={(e) => setToCity(e.target.value)} className="w-full p-2 border border-[#A1A1A1] rounded text-sm bg-white" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Courier Network</label>
+          <select value={courierPartner} onChange={(e) => setCourierPartner(e.target.value)} className="w-full p-2 border border-[#A1A1A1] rounded text-sm bg-white font-medium text-[#1C3E4E]">
+            <option value="Self Network">Self Network</option>
+            <option value="FedEx">FedEx Express</option>
+            <option value="DHL">DHL Express</option>
+            <option value="UPS">UPS Logistics</option>
+            <option value="Aramex">Aramex</option>
+            <option value="Blue Dart">Blue Dart</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">Waybill / Tracking No</label>
+          <input type="text" placeholder="e.g. 1Z999999 (Optional)" value={trackingNo} onChange={(e) => setTrackingNo(e.target.value)} className="w-full p-2 border border-[#A1A1A1] rounded text-sm bg-white font-mono" />
         </div>
       </div>
 

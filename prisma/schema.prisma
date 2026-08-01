@@ -100,6 +100,9 @@ model CargoDocket {
   paymentMode  PaymentMode @default(To_Pay) @map("payment_mode")
   customerCode String?     @map("customer_code")
 
+  trackingNo     String?     @map("tracking_no")
+  courierPartner String?     @map("courier_partner")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
