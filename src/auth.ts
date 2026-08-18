@@ -3,6 +3,7 @@ import Credentials from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import { requireSecret } from '@/lib/env';
 import bcrypt from 'bcryptjs';
+import { authConfig } from '@/auth.config';
 
 // A dummy hash to compare against when the email is unknown, so that a failed
 // lookup costs the same time as a wrong password and cannot be used to
@@ -10,6 +11,7 @@ import bcrypt from 'bcryptjs';
 const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       name: 'Credentials',
@@ -48,25 +50,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   session: {
     strategy: 'jwt',
-  },
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as any).role || 'staff';
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        (session.user as any).id = token.id as string;
-        (session.user as any).role = token.role as string;
-      }
-      return session;
-    },
-  },
-  pages: {
-    signIn: '/login',
   },
   secret: process.env.AUTH_SECRET || requireSecret('NEXTAUTH_SECRET'),
 });
