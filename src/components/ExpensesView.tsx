@@ -466,21 +466,10 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
 
         {/* Total Balance KPI — Only visible to Admins (Amount Earned minus Expenses) */}
         {isAdmin && (
-          <Card
-            className={`p-6 shadow-saas border-l-4 transition-all ${
-              isPositiveBalance
-                ? 'border-l-emerald-500 bg-gradient-to-br from-white to-emerald-50/20'
-                : 'border-l-rose-500 bg-gradient-to-br from-white to-rose-50/20'
-            }`}
-          >
+          <Card className="p-6 shadow-saas">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                {isPositiveBalance ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                ) : (
-                  <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
-                )}
-                <span>Total Balance</span>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Total Balance
               </div>
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200/60">
                 Admin
@@ -488,15 +477,15 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
             </div>
             <div
               className={`text-2xl font-bold mt-2 font-mono tracking-tight ${
-                isPositiveBalance ? 'text-emerald-600' : 'text-rose-600'
+                isPositiveBalance ? 'text-[#1F8A4C]' : 'text-[#D14343]'
               }`}
             >
               {totalBalance < 0 ? '-' : '+'}₹{Math.abs(totalBalance).toLocaleString('en-IN')}
             </div>
             <div className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1.5 flex-wrap">
-              <span>Earned: <strong className="text-slate-700">₹{totalEarned.toLocaleString('en-IN')}</strong></span>
+              <span>Earned: ₹{totalEarned.toLocaleString('en-IN')}</span>
               <span className="text-slate-300">•</span>
-              <span>Expenses: <strong className="text-slate-700">₹{allTimeExpenseTotal.toLocaleString('en-IN')}</strong></span>
+              <span>Expenses: ₹{allTimeExpenseTotal.toLocaleString('en-IN')}</span>
             </div>
           </Card>
         )}

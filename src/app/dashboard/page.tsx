@@ -13,6 +13,7 @@ import QuotationView from '@/components/QuotationView';
 import ExpensesView from '@/components/ExpensesView';
 import CompanySettingsView from '@/components/CompanySettingsView';
 import StaffManager from '@/components/StaffManager';
+import ReportsView from '@/components/ReportsView';
 import TrackingTimelineModal from '@/components/TrackingTimelineModal';
 import RecordPaymentModal from '@/components/RecordPaymentModal';
 import { RevenueLineChart, ShipmentsBarChart } from '@/components/DashboardCharts';
@@ -382,47 +383,6 @@ export default function DashboardPage() {
     exportToCSV(selected, `Selected_Shipments_${selectedDocketIds.length}_Invoices.csv`);
   };
 
-  const exportGSTR1CSV = () => {
-    downloadCSV(
-      [
-        'Docket No',
-        'Booking Date',
-        'Status',
-        'Transport Mode',
-        'Origin City (From)',
-        'Destination City (To)',
-        'Consignor Name',
-        'Consignor GSTIN',
-        'Consignee Name',
-        'Consignee GSTIN',
-        'Taxable Subtotal (INR)',
-        'GST Rate (%)',
-        'GST Amount (INR)',
-        'Grand Total (INR)',
-        'Payment Mode',
-        'Delivery Status'
-      ],
-      activeDockets.map((d) => [
-        d.docket_no,
-        d.booking_date,
-        d.status.toUpperCase(),
-        d.transport_mode,
-        d.from_city,
-        d.to_city,
-        d.consignor_name,
-        d.consignor_gstin || 'N/A',
-        d.consignee_name,
-        d.consignee_gstin || 'N/A',
-        Number(d.subtotal).toFixed(2),
-        Number(d.gst_percentage ?? 18),
-        Number(d.gst_amount).toFixed(2),
-        Number(d.grand_total).toFixed(2),
-        d.payment_mode,
-        d.delivery_status || 'booked'
-      ]),
-      `GSTR1_Report_${todayStr}.csv`
-    );
-  };
 
   const handleTabChange = (tab: NavTab) => {
     if (activeTab === 'new_lr' && tab !== 'new_lr' && cargoFormRef.current?.isDirty) {
@@ -1151,126 +1111,7 @@ export default function DashboardPage() {
 
       {/* 6. REPORTS TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
       {activeTab === 'reports' && isAdmin && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports & GST Financial Analytics</h1>
-              <p className="text-xs text-slate-500 font-medium mt-0.5">Executive GST audit, taxable revenue, and collection summary</p>
-            </div>
-            <Button onClick={exportGSTR1CSV} className="gap-2 text-xs font-semibold shadow-saas">
-              <Download className="w-4 h-4" />
-              <span>Export GSTR-1 CSV</span>
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <Card className="p-6 shadow-saas">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Gross Billing Revenue</div>
-              <div className="text-2xl font-bold text-slate-900 mt-2 font-mono tracking-tight">₹{totalRevenue.toLocaleString('en-IN')}</div>
-              <div className="text-xs text-slate-500 mt-2 font-medium">{activeCount} active dockets</div>
-            </Card>
-
-            <Card className="p-6 shadow-saas">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Taxable Subtotal</div>
-              <div className="text-2xl font-bold text-slate-900 mt-2 font-mono tracking-tight">₹{totalSubtotal.toLocaleString('en-IN')}</div>
-              <div className="text-xs text-slate-500 mt-2 font-medium">Freight & tariff sum</div>
-            </Card>
-
-            <Card className="p-6 shadow-saas">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">GST Output Tax (18%)</div>
-              <div className="text-2xl font-bold text-[#2563EB] mt-2 font-mono tracking-tight">₹{totalGST.toLocaleString('en-IN')}</div>
-              <div className="text-xs text-slate-500 mt-2 font-medium">Output tax liability</div>
-            </Card>
-
-            <Card className="p-6 shadow-saas">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Paid vs Outstanding</div>
-              <div className="text-sm font-semibold text-slate-900 mt-2 font-mono flex justify-between">
-                <span className="text-[#1F8A4C]">Paid: ₹{paidPayments.toLocaleString('en-IN')}</span>
-              </div>
-              <div className="text-xs font-semibold text-[#D14343] mt-1 font-mono">Due: ₹{pendingPayments.toLocaleString('en-IN')}</div>
-            </Card>
-          </div>
-
-          <Card className="shadow-saas p-0 overflow-hidden">
-            <div className="p-6 pb-4 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">GSTR-1 Taxable Audit Log</h3>
-              <p className="text-xs text-slate-500 font-medium">Full list of issued dockets for tax filing</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-500 font-semibold tracking-wider text-xs">
-                  <tr>
-                    <th className="px-5 py-4">DOCKET NO</th>
-                    <th className="px-5 py-4">DATE</th>
-                    <th className="px-5 py-4">PARTY</th>
-                    <th className="px-5 py-4">GSTIN</th>
-                    <th className="px-5 py-4 text-right">SUBTOTAL</th>
-                    <th className="px-5 py-4 text-right">GST (18%)</th>
-                    <th className="px-5 py-4 text-right">GRAND TOTAL</th>
-                    <th className="px-5 py-4">MODE</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {activeDockets.map((d) => (
-                    <tr key={d.id} className="hover:bg-[#F8FAFC] transition-saas h-14">
-                      <td className="px-5 py-4 font-mono font-semibold text-slate-900">{d.docket_no}</td>
-                      <td className="px-5 py-4 text-slate-500 font-medium">{d.booking_date}</td>
-                      <td className="px-5 py-4 font-semibold text-slate-900 text-sm">{d.consignor_name}</td>
-                      <td className="px-5 py-4 font-mono text-slate-500">{d.consignor_gstin || 'N/A'}</td>
-                      <td className="px-5 py-4 text-right font-mono text-slate-700">₹{Number(d.subtotal).toLocaleString('en-IN')}</td>
-                      <td className="px-5 py-4 text-right font-mono text-[#2563EB]">₹{Number(d.gst_amount).toLocaleString('en-IN')}</td>
-                      <td className="px-5 py-4 text-right font-mono font-bold text-slate-900">₹{Number(d.grand_total).toLocaleString('en-IN')}</td>
-                      <td className="px-5 py-4">
-                        <Badge variant={d.payment_mode === 'Paid' ? 'success' : d.payment_mode === 'Credit' ? 'warning' : 'info'}>
-                          {d.payment_mode}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          <Card className="shadow-saas p-0 overflow-hidden">
-            <div className="p-6 pb-4 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">Cash Transactions Log</h3>
-              <p className="text-xs text-slate-500 font-medium">Every cash payment recorded against an LR, newest first</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-500 font-semibold tracking-wider text-xs">
-                  <tr>
-                    <th className="px-5 py-4">LR NO</th>
-                    <th className="px-5 py-4">DATE</th>
-                    <th className="px-5 py-4 text-right">AMOUNT</th>
-                    <th className="px-5 py-4">RECORDED BY</th>
-                    <th className="px-5 py-4">NOTES</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {cashLog.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-8 text-center text-slate-400 font-mono text-xs">
-                        No cash payments recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    cashLog.map((p) => (
-                      <tr key={p.id} className="hover:bg-[#F8FAFC] transition-saas h-14">
-                        <td className="px-5 py-4 font-mono font-semibold text-slate-900">{p.docket_no}</td>
-                        <td className="px-5 py-4 text-slate-500 font-medium">{p.paid_at}</td>
-                        <td className="px-5 py-4 text-right font-mono font-bold text-[#1F8A4C]">₹{p.amount.toLocaleString('en-IN')}</td>
-                        <td className="px-5 py-4 text-slate-700">{p.recorded_by_name}</td>
-                        <td className="px-5 py-4 text-slate-500">{p.notes || '—'}</td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
+        <ReportsView dockets={dockets} cashLog={cashLog} customers={customersList} />
       )}
 
       {/* 7. SETTINGS TAB */}
