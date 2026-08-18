@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useRef, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import {
   Box,
@@ -16,7 +16,6 @@ import {
   LogOut,
   Archive,
   ShieldCheck,
-  Bell,
   Search,
   ChevronDown,
   Building2,
@@ -51,6 +50,32 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
   const userRole = (session?.user as any)?.role || 'staff';
   const isAdmin = userRole === 'admin';
 
+  // Account dropdown state
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click or Escape key
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    }
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setAccountMenuOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const userInitials = userName
     .split(' ')
     .map((n) => n[0])
@@ -76,13 +101,18 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
     await signOut({ callbackUrl: '/login' });
   };
 
+  const navigateTab = (tab: NavTab) => {
+    onTabChange(tab);
+    setAccountMenuOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-[#F6F8FB] flex text-slate-900 font-sans">
-      {/* Left Sidebar Shell (Behance Spec: 260px width, White BG, #EEF2F5 border) */}
+      {/* Left Sidebar Shell (260px width, White BG, #EEF2F5 border) */}
       <aside
         className={`${
           collapsed ? 'w-[76px]' : 'w-[260px]'
-        } bg-white border-r border-[#EEF2F5] flex-col p-5 shrink-0 hidden md:flex sticky top-0 self-start h-screen shadow-saas transition-all duration-200`}
+        } bg-white border-r border-[#EEF2F5] flex-col p-5 shrink-0 hidden md:flex sticky top-0 self-start h-screen shadow-saas transition-all duration-200 z-20`}
       >
         {/* Scrollable nav section */}
         <div className="space-y-6 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1">
@@ -263,15 +293,18 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
-        {/* Top Header Navigation Bar (72px height, Behance spec) */}
+        {/* Top Header Navigation Bar (72px height) */}
         <header className="h-[72px] bg-white border-b border-[#EEF1F4] px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
-          {/* Left: Quick Search / Active Section info */}
+          {/* Left: Quick Search */}
           <div className="flex items-center gap-4 flex-1 max-w-md">
             <div className="relative w-full">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search dockets, clients, tracking #..."
+                onFocus={() => {
+                  if (activeTab !== 'shipments') onTabChange('shipments');
+                }}
                 className="w-full h-10 pl-10 pr-4 bg-[#F8FAFC] border border-slate-200/80 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:ring-4 focus:ring-[#2563EB]/10 transition-saas"
               />
             </div>
@@ -288,27 +321,118 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
               <span>New LR</span>
             </button>
 
-            {/* Notifications Trigger Icon */}
-            <button
-              className="w-10 h-10 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-600 flex items-center justify-center relative transition-saas cursor-pointer"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4 text-slate-600" />
-              <span className="w-2 h-2 bg-[#2563EB] rounded-full absolute top-2.5 right-2.5 ring-2 ring-white"></span>
-            </button>
-
             <div className="h-6 w-px bg-slate-200/80 mx-1 hidden sm:block"></div>
 
-            {/* User Profile Pill */}
-            <div className="flex items-center gap-2.5 p-1 pr-3 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50/80 transition-saas cursor-pointer select-none">
-              <div className="w-8 h-8 rounded-lg bg-[#EEF4FF] text-[#2563EB] font-bold text-xs flex items-center justify-center font-mono border border-blue-100">
-                {userInitials}
-              </div>
-              <div className="hidden lg:block text-left">
-                <div className="text-xs font-semibold text-slate-900 leading-tight">{userName}</div>
-                <div className="text-[11px] text-slate-400 font-medium leading-none">{userEmail}</div>
-              </div>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            {/* User Profile Pill & Interactive Account Dropdown */}
+            <div className="relative" ref={accountRef}>
+              <button
+                onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                className={`flex items-center gap-2.5 p-1 pr-3 rounded-xl border transition-saas cursor-pointer select-none text-left ${
+                  accountMenuOpen
+                    ? 'border-[#2563EB] bg-blue-50/40 ring-2 ring-[#2563EB]/10'
+                    : 'border-slate-200/80 bg-white hover:bg-slate-50/80'
+                }`}
+                aria-label="User Account Menu"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[#EEF4FF] text-[#2563EB] font-bold text-xs flex items-center justify-center font-mono border border-blue-100 shrink-0">
+                  {userInitials}
+                </div>
+                <div className="hidden lg:block text-left">
+                  <div className="text-xs font-semibold text-slate-900 leading-tight">{userName}</div>
+                  <div className="text-[11px] text-slate-400 font-medium leading-none">{userEmail}</div>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
+                    accountMenuOpen ? 'rotate-180 text-[#2563EB]' : ''
+                  }`}
+                />
+              </button>
+
+              {/* Account Dropdown Menu Box */}
+              {accountMenuOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* Account Header */}
+                  <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] font-bold text-sm flex items-center justify-center font-mono border border-blue-100 shadow-2xs">
+                        {userInitials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-900 truncate">{userName}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
+                        <div className="mt-1">
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase bg-[#EEF4FF] text-[#2563EB] border border-blue-100">
+                            {isAdmin ? 'ADMIN ACCESS' : 'STAFF OPERATOR'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Navigation Shortcuts */}
+                  <div className="p-2 space-y-0.5">
+                    <button
+                      onClick={() => navigateTab('shipments')}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <Package className="w-4 h-4 text-slate-400" />
+                      <span>All Shipments</span>
+                    </button>
+                    <button
+                      onClick={() => navigateTab('billing')}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <Receipt className="w-4 h-4 text-slate-400" />
+                      <span>Billing & Invoices</span>
+                    </button>
+                    <button
+                      onClick={() => navigateTab('expenses')}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <Wallet className="w-4 h-4 text-slate-400" />
+                      <span>Expense Ledgers</span>
+                    </button>
+
+                    {isAdmin && (
+                      <>
+                        <div className="my-1 border-t border-slate-100" />
+                        <button
+                          onClick={() => navigateTab('reports')}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                        >
+                          <BarChart3 className="w-4 h-4 text-slate-400" />
+                          <span>Reports & Analytics</span>
+                        </button>
+                        <button
+                          onClick={() => navigateTab('staff')}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                        >
+                          <ShieldCheck className="w-4 h-4 text-slate-400" />
+                          <span>Staff Management</span>
+                        </button>
+                        <button
+                          onClick={() => navigateTab('settings')}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                        >
+                          <Settings className="w-4 h-4 text-slate-400" />
+                          <span>Company Settings</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Sign Out */}
+                  <div className="p-2 border-t border-slate-100 bg-slate-50/50">
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4 text-rose-500" />
+                      <span>Sign out</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -336,4 +460,3 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
     </div>
   );
 }
-

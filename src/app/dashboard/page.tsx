@@ -44,7 +44,7 @@ import {
 /** How many dockets the shipments table loads at a time. */
 const DOCKET_PAGE_SIZE = 100;
 
-const SHIPMENT_FILTERS = ['All', 'Issued', 'Unpaid', 'Paid', 'Voided'] as const;
+const SHIPMENT_FILTERS = ['All', 'Issued', 'To Pay', 'Paid', 'Unpaid', 'Voided'] as const;
 type ShipmentFilter = (typeof SHIPMENT_FILTERS)[number];
 
 interface CashPayment {
@@ -345,10 +345,12 @@ export default function DashboardPage() {
         return d.status === 'issued';
       case 'Voided':
         return d.status === 'voided';
-      case 'Unpaid':
-        return d.status === 'issued' && (d.payment_mode === 'To Pay' || d.payment_mode === 'Credit');
+      case 'To Pay':
+        return d.status === 'issued' && (d.payment_mode === 'To Pay' || (d as any).payment_mode === 'To_Pay');
       case 'Paid':
         return d.status === 'issued' && d.payment_mode === 'Paid';
+      case 'Unpaid':
+        return d.status === 'issued' && (d.payment_mode === 'To Pay' || d.payment_mode === 'Credit');
       default:
         return true;
     }
