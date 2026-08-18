@@ -1145,7 +1145,7 @@ export default function DashboardPage() {
       {/* 5. FINANCE TABS */}
       {activeTab === 'billing' && <BillingView ref={billFormRef} dockets={dockets} customers={customersList} />}
       {activeTab === 'quotation' && <QuotationView />}
-      {activeTab === 'expenses' && <ExpensesView />}
+      {activeTab === 'expenses' && <ExpensesView totalRevenue={totalRevenue} isAdmin={isAdmin} />}
 
       {/* 6. REPORTS TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
       {activeTab === 'reports' && isAdmin && (

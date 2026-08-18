@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
+import { useSession } from 'next-auth/react';
 import {
   Wallet,
   Plus,
@@ -12,6 +13,9 @@ import {
   FileText,
   FileSpreadsheet,
   Loader2,
+  TrendingUp,
+  TrendingDown,
+  IndianRupee,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -81,7 +85,31 @@ const emptyEntryDraft = (defaultDate: string): EntryDraft => ({
 
 type ExpensesSubTab = 'history' | 'new';
 
-export default function ExpensesView() {
+export interface ExpensesViewProps {
+  isAdmin?: boolean;
+  totalRevenue?: number;
+}
+
+export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propTotalRevenue }: ExpensesViewProps = {}) {
+  const { data: session } = useSession();
+  const isAdmin = propIsAdmin ?? (session?.user as { role?: string } | undefined)?.role === 'admin';
+  const [totalEarned, setTotalEarned] = useState<number>(propTotalRevenue ?? 0);
+
+  useEffect(() => {
+    if (propTotalRevenue !== undefined) {
+      setTotalEarned(propTotalRevenue);
+    } else if (isAdmin) {
+      fetch('/api/dashboard/kpis')
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (data && typeof data.totalRevenue === 'number') {
+            setTotalEarned(data.totalRevenue);
+          }
+        })
+        .catch((err) => console.error('Failed to load total revenue for expense balance KPI:', err));
+    }
+  }, [propTotalRevenue, isAdmin]);
+
   const [subTab, setSubTab] = useState<ExpensesSubTab>('history');
 
   // History state
@@ -380,6 +408,10 @@ export default function ExpensesView() {
     }
   };
 
+  // Admin-only: Total Balance = Amount Earned minus Total Expenses
+  const totalBalance = totalEarned - allTimeExpenseTotal;
+  const isPositiveBalance = totalBalance >= 0;
+
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Top Header & Navigation Switcher */}
@@ -418,17 +450,56 @@ export default function ExpensesView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+      {/* KPI Cards: 3 columns for Admin (including Total Balance), default 2 columns for Staff */}
+      <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2'} gap-5`}>
         <Card className="p-6 shadow-saas">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">This Month&apos;s Expense</div>
           <div className="text-2xl font-bold text-red-600 mt-2 font-mono tracking-tight">₹{monthlyExpenseTotal.toLocaleString('en-IN')}</div>
           <div className="text-xs text-slate-500 mt-2 font-medium">{thisMonthBounds.label}</div>
         </Card>
+
         <Card className="p-6 shadow-saas">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Cost</div>
           <div className="text-2xl font-bold text-slate-900 mt-2 font-mono tracking-tight">₹{allTimeExpenseTotal.toLocaleString('en-IN')}</div>
           <div className="text-xs text-slate-500 mt-2 font-medium">Across {ledgers.length} ledger{ledgers.length === 1 ? '' : 's'}</div>
         </Card>
+
+        {/* Total Balance KPI — Only visible to Admins (Amount Earned minus Expenses) */}
+        {isAdmin && (
+          <Card
+            className={`p-6 shadow-saas border-l-4 transition-all ${
+              isPositiveBalance
+                ? 'border-l-emerald-500 bg-gradient-to-br from-white to-emerald-50/20'
+                : 'border-l-rose-500 bg-gradient-to-br from-white to-rose-50/20'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                {isPositiveBalance ? (
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                ) : (
+                  <TrendingDown className="w-3.5 h-3.5 text-rose-600" />
+                )}
+                <span>Total Balance</span>
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200/60">
+                Admin
+              </span>
+            </div>
+            <div
+              className={`text-2xl font-bold mt-2 font-mono tracking-tight ${
+                isPositiveBalance ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {totalBalance < 0 ? '-' : '+'}₹{Math.abs(totalBalance).toLocaleString('en-IN')}
+            </div>
+            <div className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1.5 flex-wrap">
+              <span>Earned: <strong className="text-slate-700">₹{totalEarned.toLocaleString('en-IN')}</strong></span>
+              <span className="text-slate-300">•</span>
+              <span>Expenses: <strong className="text-slate-700">₹{allTimeExpenseTotal.toLocaleString('en-IN')}</strong></span>
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* ========================================================= */}
