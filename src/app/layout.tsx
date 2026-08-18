@@ -3,7 +3,7 @@ import "./globals.css";
 import Providers from "@/components/Providers";
 
 export const metadata: Metadata = {
-  title: "Cargo LR & Billing System",
+  title: "Rudra Cargo - Digital LR & Billing System",
   description: "Digital Lorry Receipt (LR) & GST Tax Invoice Management",
 };
 
@@ -14,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-slate-100 text-slate-900 min-h-screen">
+      <body className="antialiased bg-slate-100 text-slate-900 min-h-screen" suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

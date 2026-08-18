@@ -1,7 +1,13 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
+import { requireSecret } from '@/lib/env';
 import bcrypt from 'bcryptjs';
+
+// A dummy hash to compare against when the email is unknown, so that a failed
+// lookup costs the same time as a wrong password and cannot be used to
+// enumerate valid accounts.
+const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -12,10 +18,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        console.log('[Auth Log] Authorize attempt for:', credentials?.email);
-
         if (!credentials?.email || !credentials?.password) {
-          console.log('[Auth Log] Missing credentials');
           return null;
         }
 
@@ -26,15 +29,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           where: { email },
         });
 
-        if (!user || !user.hashedPassword) {
-          console.log('[Auth Log] User not found or missing password in DB:', email);
-          return null;
-        }
+        // Always run a comparison so unknown emails take the same time as
+        // known ones, then reject. Never log the email or the outcome.
+        const isValid = await bcrypt.compare(password, user?.hashedPassword || DUMMY_HASH);
 
-        const isValid = await bcrypt.compare(password, user.hashedPassword);
-        console.log('[Auth Log] Bcrypt match result:', isValid);
-
-        if (!isValid) {
+        if (!user || !user.hashedPassword || !isValid) {
           return null;
         }
 
@@ -69,5 +68,5 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   pages: {
     signIn: '/login',
   },
-  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || 'super-secret-development-key-change-in-prod-1234567890',
+  secret: process.env.AUTH_SECRET || requireSecret('NEXTAUTH_SECRET'),
 });

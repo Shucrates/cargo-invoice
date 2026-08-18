@@ -1,6 +1,9 @@
 import jsPDF from 'jspdf';
-import { CargoDocket } from '@/types/cargo';
-import { companyConfig } from '@/lib/companyConfig';
+import autoTable from 'jspdf-autotable';
+import QRCode from 'qrcode';
+import { CargoDocket, Bill, ExpenseLedger, ExpenseEntry } from '@/types/cargo';
+import { getCompanySettings } from '@/lib/companyConfig';
+import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 
 function numberToWords(num: number): string {
   const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
@@ -20,8 +23,27 @@ function numberToWords(num: number): string {
   return inWords(Math.floor(num)) + ' Rupees Only';
 }
 
-export function generateInvoicePDF(docket: CargoDocket) {
-  // A4 Landscape Mode (297mm x 210mm) matching physical docket proportions
+export async function generateInvoicePDF(docket: CargoDocket) {
+  const settings = getCompanySettings();
+
+  // Precise Calculation Audit
+  const freight = Number(docket.freight_amount || 0);
+  const handling = Number(docket.handling_charge || 0);
+  const risk = Number(docket.risk_charge || 0);
+  const docketChg = Number(docket.docket_charge || 0);
+  const pickup = Number(docket.pickup_delivery_charge || 0);
+  const other = Number(docket.other_charge || 0);
+
+  const calculatedSubtotal = freight + handling + risk + docketChg + pickup + other;
+  const subtotal = Number(docket.subtotal || calculatedSubtotal);
+
+  const gstPercentage = Number(docket.gst_percentage || 18);
+  const calculatedGST = Math.round(subtotal * (gstPercentage / 100));
+  const gstAmount = Number(docket.gst_amount || calculatedGST);
+
+  const grandTotal = Number(docket.grand_total || (subtotal + gstAmount));
+
+  // A4 Landscape Mode (297mm x 210mm)
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
@@ -33,16 +55,15 @@ export function generateInvoicePDF(docket: CargoDocket) {
   const pageW = 277;
   const pageH = 194;
 
-  // Colors:
-  // Template (Form Grid & Labels): Neutral Slate Gray
+  // Template Style: Slate Gray Form Labels & Grid
   const setTemplateStyle = () => {
     doc.setTextColor(71, 85, 105); // #475569 Dark Slate
     doc.setDrawColor(148, 163, 184); // #94A3B8 Border Lines
   };
 
-  // Filled Data (Dynamic Entry Ink): Distinct Royal Blue Ink
+  // Dynamic Data Ink Style: Vibrant Royal Blue Ink (#1D4ED8)
   const setDataStyle = (fontSize: number = 9) => {
-    doc.setTextColor(28, 62, 78); // #1C3E4E Deep Royal Blue Ink
+    doc.setTextColor(29, 78, 216); // #1D4ED8 Royal Blue Ink
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(fontSize);
   };
@@ -69,7 +90,6 @@ export function generateInvoicePDF(docket: CargoDocket) {
     setTemplateStyle();
   }
 
-  // Helper for mode checkboxes
   const drawCheckbox = (x: number, y: number, label: string, isChecked: boolean) => {
     setTemplateStyle();
     doc.rect(x, y, 3.5, 3.5);
@@ -93,31 +113,39 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFontSize(9);
   doc.text('No.', 198, marginY + 4.5);
 
-  // DOCKET NUMBER (Highlight Ink)
+  // DOCKET NUMBER (Royal Blue Ink)
   setDataStyle(13);
   doc.text(docket.docket_no, 208, marginY + 5);
 
-  // Horizontal Line below Top Bar
   setTemplateStyle();
   doc.line(marginX, marginY + 7, marginX + pageW, marginY + 7);
 
   // ==========================================
-  // HEADER SECTION (Company Info & Non-Negotiable Docket Info)
+  // HEADER SECTION (Company Logo & Info)
   // ==========================================
   setTemplateStyle();
   doc.line(130, marginY + 7, 130, marginY + 28);
   doc.line(196, marginY + 7, 196, marginY + 28);
 
-  // Left Company Title & Details
-  doc.setFontSize(12);
-  doc.setFont('helvetica', 'bold');
-  doc.text(companyConfig.name, marginX + 3, marginY + 12);
+  // Left Company Logo Graphic
+  try {
+    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', marginX + 2, marginY + 8, 19, 18);
+  } catch (e) {
+    console.error('Failed to render company logo on PDF:', e);
+  }
 
+  // Left Company Title (Royal Blue) - Shifted to marginX + 23 to sit beside logo
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(29, 78, 216);
+  doc.text(settings.tradeName, marginX + 23, marginY + 12);
+
+  setTemplateStyle();
   doc.setFontSize(7.5);
-  doc.text(`GST TIN : ${companyConfig.gstin}`, marginX + 3, marginY + 16);
+  doc.text(`GSTIN : ${settings.gstin}`, marginX + 23, marginY + 16);
   doc.setFont('helvetica', 'normal');
-  doc.text(companyConfig.address, marginX + 3, marginY + 20);
-  doc.text(`Ph: ${companyConfig.phone} | Email: ${companyConfig.email}`, marginX + 3, marginY + 24);
+  doc.text(settings.address, marginX + 23, marginY + 20);
+  doc.text(`Ph: ${settings.phone1} | Email: ${settings.email}`, marginX + 23, marginY + 24);
 
   // Middle FROM / TO Box
   setTemplateStyle();
@@ -128,9 +156,9 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.text('O', 132, marginY + 17);
   doc.text('M', 132, marginY + 20);
 
-  // FROM CITY (Highlight Ink)
+  // FROM CITY (Royal Blue Ink)
   setDataStyle(11);
-  doc.text(docket.from_city || 'Jaipur', 140, marginY + 15);
+  doc.text(docket.from_city || 'MUMBAI', 140, marginY + 15);
 
   setTemplateStyle();
   doc.line(130, marginY + 21, 196, marginY + 21);
@@ -140,9 +168,9 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.text('T', 132, marginY + 25);
   doc.text('O', 132, marginY + 27);
 
-  // TO CITY (Highlight Ink)
+  // TO CITY (Royal Blue Ink)
   setDataStyle(11);
-  doc.text(docket.to_city || 'Mumbai', 140, marginY + 26);
+  doc.text(docket.to_city || 'GUWAHATI', 140, marginY + 26);
 
   // Right Header Docket Type, Date & Tracking Info
   setTemplateStyle();
@@ -155,7 +183,7 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFontSize(6.5);
   doc.text('DATE', 198, marginY + 15.5);
 
-  // BOOKING DATE (Highlight Ink)
+  // BOOKING DATE (Royal Blue Ink)
   setDataStyle(8);
   doc.text(docket.booking_date, 208, marginY + 15.5);
 
@@ -165,11 +193,10 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFontSize(6.5);
   doc.text('WAYBILL NO', 198, marginY + 22);
 
-  // COURIER & TRACKING NO (Highlight Ink)
+  // COURIER & TRACKING NO (Royal Blue Ink)
   setDataStyle(7.5);
   doc.text(`${docket.courier_partner || 'Self'}: ${docket.tracking_no || docket.docket_no}`, 198, marginY + 26);
 
-  // Horizontal line below header
   setTemplateStyle();
   doc.line(marginX, marginY + 28, marginX + pageW, marginY + 28);
 
@@ -188,7 +215,7 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFont('helvetica', 'bold');
   doc.text('CONSIGNOR', marginX + 2, curY + 4);
 
-  // CONSIGNOR NAME (Highlight Ink)
+  // CONSIGNOR NAME (Royal Blue Ink)
   setDataStyle(9.5);
   doc.text(docket.consignor_name || '', marginX + 24, curY + 4);
 
@@ -201,11 +228,20 @@ export function generateInvoicePDF(docket: CargoDocket) {
     setTemplateStyle();
   }
 
-  // PIN boxes (6 boxes)
+  // PIN boxes
+  const extractPinCode = (pin?: string | null, address?: string | null): string => {
+    if (pin && pin.trim().length >= 6) return pin.trim();
+    if (address) {
+      const match = address.match(/\b\d{6}\b/);
+      if (match) return match[0];
+    }
+    return pin ? pin.trim() : '';
+  };
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.text('PIN :', marginX + 70, curY + 9);
-  const pin1 = (docket.consignor_pin || '').padEnd(6, ' ');
+  const pin1 = extractPinCode(docket.consignor_pin, docket.consignor_address).padEnd(6, ' ');
   for (let i = 0; i < 6; i++) {
     const px = marginX + 80 + i * 3.5;
     doc.rect(px, curY + 6.5, 3.2, 3.2);
@@ -239,7 +275,7 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFont('helvetica', 'bold');
   doc.text('CONSIGNEE', marginX + 2, curY + 4);
 
-  // CONSIGNEE NAME (Highlight Ink)
+  // CONSIGNEE NAME (Royal Blue Ink)
   setDataStyle(9.5);
   doc.text(docket.consignee_name || '', marginX + 24, curY + 4);
 
@@ -251,11 +287,11 @@ export function generateInvoicePDF(docket: CargoDocket) {
     setTemplateStyle();
   }
 
-  // PIN boxes (6 boxes)
+  // PIN boxes
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.text('PIN :', marginX + 70, curY + 9);
-  const pin2 = (docket.consignee_pin || '').padEnd(6, ' ');
+  const pin2 = extractPinCode(docket.consignee_pin, docket.consignee_address).padEnd(6, ' ');
   for (let i = 0; i < 6; i++) {
     const px = marginX + 80 + i * 3.5;
     doc.rect(px, curY + 6.5, 3.2, 3.2);
@@ -310,17 +346,15 @@ export function generateInvoicePDF(docket: CargoDocket) {
 
   doc.line(marginX, curY + 10, rightColX, curY + 10);
 
-  // --- 4. AT OWNER'S RISK & INSURANCE ---
+  // --- 4. AT OWNER'S RISK & PAYMENT MODE BOX ---
   curY += 10;
   setTemplateStyle();
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
   doc.text("AT OWNER'S RISK / CARRIER'S RISK", marginX + 12, curY + 3.5);
-  doc.setFontSize(6.5);
-  doc.text('If Insurance Details of Insurance Policy', marginX + 12, curY + 6.5);
 
   doc.line(marginX + 70, curY, marginX + 70, curY + 38);
-  doc.text('MODE OF PAYMENT', marginX + 80, curY + 4);
+  doc.text('MODE OF PAYMENT', marginX + 74, curY + 4);
 
   doc.line(marginX, curY + 8, rightColX, curY + 8);
 
@@ -330,38 +364,48 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.text('Insurance Company .................................................', marginX + 2, curY + 18);
   doc.text('Insurance Value .....................................................', marginX + 2, curY + 23);
 
-  // Payment Mode Checkboxes Right Box
+  // Payment Mode Checkboxes
   setTemplateStyle();
   doc.setFont('helvetica', 'bold');
-  doc.text('CREDIT', marginX + 72, curY + 12);
-  doc.rect(marginX + 87, curY + 9.5, 4, 4);
+  doc.setFontSize(7.5);
+
+  doc.text('CREDIT', marginX + 73, curY + 13);
+  doc.rect(marginX + 92, curY + 10, 3.5, 3.5);
   if (docket.payment_mode === 'Credit') {
-    setDataStyle(9);
-    doc.text('X', marginX + 88, curY + 12.5);
+    setDataStyle(8.5);
+    doc.text('X', marginX + 92.8, curY + 12.8);
     setTemplateStyle();
   }
 
-  doc.text('PAID', marginX + 72, curY + 20);
-  doc.rect(marginX + 87, curY + 17.5, 4, 4);
+  doc.text('PAID', marginX + 73, curY + 21);
+  doc.rect(marginX + 92, curY + 18, 3.5, 3.5);
   if (docket.payment_mode === 'Paid') {
-    setDataStyle(9);
-    doc.text('X', marginX + 88, curY + 20.5);
+    setDataStyle(8.5);
+    doc.text('X', marginX + 92.8, curY + 20.8);
     setTemplateStyle();
+    if (docket.payment_method) {
+      setDataStyle(6);
+      doc.text(`(${docket.payment_method})`, marginX + 97, curY + 21);
+      setTemplateStyle();
+      doc.setFontSize(7.5);
+    }
   }
 
-  doc.text('TO PAY', marginX + 72, curY + 28);
-  doc.rect(marginX + 87, curY + 25.5, 4, 4);
+  doc.text('TO PAY', marginX + 73, curY + 29);
+  doc.rect(marginX + 92, curY + 26, 3.5, 3.5);
   if (docket.payment_mode === 'To Pay') {
-    setDataStyle(9);
-    doc.text('X', marginX + 88, curY + 28.5);
+    setDataStyle(8.5);
+    doc.text('X', marginX + 92.8, curY + 28.8);
     setTemplateStyle();
   }
 
   doc.line(marginX, curY + 26, marginX + 70, curY + 26);
-  doc.setFontSize(7);
-  doc.text('(Received above shipment in order and in goods condition)', marginX + 2, curY + 30);
-  doc.text('Date :', marginX + 2, curY + 35);
-  doc.text('Time :', marginX + 35, curY + 35);
+
+  doc.setFontSize(6);
+  doc.text('(Received above shipment in order', marginX + 2, curY + 29.5);
+  doc.text(' and in good condition)', marginX + 2, curY + 32.5);
+  doc.text('Date :', marginX + 2, curY + 36);
+  doc.text('Time :', marginX + 35, curY + 36);
 
   doc.line(marginX, curY + 38, rightColX, curY + 38);
 
@@ -384,7 +428,6 @@ export function generateInvoicePDF(docket: CargoDocket) {
   // ==========================================
   let tableY = marginY + 28;
 
-  // Header Row 1
   setTemplateStyle();
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
@@ -405,14 +448,14 @@ export function generateInvoicePDF(docket: CargoDocket) {
 
   doc.line(rightColX, tableY + 5, marginX + pageW, tableY + 5);
 
-  // Values Row 1 (Highlight Ink)
+  // Values Row 1 (Royal Blue Ink)
   setDataStyle(10);
   doc.text(`(${docket.package_count || 1})`, rightColX + 5, tableY + 11);
 
   setDataStyle(8);
   doc.text(docket.packing_method || 'Box', rightColX + 23, tableY + 11);
   doc.text(docket.invoice_no || '-', rightColX + 49, tableY + 11);
-  doc.text(docket.invoice_value ? `₹${docket.invoice_value}` : '-', rightColX + 72, tableY + 11);
+  doc.text(docket.invoice_value ? `Rs. ${docket.invoice_value}` : '-', rightColX + 72, tableY + 11);
   doc.text(docket.goods_description || 'Apparels / General Goods', rightColX + 95, tableY + 11);
 
   setTemplateStyle();
@@ -428,7 +471,7 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.text('Charged Weight', rightColX + 24, tableY + 4);
   doc.line(rightColX + 45, tableY, rightColX + 45, tableY + 7);
 
-  // Weight Values (Highlight Ink)
+  // Weight Values (Royal Blue Ink)
   setDataStyle(9.5);
   doc.text(`${docket.actual_weight_kg || 0} kg`, rightColX + 3, tableY + 11);
   doc.text(`${docket.charged_weight_kg || 0} kg`, rightColX + 25, tableY + 11);
@@ -452,29 +495,27 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
   doc.text('CHARGES', rightColX + 47, chargeY + 4);
-  doc.text('Rs.', rightColX + 80, chargeY + 4);
-  doc.text('FREIGHT', rightColX + 94, chargeY + 4);
-  doc.text('P.', rightColX + 115, chargeY + 4);
-  doc.text('SPECIAL INSTRUCTIONS', rightColX + 120, chargeY + 4);
+  doc.text('FREIGHT', rightColX + 97, chargeY + 4);
+
+  doc.setFontSize(6.5);
+  doc.text('INSTRUCTIONS', rightColX + 138, chargeY + 4, { align: 'center' });
 
   doc.line(rightColX + 45, chargeY + 6, marginX + pageW, chargeY + 6);
 
-  // Vertical Divider lines for Charges columns
-  doc.line(rightColX + 92, chargeY + 6, rightColX + 92, chargeY + 80);
-  doc.line(rightColX + 114, chargeY + 6, rightColX + 114, chargeY + 80);
-  doc.line(rightColX + 119, chargeY + 6, rightColX + 119, chargeY + 80);
+  doc.line(rightColX + 95, chargeY + 6, rightColX + 95, chargeY + 80);
+  doc.line(rightColX + 125, chargeY + 6, rightColX + 125, chargeY + 80);
 
   const chargesList = [
-    { name: 'Freight', val: docket.freight_amount },
-    { name: 'Risk Charge/F.O.V.', val: docket.risk_charge },
-    { name: 'Handling Charges', val: docket.handling_charge },
-    { name: 'Docket Charges', val: docket.docket_charge },
+    { name: 'Freight', val: freight },
+    { name: 'Risk Charge/F.O.V.', val: risk },
+    { name: 'Handling Charges', val: handling },
+    { name: 'Docket Charges', val: docketChg },
     { name: 'DOD, DACC Service Charges', val: 0 },
     { name: 'OSC', val: 0 },
-    { name: 'Pick-up & Delivery Charges', val: docket.pickup_delivery_charge },
-    { name: 'Other Charges', val: docket.other_charge },
-    { name: 'Total', val: docket.subtotal },
-    { name: `GST ${docket.gst_percentage || 18}%`, val: docket.gst_amount },
+    { name: 'Pick-up & Delivery Charges', val: pickup },
+    { name: 'Other Charges', val: other },
+    { name: 'Subtotal', val: subtotal },
+    { name: `GST ${gstPercentage}%`, val: gstAmount },
   ];
 
   let rY = chargeY + 11;
@@ -486,25 +527,25 @@ export function generateInvoicePDF(docket: CargoDocket) {
     doc.text(c.name, rightColX + 47, rY);
 
     if (c.val && c.val > 0) {
-      // Dynamic Amounts (Highlight Ink)
       setDataStyle(8);
-      doc.text(c.val.toFixed(2), rightColX + 94, rY);
+      const valFormatted = c.val.toFixed(2);
+      doc.text(valFormatted, rightColX + 122, rY, { align: 'right' });
       setTemplateStyle();
     }
 
-    doc.line(rightColX + 45, rY + 2, rightColX + 119, rY + 2);
+    doc.line(rightColX + 45, rY + 2, rightColX + 125, rY + 2);
     rY += 6.5;
   });
 
   // GRAND TOTAL ROW
   setTemplateStyle();
-  doc.setFontSize(9);
+  doc.setFontSize(8.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('Grand Total', rightColX + 47, rY + 1);
+  doc.text('Grand Total:', rightColX + 47, rY + 1);
 
-  // GRAND TOTAL AMOUNT (Highlight Ink)
-  setDataStyle(12);
-  doc.text(`₹ ${(docket.grand_total || 0).toFixed(2)} /-`, rightColX + 92, rY + 1);
+  setDataStyle(9.5);
+  const grandTotalFormatted = grandTotal.toFixed(2);
+  doc.text(grandTotalFormatted, rightColX + 122, rY + 1, { align: 'right' });
 
   setTemplateStyle();
   doc.line(rightColX + 45, rY + 3, marginX + pageW, rY + 3);
@@ -514,67 +555,606 @@ export function generateInvoicePDF(docket: CargoDocket) {
   doc.setFont('helvetica', 'bold');
   doc.text('Rs. (In words) :', rightColX + 47, rY + 8);
 
-  // AMOUNT IN WORDS (Highlight Ink)
-  setDataStyle(8);
-  doc.text(numberToWords(docket.grand_total || 0), rightColX + 70, rY + 8);
+  setDataStyle(7.5);
+  doc.text(numberToWords(grandTotal), rightColX + 70, rY + 8);
 
   setTemplateStyle();
   doc.line(rightColX, marginY + 150, marginX + pageW, marginY + 150);
 
-  // --- SIGNATURES & STAMP AREA ---
+  // --- GOOGLE PAY PAYMENT QR CODE & SIGNATURES AREA (3 Equal Columns) ---
   let sigY = marginY + 150;
+
+  // 1. Google Pay QR Box on PDF (X = 135 to X = 180, width 45mm)
+  // Left Column Text (X = 137 to X = 156, width 19mm)
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(29, 78, 216);
+  doc.text('PAYMENT QR', rightColX + 2, sigY + 4);
+  doc.text('CODE', rightColX + 2, sigY + 7.5);
+
+  doc.setFontSize(5.5);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text(`GPay: ${settings.gpayNo}`, rightColX + 2, sigY + 12);
+
+  const displayUpi = settings.upiId.length > 16 ? settings.upiId.substring(0, 15) + '...' : settings.upiId;
+  doc.text(`UPI: ${displayUpi}`, rightColX + 2, sigY + 16);
+
+  doc.setFontSize(6);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(29, 78, 216);
+  doc.text('Scan & Pay', rightColX + 2, sigY + 22);
+
+  // Render Scannable GPay UPI QR Code Image (Size 20mm x 20mm at X = rightColX + 23 = 158mm to 178mm)
+  try {
+    let qrDataUrl = settings.qrCodeUrl;
+    if (!qrDataUrl || !qrDataUrl.startsWith('data:image/')) {
+      const upiUri = `upi://pay?pa=${settings.upiId || '9821541984@upi'}&pn=${encodeURIComponent(settings.tradeName)}&cu=INR`;
+      qrDataUrl = await QRCode.toDataURL(upiUri, {
+        margin: 0,
+        width: 250,
+        color: { dark: '#000000', light: '#ffffff' },
+      });
+    }
+    doc.addImage(qrDataUrl, 'PNG', rightColX + 23, sigY + 3.5, 20, 20);
+  } catch (e) {
+    console.error('Failed to generate GPay QR Code image on PDF:', e);
+  }
+
+  // Vertical Divider 1 at X = 180
+  setTemplateStyle();
+  doc.line(rightColX + 45, sigY, rightColX + 45, marginY + 178);
+
+  // 2. Consignor Signature Box (X = 180 to X = 230)
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
+  doc.text("CONSIGNOR'S SIGNATURE", rightColX + 48, sigY + 5);
 
-  doc.text("CONSIGNOR'S SIGNATURE", rightColX + 5, sigY + 5);
-  doc.line(rightColX + 55, sigY, rightColX + 55, marginY + 178);
+  // Vertical Divider 2 at X = 230
+  doc.line(rightColX + 95, sigY, rightColX + 95, marginY + 178);
 
-  doc.text('Received by RCS', rightColX + 60, sigY + 5);
+  // 3. Received by RCS Box (X = 230 to X = 287)
+  doc.text('Received by RCS', rightColX + 98, sigY + 5);
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
-  doc.text('Name : ............................................', rightColX + 60, sigY + 10);
-  doc.text('Date : ................... Time : ................', rightColX + 60, sigY + 14);
-  doc.text('B. A. Code : .....................................', rightColX + 60, sigY + 18);
-  doc.text('Sign of Booking Staff', rightColX + 60, sigY + 23);
+  doc.text('Name : ............................................', rightColX + 98, sigY + 10);
+  doc.text('Date : ................... Time : ................', rightColX + 98, sigY + 14);
+  doc.text('Sign of Booking Staff', rightColX + 98, sigY + 22);
 
   doc.line(marginX, marginY + 178, marginX + pageW, marginY + 178);
 
   // ==========================================
-  // FOOTER SECTION (Phone, Email, Jurisdiction & Carrier Brand Logos)
+  // FOOTER SECTION (Phone, Email, Address)
   // ==========================================
   let footY = marginY + 182;
   setTemplateStyle();
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text(`Phone : ${companyConfig.phone} | Email : ${companyConfig.email}`, marginX + 3, footY);
+  doc.text(`Phone : ${settings.phone1} and ${settings.phone2} | Email : ${settings.email}`, marginX + 3, footY);
 
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
-  doc.text(`(${companyConfig.jurisdiction})`, marginX + 3, footY + 4);
+  doc.text(`(${settings.address})`, marginX + 3, footY + 4);
   doc.setFont('helvetica', 'bold');
   doc.text('INTERNATIONAL SELF NETWORK COURIER TO 200+ COUNTRIES', marginX + 3, footY + 8);
-
-  // Carrier Partner Logos text block on Bottom Right
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(30, 58, 138); // Navy blue brand color
-  doc.text('FedEx', marginX + 170, footY + 4);
-
-  doc.setTextColor(180, 83, 9); // Amber DHL brand color
-  doc.text('DHL', marginX + 190, footY + 4);
-
-  doc.setTextColor(55, 65, 81); // Slate UPS brand color
-  doc.text('UPS', marginX + 205, footY + 4);
-
-  doc.setTextColor(220, 38, 38); // Red Aramex brand color
-  doc.text('aramex', marginX + 220, footY + 4);
-
-  doc.setTextColor(29, 78, 216); // Blue Dart brand color
-  doc.text('BLUE DART', marginX + 242, footY + 4);
 
   // Reset text color
   doc.setTextColor(0, 0, 0);
 
   // Save Docket PDF
   doc.save(`${docket.docket_no}.pdf`);
+}
+
+
+/** The line items a consolidated bill's PDF renders — see /api/billing/[id]. */
+export interface BillLineDocket {
+  docket_no: string;
+  booking_date: string;
+  from_city: string;
+  to_city: string;
+  consignor_name: string;
+  package_count: number;
+  invoice_no?: string;
+  charged_weight_kg: number;
+  grand_total: number;
+  transport_mode?: string;
+  particulars?: string;
+  other_charges?: string;
+}
+
+/** Renders a past consolidated GST tax invoice (Bill) as a downloadable PDF,
+ *  laid out to match the company's printed "RCT" invoice template. */
+export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
+  const settings = getCompanySettings();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const marginX = 10;
+  const pageW = 190; // content width, x = 10..200
+  const rightX = marginX + pageW;
+
+  const slate = () => doc.setTextColor(71, 85, 105);
+  const ink = () => doc.setTextColor(29, 78, 216);
+  const dark = () => doc.setTextColor(15, 23, 42);
+  doc.setDrawColor(100, 116, 139);
+  doc.setLineWidth(0.3);
+
+  // ==========================================
+  // SUPPLIER BLOCK + LOGO
+  // ==========================================
+  let y = 10;
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text('SUPPLIER:', marginX, y + 3);
+
+  doc.setFontSize(13);
+  dark();
+  doc.text(settings.tradeName, marginX, y + 9);
+
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'normal');
+  slate();
+  doc.text(settings.gstin, marginX, y + 13.5);
+  doc.text(`Address: ${settings.address}`, marginX, y + 18, { maxWidth: 150 });
+
+  try {
+    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', rightX - 24, y, 24, 22);
+  } catch (e) {
+    console.error('Failed to render company logo on Tax Invoice PDF:', e);
+  }
+
+  y += 26;
+  doc.setDrawColor(100, 116, 139);
+  doc.line(marginX, y, rightX, y);
+
+  // ==========================================
+  // TAX INVOICE BAR + INVOICE META (right) / CUSTOMER (left)
+  // ==========================================
+  doc.setFillColor(226, 232, 240);
+  doc.rect(marginX, y, pageW, 6, 'F');
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  dark();
+  doc.text('TAX INVOICE', marginX + pageW / 2, y + 4.2, { align: 'center' });
+  y += 6;
+
+  const custColX = marginX;
+  const custColW = 118;
+  const metaColX = marginX + custColW;
+  const blockTop = y;
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text('CUSTOMER:', custColX + 2, y + 4);
+  doc.setFontSize(9);
+  ink();
+  doc.text(bill.customer_name, custColX + 26, y + 4);
+
+  const custRows: Array<[string, string]> = [
+    ['GSTIN', bill.customer_gstin || '-'],
+    ['Address', bill.customer_address || '-'],
+    ['Email ID', bill.customer_email || '-'],
+    ['Contact No.', bill.customer_phone || '-'],
+  ];
+  let cy = y + 4;
+  custRows.forEach(([label, value]) => {
+    cy += 5;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    slate();
+    doc.text(label, custColX + 2, cy);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    ink();
+    doc.text(doc.splitTextToSize(value, custColW - 32), custColX + 26, cy);
+  });
+
+  const metaRows: Array<[string, string]> = [
+    ['Invoice No.', bill.bill_no],
+    ['Invoice Date', bill.invoice_date],
+    ['Category', bill.category],
+    ['Document Type', bill.doc_type],
+    ['Is Services', bill.is_services ? 'Yes' : 'No'],
+  ];
+  let my = y;
+  metaRows.forEach(([label, value]) => {
+    my += 5;
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    slate();
+    doc.text(label, metaColX + 2, my);
+    doc.setFont('helvetica', 'normal');
+    ink();
+    doc.text(value, metaColX + 30, my);
+  });
+
+  const blockBottom = Math.max(cy + 2, my + 2);
+  doc.setDrawColor(100, 116, 139);
+  doc.line(metaColX, blockTop, metaColX, blockBottom);
+  doc.line(marginX, blockBottom, rightX, blockBottom);
+  doc.rect(marginX, blockTop, pageW, blockBottom - blockTop);
+
+  y = blockBottom + 4;
+
+  // ==========================================
+  // LINE ITEMS TABLE
+  // ==========================================
+  const rateFor = (amount: number, weight: number) => (weight > 0 ? (amount / weight).toFixed(0) : '-');
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Sr', 'Date', 'Particulars', 'Origin', 'Destination', 'Mode', 'L.R.No', 'Invoice No', 'Pcs', 'Other Charges', 'Gross Wt (KG)', 'Rate/KG', 'Total Amount']],
+    body: dockets.map((d, idx) => [
+      idx + 1,
+      d.booking_date,
+      d.particulars || 'RMG',
+      (d.from_city || '-').toUpperCase(),
+      (d.to_city || '-').toUpperCase(),
+      (d.transport_mode || 'Road').toUpperCase(),
+      d.docket_no,
+      d.invoice_no || '-',
+      d.package_count,
+      d.other_charges || '-',
+      Number(d.charged_weight_kg || 0),
+      rateFor(Number(d.grand_total), Number(d.charged_weight_kg || 0)),
+      Number(d.grand_total).toFixed(2),
+    ]),
+    theme: 'grid',
+    styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [71, 85, 105], lineColor: [100, 116, 139] },
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6.8 },
+    bodyStyles: { textColor: [29, 78, 216], fontStyle: 'bold' },
+    columnStyles: {
+      0: { cellWidth: 7, halign: 'center', textColor: [71, 85, 105] },
+      1: { cellWidth: 14, textColor: [71, 85, 105] },
+      2: { cellWidth: 14, textColor: [71, 85, 105] },
+      3: { cellWidth: 20 },
+      4: { cellWidth: 20 },
+      5: { cellWidth: 12, textColor: [71, 85, 105] },
+      6: { cellWidth: 17 },
+      7: { cellWidth: 18 },
+      8: { cellWidth: 8, halign: 'center' },
+      9: { cellWidth: 16, textColor: [71, 85, 105] },
+      10: { cellWidth: 14, halign: 'right' },
+      11: { cellWidth: 12, halign: 'right', textColor: [71, 85, 105] },
+      12: { cellWidth: 18, halign: 'right' },
+    },
+  });
+
+  // @ts-expect-error jspdf-autotable augments jsPDF with lastAutoTable at runtime
+  const finalY = (doc.lastAutoTable?.finalY as number) || y + 20;
+
+  // ==========================================
+  // TERMS & CONDITIONS (left) / TOTALS (right)
+  // ==========================================
+  const totalsColW = 62;
+  const totalsColX = rightX - totalsColW;
+  const termsColW = pageW - totalsColW - 2;
+
+  const totalsRows: Array<[string, string]> = [
+    ['Discount', `Rs. ${Number(bill.discount).toFixed(2)}`],
+    ['Sub Amount', `Rs. ${Number(bill.subtotal).toFixed(2)}`],
+    [`GST Amount @${bill.gst_percentage ?? 18}%`, `Rs. ${Number(bill.gst_amount).toFixed(2)}`],
+    ['Total Invoice Amt (With GST)', `Rs. ${(Number(bill.subtotal) + Number(bill.gst_amount)).toFixed(2)}`],
+    ['Round Off', `Rs. ${Number(bill.round_off).toFixed(2)}`],
+  ];
+
+  const rowH = 5;
+  const totalsTop = finalY + 3;
+  doc.setDrawColor(100, 116, 139);
+  doc.rect(totalsColX, totalsTop, totalsColW, rowH * totalsRows.length);
+  totalsRows.forEach(([label, value], i) => {
+    const rowY = totalsTop + i * rowH;
+    if (i > 0) doc.line(totalsColX, rowY, totalsColX + totalsColW, rowY);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    slate();
+    doc.text(label, totalsColX + 2, rowY + 3.5);
+    doc.setFont('helvetica', 'normal');
+    dark();
+    doc.text(value, totalsColX + totalsColW - 2, rowY + 3.5, { align: 'right' });
+  });
+
+  const netY = totalsTop + rowH * totalsRows.length;
+  doc.setFillColor(226, 232, 240);
+  doc.rect(totalsColX, netY, totalsColW, 6.5, 'F');
+  doc.rect(totalsColX, netY, totalsColW, 6.5);
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  dark();
+  doc.text('Net Invoice Amount', totalsColX + 2, netY + 4.3);
+  ink();
+  doc.text(`Rs. ${Number(bill.grand_total).toFixed(2)}`, totalsColX + totalsColW - 2, netY + 4.3, { align: 'right' });
+
+  // Terms & Conditions box, height-matched to totals box
+  const termsBoxBottom = netY + 6.5;
+  doc.setDrawColor(100, 116, 139);
+  doc.rect(marginX, totalsTop, termsColW, termsBoxBottom - totalsTop);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text('Terms & Conditions:', marginX + 2, totalsTop + 4);
+  doc.setFont('helvetica', 'normal');
+  settings.terms.forEach((t, i) => {
+    doc.text(`${i + 1}. ${t}`, marginX + 2, totalsTop + 8 + i * 4, { maxWidth: termsColW - 4 });
+  });
+  if (bill.reverse_charge || bill.notes) {
+    const extraLines = [
+      bill.reverse_charge ? 'Reverse Charge: Applicable' : '',
+      bill.notes ? `Note: ${bill.notes}` : '',
+    ].filter(Boolean);
+    doc.text(extraLines.join(' | '), marginX + 2, totalsTop + 8 + settings.terms.length * 4, { maxWidth: termsColW - 4 });
+  }
+
+  y = termsBoxBottom + 5;
+
+  // ==========================================
+  // AMOUNT IN WORDS
+  // ==========================================
+  doc.setDrawColor(100, 116, 139);
+  doc.rect(marginX, y, pageW, 8);
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text('Amount in words:', marginX + 2, y + 5);
+  doc.setFont('helvetica', 'normal');
+  dark();
+  doc.text(numberToWords(Number(bill.grand_total)), marginX + 36, y + 5, { maxWidth: pageW - 40 });
+
+  y += 12;
+
+  // ==========================================
+  // BANK DETAIL (left) / RECEIVER'S SEAL (mid) / FOR COMPANY (right)
+  // ==========================================
+  const footBoxH = 30;
+  const col1W = 70;
+  const col2W = 60;
+  const col2X = marginX + col1W;
+  const col3X = col2X + col2W;
+  const col3W = pageW - col1W - col2W;
+
+  doc.rect(marginX, y, pageW, footBoxH);
+  doc.line(col2X, y, col2X, y + footBoxH);
+  doc.line(col3X, y, col3X, y + footBoxH);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text('BANK DETAIL:', marginX + 2, y + 4.5);
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  const bankRows: Array<[string, string]> = [
+    ['Name', settings.tradeName],
+    ['Bank', settings.bankName],
+    ['Branch', settings.branch],
+    ['A/C No.', settings.accountNo],
+    ['IFSC', settings.ifsc],
+  ];
+  bankRows.forEach(([label, value], i) => {
+    const rowY = y + 9 + i * 4;
+    slate();
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, marginX + 2, rowY);
+    dark();
+    doc.setFont('helvetica', 'normal');
+    doc.text(value, marginX + 20, rowY);
+  });
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  slate();
+  doc.text("RECEIVER'S SEAL & SIGNATURE", col2X + col2W / 2, y + 5, { align: 'center' });
+
+  doc.text(`For ${settings.tradeName}`, col3X + col3W / 2, y + 5, { align: 'center' });
+
+  try {
+    const upiUri = `upi://pay?pa=${settings.upiId || '9821541984@upi'}&pn=${encodeURIComponent(settings.tradeName)}&cu=INR`;
+    const qrDataUrl = await QRCode.toDataURL(upiUri, {
+      margin: 0,
+      width: 250,
+      color: { dark: '#000000', light: '#ffffff' },
+    });
+    doc.addImage(qrDataUrl, 'PNG', marginX + 2, y + footBoxH - 20, 18, 18);
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    slate();
+    doc.text(`GPay/UPI: ${settings.upiId}`, marginX + 22, y + footBoxH - 4);
+  } catch (e) {
+    console.error('Failed to generate GPay QR Code on Tax Invoice PDF:', e);
+  }
+
+  y += footBoxH;
+
+  // ==========================================
+  // FOOTER: PHONE / EMAIL
+  // ==========================================
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  slate();
+  doc.text(`Phone : ${settings.phone1} and ${settings.phone2}, Email:- ${settings.email}`, marginX, y + 6, { align: 'left' });
+
+  doc.setTextColor(0, 0, 0);
+  doc.save(`${bill.bill_no.replace(/\//g, '-')}.pdf`);
+}
+
+export interface QuotationRateItem {
+  region?: string;
+  destination: string;
+  ratePerKg: number;
+  mode: 'BY ROAD' | 'BY RAIL' | 'BY AIR';
+  deliveryTime?: string;
+}
+
+export interface QuotationSheetPdfInput {
+  name: string;
+  sheet_type: 'ROAD_RAIL' | 'AIR';
+  min_qty_kg: number;
+  rates: QuotationRateItem[];
+  notes: string[];
+}
+
+/** Renders a quotation rate sheet as a downloadable PDF, matching the
+ *  "PAN India Self Service" printed rate card look. */
+export function generateQuotationPDF(sheet: QuotationSheetPdfInput) {
+  const settings = getCompanySettings();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const marginX = 10;
+  const pageW = 190;
+  const rightX = marginX + pageW;
+
+  doc.setFontSize(15);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(settings.tradeName, marginX, 16);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'italic');
+  doc.setTextColor(71, 85, 105);
+  doc.text('(PAN India Self Service)', marginX, 21);
+
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(settings.address, marginX, 25.5, { maxWidth: 130 });
+  doc.text(`Ph: ${settings.phone1}, ${settings.phone2} | Email: ${settings.email}`, marginX, 30);
+
+  try {
+    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', rightX - 24, 8, 24, 22);
+  } catch (e) {
+    console.error('Failed to render logo on quotation PDF:', e);
+  }
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`GSTIN: ${settings.gstin}`, rightX, 33, { align: 'right' });
+
+  let y = 38;
+  doc.setDrawColor(15, 23, 42);
+  doc.setLineWidth(0.4);
+  doc.line(marginX, y, rightX, y);
+  y += 6;
+
+  doc.setFontSize(11);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(sheet.name.toUpperCase(), marginX + pageW / 2, y, { align: 'center' });
+  y += 6;
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Minimum Order Quantity - ${sheet.min_qty_kg} Kgs`, marginX + pageW / 2, y, { align: 'center' });
+  y += 4;
+
+  if (sheet.sheet_type === 'ROAD_RAIL') {
+    autoTable(doc, {
+      startY: y,
+      head: [['Destination', 'Rate / Kg', 'Mode', 'Delivery Time']],
+      body: sheet.rates.map((r) => [r.destination, `${r.ratePerKg}/-`, r.mode, r.deliveryTime || '-']),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, textColor: [15, 23, 42], lineColor: [15, 23, 42], halign: 'center' },
+      headStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold' },
+    });
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [['Region', 'City Name', 'Rate / Kg']],
+      body: sheet.rates.map((r) => [r.region || 'General', r.destination, `${r.ratePerKg}/-`]),
+      theme: 'grid',
+      styles: { fontSize: 8, cellPadding: 2, textColor: [15, 23, 42], lineColor: [15, 23, 42], halign: 'center' },
+      headStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold' },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 0) {
+          const rowRegion = (sheet.rates[data.row.index]?.region || 'General').trim().toLowerCase();
+          const prevRegion =
+            data.row.index > 0 ? (sheet.rates[data.row.index - 1]?.region || 'General').trim().toLowerCase() : null;
+          if (rowRegion === prevRegion) data.cell.text = [];
+        }
+      },
+    });
+  }
+
+  // @ts-expect-error jspdf-autotable augments jsPDF with lastAutoTable at runtime
+  let finalY = (doc.lastAutoTable?.finalY as number) || y + 20;
+  finalY += 6;
+
+  if (sheet.notes.length > 0) {
+    doc.setDrawColor(15, 23, 42);
+    const noteLines = sheet.notes.map((n, i) => `${i + 1}. ${n}`);
+    const wrapped = noteLines.flatMap((line) => doc.splitTextToSize(line, pageW - 6));
+    const boxH = 6 + wrapped.length * 4;
+    doc.rect(marginX, finalY, pageW, boxH);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Note:-', marginX + 2, finalY + 4.5);
+    doc.setFont('helvetica', 'normal');
+    wrapped.forEach((line, i) => {
+      doc.text(line, marginX + 2, finalY + 9 + i * 4);
+    });
+  }
+
+  doc.save(`${sheet.name.replace(/[^a-z0-9]+/gi, '-')}.pdf`);
+}
+
+/** Renders one expense ledger (period + its entries) as a downloadable PDF
+ *  report, laid out like the docket/bill summary tables above. */
+export function generateExpenseLedgerPDF(ledger: ExpenseLedger, entries: ExpenseEntry[]) {
+  const settings = getCompanySettings();
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  const marginX = 14;
+
+  doc.setFontSize(15);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text(settings.tradeName.toUpperCase(), marginX, 16);
+
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('EXPENSE LEDGER', marginX, 22);
+
+  const periodLabel =
+    ledger.period_start === ledger.period_end
+      ? ledger.period_start
+      : `${ledger.period_start} to ${ledger.period_end}`;
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Ledger No: ${ledger.ledger_no}`, marginX, 28);
+  doc.text(`Period: ${periodLabel}`, marginX, 33);
+  if (ledger.label) doc.text(`Label: ${ledger.label}`, marginX, 38);
+
+  const totalAmount = entries.reduce((sum, e) => sum + Number(e.amount), 0);
+
+  autoTable(doc, {
+    startY: ledger.label ? 43 : 38,
+    head: [['Date', 'Category', 'Vendor', 'Description', 'Ref No.', 'Payment Mode', 'Amount (Rs.)']],
+    body: entries.map((e) => [
+      e.date,
+      e.category,
+      e.vendor_name || '-',
+      e.description || '-',
+      e.ref_number || '-',
+      e.payment_mode,
+      Number(e.amount).toFixed(2),
+    ]),
+    foot: [['', '', '', '', '', 'Total', totalAmount.toFixed(2)]],
+    theme: 'grid',
+    styles: { fontSize: 8, cellPadding: 2.5, textColor: [71, 85, 105] },
+    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold' },
+    footStyles: { fillColor: [226, 232, 240], textColor: [15, 23, 42], fontStyle: 'bold' },
+    columnStyles: {
+      6: { halign: 'right' },
+    },
+  });
+
+  if (ledger.notes) {
+    // @ts-expect-error jspdf-autotable augments jsPDF with lastAutoTable at runtime
+    const finalY = (doc.lastAutoTable?.finalY as number) || 45;
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Notes: ${ledger.notes}`, marginX, finalY + 6, { maxWidth: 180 });
+  }
+
+  const sanitized = ledger.ledger_no.replace(/[^a-z0-9]+/gi, '_');
+  doc.save(`expense_ledger_${sanitized}.pdf`);
 }

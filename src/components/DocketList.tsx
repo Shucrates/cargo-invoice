@@ -1,12 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { CargoDocket } from '@/types/cargo';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
 import { exportToCSV, exportSummaryPDF } from '@/lib/exportUtils';
 import { User, AlertCircle, Truck, ExternalLink, CheckCircle2, Clock, MapPin, Plus, Edit2, ShieldAlert } from 'lucide-react';
+import { formatCreatedAt } from '@/lib/formatDate';
 
 export default function DocketList({ refreshKey }: { refreshKey: number }) {
+  const { data: session } = useSession();
+  // Voiding is admin-only server-side; hide the control so staff never hit a 403.
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
+
   const [dockets, setDockets] = useState<CargoDocket[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -38,10 +44,10 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
   const fetchDockets = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/dockets');
+      const res = await fetch('/api/dockets?limit=500');
       if (res.ok) {
         const data = await res.json();
-        setDockets(data as CargoDocket[]);
+        setDockets((data.dockets ?? []) as CargoDocket[]);
       } else {
         setDockets([]);
       }
@@ -468,11 +474,21 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
 
                     {/* Created By Staff Column */}
                     <td className="p-3">
-                      <div className="flex items-center gap-1.5" title={d.created_by_email || d.created_by}>
+                      <div
+                        className="flex items-center gap-1.5"
+                        title={`${d.created_by_email || d.created_by}${d.created_at ? ` · ${formatCreatedAt(d.created_at)}` : ''}`}
+                      >
                         <User className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="font-semibold text-slate-800 truncate max-w-[110px]">
-                          {d.created_by_name || 'Staff'}
-                        </span>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-800 truncate max-w-[110px]">
+                            {d.created_by_name || 'Staff'}
+                          </div>
+                          {d.created_at && (
+                            <div className="text-[10px] text-slate-400 font-mono truncate max-w-[110px]">
+                              {formatCreatedAt(d.created_at)}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
 
@@ -542,7 +558,7 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
                       >
                         PDF
                       </button>
-                      {d.status === 'issued' && (
+                      {d.status === 'issued' && isAdmin && (
                         <button
                           onClick={() => setVoidModalDocket(d)}
                           className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded font-medium"

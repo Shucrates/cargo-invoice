@@ -3,6 +3,37 @@ import autoTable from 'jspdf-autotable';
 import { CargoDocket } from '@/types/cargo';
 import { companyConfig } from '@/lib/companyConfig';
 
+/** Quotes a value for CSV, escaping embedded quotes. */
+export function csvCell(value: unknown): string {
+  const text = value === null || value === undefined ? '' : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Builds a CSV and downloads it via a Blob URL.
+ *
+ * A `data:` URI cannot be used here: browsers cap its length (breaking large
+ * exports) and `encodeURI` leaves `#` intact, which truncates the file at the
+ * first address or note containing one.
+ */
+export function downloadCSV(headers: string[], rows: unknown[][], filename: string) {
+  // UTF-8 BOM so Excel opens rupee symbols and Indian names correctly.
+  const csvContent =
+    '﻿' +
+    [headers.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Export array of cargo dockets to a CSV file (Excel-compatible with UTF-8 BOM)
  */
@@ -14,40 +45,29 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
 
   const headers = [
     'Docket No',
-    'Courier Partner',
-    'Tracking / Waybill No',
     'Booking Date',
-    'Status',
+    'From (Origin)',
+    'To (Destination)',
     'Transport Mode',
-    'Created By',
+    'Delivery Status',
     'Consignor Name',
-    'Consignor GSTIN',
     'Consignor Phone',
-    'Consignor City/Address',
+    'Consignor GSTIN',
     'Consignee Name',
-    'Consignee GSTIN',
     'Consignee Phone',
-    'Consignee City/Address',
-    'Route (From -> To)',
-    'Package Count',
-    'Actual Weight (kg)',
-    'Charged Weight (kg)',
+    'Consignee GSTIN',
+    'Packages',
     'Goods Description',
+    'Actual Wt (kg)',
+    'Charged Wt (kg)',
     'Invoice No',
-    'Invoice Value',
-    'Freight Charge (INR)',
-    'Handling Charge (INR)',
-    'Risk Charge (INR)',
-    'Docket Charge (INR)',
-    'Pickup/Delivery Charge (INR)',
-    'Other Charge (INR)',
-    'Subtotal (INR)',
-    'GST %',
-    'GST Amount (INR)',
-    'Grand Total (INR)',
+    'Invoice Value (₹)',
+    'Subtotal (₹)',
+    'GST Amount (₹)',
+    'Grand Total (₹)',
     'Payment Mode',
-    'Voided By',
-    'Void Reason'
+    'Payment Method',
+    'Status'
   ];
 
   const escapeCSVCell = (val: any): string => {
@@ -58,40 +78,29 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
 
   const rows = dockets.map(d => [
     escapeCSVCell(d.docket_no),
-    escapeCSVCell(d.courier_partner || 'Self Network'),
-    escapeCSVCell(d.tracking_no || d.docket_no),
     escapeCSVCell(d.booking_date),
-    escapeCSVCell(d.status.toUpperCase()),
+    escapeCSVCell(d.from_city),
+    escapeCSVCell(d.to_city),
     escapeCSVCell(d.transport_mode),
-    escapeCSVCell(d.created_by_name || d.created_by_email || 'Staff'),
+    escapeCSVCell(d.delivery_status || 'booked'),
     escapeCSVCell(d.consignor_name),
-    escapeCSVCell(d.consignor_gstin || ''),
     escapeCSVCell(d.consignor_phone || ''),
-    escapeCSVCell(`${d.from_city} / ${d.consignor_address || ''}`),
+    escapeCSVCell(d.consignor_gstin || ''),
     escapeCSVCell(d.consignee_name),
-    escapeCSVCell(d.consignee_gstin || ''),
     escapeCSVCell(d.consignee_phone || ''),
-    escapeCSVCell(`${d.to_city} / ${d.consignee_address || ''}`),
-    escapeCSVCell(`${d.from_city} -> ${d.to_city}`),
+    escapeCSVCell(d.consignee_gstin || ''),
     escapeCSVCell(d.package_count),
+    escapeCSVCell(d.goods_description || ''),
     escapeCSVCell(d.actual_weight_kg || 0),
     escapeCSVCell(d.charged_weight_kg || 0),
-    escapeCSVCell(d.goods_description || ''),
     escapeCSVCell(d.invoice_no || ''),
     escapeCSVCell(d.invoice_value || 0),
-    escapeCSVCell((d.freight_amount || 0).toFixed(2)),
-    escapeCSVCell((d.handling_charge || 0).toFixed(2)),
-    escapeCSVCell((d.risk_charge || 0).toFixed(2)),
-    escapeCSVCell((d.docket_charge || 0).toFixed(2)),
-    escapeCSVCell((d.pickup_delivery_charge || 0).toFixed(2)),
-    escapeCSVCell((d.other_charge || 0).toFixed(2)),
     escapeCSVCell((d.subtotal || 0).toFixed(2)),
-    escapeCSVCell(d.gst_percentage || 18),
     escapeCSVCell((d.gst_amount || 0).toFixed(2)),
     escapeCSVCell((d.grand_total || 0).toFixed(2)),
     escapeCSVCell(d.payment_mode),
-    escapeCSVCell(d.voided_by_name || d.voided_by_email || ''),
-    escapeCSVCell(d.void_reason || '')
+    escapeCSVCell(d.payment_method || (d.payment_mode === 'Paid' ? 'Cash' : '')),
+    escapeCSVCell(d.status === 'voided' ? `VOIDED (${d.void_reason || ''})` : 'ISSUED')
   ]);
 
   // Include UTF-8 Byte Order Mark (\uFEFF) so Excel opens it with proper encoding

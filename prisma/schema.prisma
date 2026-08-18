@@ -33,6 +33,26 @@ enum PaymentMode {
   Credit  @map("Credit")
 }
 
+/// Fixed LR delivery lifecycle. Values mirror the checkpoint labels
+/// staff already used freely on DocketTrackingEvent.status; this makes
+/// the current stage a first-class, queryable field on the docket.
+enum DeliveryStatus {
+  Booked           @map("Booked")
+  Picked_Up        @map("Picked Up")
+  In_Transit       @map("In Transit")
+  Arrived_At_Hub   @map("Arrived at Hub")
+  Out_For_Delivery @map("Out for Delivery")
+  Delivered        @map("Delivered")
+  Delayed          @map("Delayed")
+  Exception        @map("Exception")
+}
+
+enum PaymentMethod {
+  Cash          @map("Cash")
+  UPI           @map("UPI")
+  Bank_Transfer @map("Bank Transfer")
+}
+
 model User {
   id             String   @id @default(uuid())
   email          String   @unique
@@ -44,8 +64,34 @@ model User {
 
   createdDockets CargoDocket[] @relation("CreatedDockets")
   voidedDockets  CargoDocket[] @relation("VoidedDockets")
+  drafts         DocketDraft[] @relation("DocketDrafts")
+  bills          Bill[]        @relation("CreatedBills")
+  billDrafts     BillDraft[]   @relation("BillDrafts")
+  trackingEvents DocketTrackingEvent[] @relation("LoggedTrackingEvents")
+  recordedPayments DocketPayment[] @relation("RecordedPayments")
+  auditLogEntries  DocketAuditLog[]    @relation("PerformedAuditEntries")
+  quotationSheets  QuotationSheet[]    @relation("QuotationSheets")
+  expenseLedgers   ExpenseLedger[]     @relation("ExpenseLedgers")
 
   @@map("users")
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  code      String   @unique @map("code")
+  name      String   @map("name")
+  address   String?  @map("address")
+  city      String?  @map("city")
+  pinCode   String?  @map("pin_code")
+  phone     String?  @map("phone")
+  gstin     String?  @map("gstin")
+  email     String?  @map("email")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  bills Bill[]
+
+  @@map("customers")
 }
 
 model CargoDocket {
@@ -97,14 +143,232 @@ model CargoDocket {
   gstAmount            Decimal @default(0.00) @map("gst_amount") @db.Decimal(10, 2)
   grandTotal           Decimal @default(0.00) @map("grand_total") @db.Decimal(10, 2)
 
-  paymentMode  PaymentMode @default(To_Pay) @map("payment_mode")
-  customerCode String?     @map("customer_code")
+  paymentMode    PaymentMode    @default(To_Pay) @map("payment_mode")
+  deliveryStatus DeliveryStatus @default(Booked) @map("delivery_status")
+  customerCode   String?        @map("customer_code")
 
-  trackingNo     String?     @map("tracking_no")
-  courierPartner String?     @map("courier_partner")
+  trackingNo       String?     @map("tracking_no")
+  courierPartner   String?     @map("courier_partner")
+  physicalDocketNo String?     @map("physical_docket_no")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  trackingEvents DocketTrackingEvent[]
+  payments       DocketPayment[]
+  auditLog       DocketAuditLog[]
+
+  @@index([createdBy, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@index([status])
+  @@index([trackingNo])
+  @@index([physicalDocketNo])
   @@map("cargo_dockets")
+}
+
+/// A single payment received against an LR. Multiple rows can accrue
+/// against one docket (partial payments); amountPaid is the sum of
+/// these, never a field stored directly on CargoDocket, so it can
+/// never drift out of sync with the ledger.
+model DocketPayment {
+  id         String        @id @default(uuid())
+  docketId   String        @map("docket_id")
+  docket     CargoDocket   @relation(fields: [docketId], references: [id], onDelete: Cascade)
+  amount     Decimal       @db.Decimal(10, 2)
+  method     PaymentMethod
+  paidAt     DateTime      @default(now()) @map("paid_at") @db.Date
+  notes      String?
+  recordedBy String        @map("recorded_by")
+  recorder   User          @relation("RecordedPayments", fields: [recordedBy], references: [id])
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([docketId])
+  @@index([method, paidAt])
+  @@map("docket_payments")
+}
+
+/// A manually-logged checkpoint on an LR's tracking timeline (e.g. "Out for
+/// delivery", "Arrived at Pune hub"). Staff/admin log these after booking;
+/// the public tracking page (looked up by LR/tracking number) renders them
+/// alongside any live carrier feed, newest first.
+model DocketTrackingEvent {
+  id          String      @id @default(uuid())
+  docketId    String      @map("docket_id")
+  docket      CargoDocket @relation(fields: [docketId], references: [id], onDelete: Cascade)
+  status      String      @map("status")
+  location    String?     @map("location")
+  description String?     @map("description")
+  eventAt     DateTime    @default(now()) @map("event_at")
+  createdBy   String      @map("created_by")
+  creator     User        @relation("LoggedTrackingEvents", fields: [createdBy], references: [id])
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@index([docketId, eventAt(sort: Desc)])
+  @@map("docket_tracking_events")
+}
+
+/// Per-LR history — who created it, and every admin correction or void
+/// afterward. `changes` holds a flat array of {field, from, to} for
+/// 'edited' rows; null for 'created'/'voided'. Rendered on the LR detail
+/// view so a staff mistake and its later correction are both visible.
+model DocketAuditLog {
+  id          String      @id @default(uuid())
+  docketId    String      @map("docket_id")
+  docket      CargoDocket @relation(fields: [docketId], references: [id], onDelete: Cascade)
+  action      String      @map("action")
+  changes     Json?       @map("changes")
+  performedBy String      @map("performed_by")
+  performer   User        @relation("PerformedAuditEntries", fields: [performedBy], references: [id])
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@index([docketId, createdAt(sort: Desc)])
+  @@map("docket_audit_logs")
+}
+
+model DocketDraft {
+  id        String   @id @default(uuid())
+  createdBy String   @map("created_by")
+  creator   User     @relation("DocketDrafts", fields: [createdBy], references: [id])
+  label     String?  @map("label")
+  data      Json     @map("data")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([createdBy, updatedAt(sort: Desc)])
+  @@map("docket_drafts")
+}
+
+/// A consolidated GST tax invoice issued against one or more issued LRs for a
+/// customer. Aggregate totals and the customer's billing details are frozen
+/// at issue time (mirroring CargoDocket) so a bill's printed figures never
+/// drift even if the customer record or a referenced docket changes later.
+model Bill {
+  id        String   @id @default(uuid())
+  billNo    String   @unique @map("bill_no")
+  createdBy String   @map("created_by")
+  creator   User     @relation("CreatedBills", fields: [createdBy], references: [id])
+
+  invoiceDate DateTime @map("invoice_date") @db.Date
+  category    String   @default("B2B") @map("category")
+  docType     String   @default("INV") @map("doc_type")
+  isServices  Boolean  @default(true) @map("is_services")
+
+  customerId      String?   @map("customer_id")
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName    String    @map("customer_name")
+  customerGstin   String?   @map("customer_gstin")
+  customerAddress String?   @map("customer_address")
+  customerEmail   String?   @map("customer_email")
+  customerPhone   String?   @map("customer_phone")
+
+  docketIds String[] @map("docket_ids")
+  items     Json?    @map("items")
+
+  subtotal      Decimal @default(0.00) @map("subtotal") @db.Decimal(12, 2)
+  discount      Decimal @default(0.00) @map("discount") @db.Decimal(12, 2)
+  gstPercentage Decimal @default(18.00) @map("gst_percentage") @db.Decimal(5, 2)
+  gstAmount     Decimal @default(0.00) @map("gst_amount") @db.Decimal(12, 2)
+  roundOff      Decimal @default(0.00) @map("round_off") @db.Decimal(12, 2)
+  grandTotal    Decimal @default(0.00) @map("grand_total") @db.Decimal(12, 2)
+  reverseCharge Boolean @default(false) @map("reverse_charge")
+  notes         String? @map("notes")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([createdBy, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("bills")
+}
+
+/// A named rate card ("PAN India Self Service" style sheet) used two ways:
+/// printed/downloaded as a standalone quotation, and — when isDefault for
+/// its sheetType — consulted by the docket form to auto-price freight from
+/// destination + transport mode. rates/notes are freeform JSON so every
+/// field on the sheet stays editable without a schema change per column.
+model QuotationSheet {
+  id        String   @id @default(uuid())
+  createdBy String   @map("created_by")
+  creator   User     @relation("QuotationSheets", fields: [createdBy], references: [id])
+
+  name      String
+  sheetType String   @map("sheet_type") // 'ROAD_RAIL' | 'AIR'
+  originCity String  @default("Mumbai") @map("origin_city")
+  isDefault Boolean  @default(false) @map("is_default")
+  minQtyKg  Decimal  @default(0.00) @map("min_qty_kg") @db.Decimal(10, 2)
+
+  rates Json  @map("rates") // RateItem[]: { region?, destination, ratePerKg, mode, deliveryTime? }
+  notes Json? @map("notes") // string[] footer notes
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([createdBy, updatedAt(sort: Desc)])
+  @@index([sheetType, isDefault])
+  @@map("quotation_sheets")
+}
+
+/// A half-configured bill (customer + selected LRs + invoice meta) saved for
+/// later, before it is issued as a permanent Bill. Mirrors DocketDraft.
+model BillDraft {
+  id        String   @id @default(uuid())
+  createdBy String   @map("created_by")
+  creator   User     @relation("BillDrafts", fields: [createdBy], references: [id])
+  label     String?  @map("label")
+  data      Json     @map("data")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([createdBy, updatedAt(sort: Desc)])
+  @@map("bill_drafts")
+}
+
+/// A named sheet of operating-expense entries covering one date or a date
+/// range (e.g. "Aug 2026 Fuel & Toll"). Mirrors Bill: a header record with a
+/// generated ledger number plus a running total, and a child list of entries
+/// (see ExpenseEntry) that can be added to or removed from over time.
+model ExpenseLedger {
+  id        String   @id @default(uuid())
+  ledgerNo  String   @unique @map("ledger_no")
+  createdBy String   @map("created_by")
+  creator   User     @relation("ExpenseLedgers", fields: [createdBy], references: [id])
+
+  periodStart DateTime @map("period_start") @db.Date
+  periodEnd   DateTime @map("period_end") @db.Date
+  label       String?  @map("label")
+  notes       String?  @map("notes")
+
+  totalAmount Decimal @default(0.00) @map("total_amount") @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  entries ExpenseEntry[]
+
+  @@index([createdBy, createdAt(sort: Desc)])
+  @@index([periodStart, periodEnd])
+  @@map("expense_ledgers")
+}
+
+/// A single line item on an ExpenseLedger (fuel, driver allowance, toll,
+/// etc). `date` must fall within its ledger's period — enforced at the API
+/// layer, not the DB, so the ledger's period can stay simple to query.
+model ExpenseEntry {
+  id       String        @id @default(uuid())
+  ledgerId String        @map("ledger_id")
+  ledger   ExpenseLedger @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+
+  date        DateTime @map("date") @db.Date
+  category    String   @map("category")
+  amount      Decimal  @db.Decimal(10, 2)
+  paymentMode String   @map("payment_mode")
+  refNumber   String?  @map("ref_number")
+  vendorName  String?  @map("vendor_name")
+  description String?  @map("description")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([ledgerId])
+  @@map("expense_entries")
 }
