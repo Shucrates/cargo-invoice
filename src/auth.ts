@@ -27,29 +27,39 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const email = String(credentials.email).toLowerCase().trim();
         const password = String(credentials.password);
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-        });
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email },
+          });
 
-        // Always run a comparison so unknown emails take the same time as
-        // known ones, then reject. Never log the email or the outcome.
-        const isValid = await bcrypt.compare(password, user?.hashedPassword || DUMMY_HASH);
+          if (!user || !user.hashedPassword) {
+            console.warn(`[Auth] User not found: ${email}`);
+            await bcrypt.compare(password, DUMMY_HASH);
+            return null;
+          }
 
-        if (!user || !user.hashedPassword || !isValid) {
-          return null;
+          const isValid = await bcrypt.compare(password, user.hashedPassword);
+          if (!isValid) {
+            console.warn(`[Auth] Invalid password for: ${email}`);
+            return null;
+          }
+
+          return {
+            id: user.id,
+            email: user.email,
+            name: user.fullName || user.email,
+            role: user.role,
+          };
+        } catch (error) {
+          console.error('[Auth] Database error in authorize:', error);
+          throw error;
         }
-
-        return {
-          id: user.id,
-          email: user.email,
-          name: user.fullName || user.email,
-          role: user.role,
-        };
       },
     }),
   ],
   session: {
     strategy: 'jwt',
   },
-  secret: process.env.AUTH_SECRET || requireSecret('NEXTAUTH_SECRET'),
+  secret: process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET || requireSecret('NEXTAUTH_SECRET'),
+  trustHost: true,
 });
