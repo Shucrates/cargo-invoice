@@ -34,21 +34,28 @@ export default function LoginPage() {
         email: email.trim(),
         password,
         redirect: false,
+        redirectTo: '/dashboard',
       });
 
+      console.log('[NextAuth signIn result]:', res);
+
       if (res?.error) {
-        setError('Invalid email or password credentials.');
+        setError(
+          res.error === 'CredentialsSignin'
+            ? 'Invalid email or password credentials.'
+            : `Authentication error: ${res.error}`
+        );
         setLoading(false);
       } else {
         router.push('/dashboard');
         router.refresh();
       }
     } catch (err: any) {
+      console.error('[NextAuth catch error]:', err);
       if (err?.type === 'CredentialsSignin' || err?.message?.includes('CredentialsSignin')) {
         setError('Invalid email or password credentials.');
       } else {
-        router.push('/dashboard');
-        router.refresh();
+        setError(err?.message || 'Login failed unexpectedly.');
       }
       setLoading(false);
     }
