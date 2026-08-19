@@ -16,8 +16,6 @@ import {
   RotateCcw,
   Building2,
   TrendingUp,
-  SlidersHorizontal,
-  ChevronDown,
   ChevronUp,
   X,
 } from 'lucide-react';
@@ -105,7 +103,7 @@ function getPresetDates(preset: PeriodPreset): { start: string; end: string; lab
 
 export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps) {
   // Statement Filter States
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [preset, setPreset] = useState<PeriodPreset>('this_month');
   const initialDates = getPresetDates('this_month');
   const [startDate, setStartDate] = useState(initialDates.start);
@@ -132,17 +130,6 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
     setStatusFilter('issued');
     setSearchQuery('');
   };
-
-  // Count active non-default filters
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (preset !== 'this_month') count++;
-    if (paymentModeFilter !== 'all') count++;
-    if (transportModeFilter !== 'all') count++;
-    if (statusFilter !== 'issued') count++;
-    if (searchQuery.trim() !== '') count++;
-    return count;
-  }, [preset, paymentModeFilter, transportModeFilter, statusFilter, searchQuery]);
 
   // Filtered dataset
   const filteredDockets = useMemo(() => {
@@ -325,24 +312,8 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
           </p>
         </div>
 
-        {/* Download & Filter Toggle Buttons */}
+        {/* Download Buttons */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Toggle Filter Button */}
-          <Button
-            variant="outline"
-            onClick={() => setShowFilters(!showFilters)}
-            className="gap-2 text-xs font-semibold rounded-xl bg-white border-slate-200 hover:bg-slate-50 shadow-2xs h-10 cursor-pointer"
-          >
-            <SlidersHorizontal className="w-4 h-4 text-slate-500" />
-            <span>{showFilters ? 'Hide Filters' : 'Show Filters'}</span>
-            {activeFilterCount > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full bg-[#EEF4FF] text-[#2563EB] text-[10px] font-mono font-bold">
-                {activeFilterCount}
-              </span>
-            )}
-            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} />
-          </Button>
-
           <Button
             onClick={handleExportCSV}
             variant="outline"

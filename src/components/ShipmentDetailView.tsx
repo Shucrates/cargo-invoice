@@ -16,7 +16,6 @@ import {
   Printer,
   Download,
   CheckCircle2,
-  FileText,
   Truck,
   MapPin,
   Package,
@@ -403,34 +402,6 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
             </Card>
           )}
 
-          {/* Card 3: Documents Download List */}
-          <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-6 space-y-3">
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">Documents</h2>
-
-            <div className="space-y-2">
-              <button
-                onClick={handleDownloadPDF}
-                className="w-full flex items-center justify-between p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-xs font-medium text-slate-800 group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <FileText className="w-4 h-4 text-red-500" />
-                  <span>Lorry Receipt ({docket.docket_no}).pdf</span>
-                </div>
-                <Download className="w-4 h-4 text-slate-400 group-hover:text-slate-700" />
-              </button>
-
-              <button
-                onClick={handleDownloadPDF}
-                className="w-full flex items-center justify-between p-3 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-xs font-medium text-slate-800 group"
-              >
-                <div className="flex items-center gap-2.5">
-                  <FileText className="w-4 h-4 text-blue-500" />
-                  <span>Tax Invoice ({docket.docket_no}).pdf</span>
-                </div>
-                <Download className="w-4 h-4 text-slate-400 group-hover:text-slate-700" />
-              </button>
-            </div>
-          </Card>
         </div>
 
         {/* Right Column (1 Col: Tracking Timeline & Activity Log) */}
