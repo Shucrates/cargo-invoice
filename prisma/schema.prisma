@@ -28,9 +28,9 @@ enum TransportMode {
 }
 
 enum PaymentMode {
-  Paid    @map("Paid")
-  To_Pay  @map("To Pay")
-  Credit  @map("Credit")
+  Paid   @map("Paid")
+  To_Pay @map("To Pay")
+  Credit @map("Credit")
 }
 
 /// Fixed LR delivery lifecycle. Values mirror the checkpoint labels
@@ -51,6 +51,9 @@ enum PaymentMethod {
   Cash          @map("Cash")
   UPI           @map("UPI")
   Bank_Transfer @map("Bank Transfer")
+  Cheque        @map("Cheque")
+  Card          @map("Card")
+  Other         @map("Other")
 }
 
 model User {
@@ -62,16 +65,17 @@ model User {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  createdDockets CargoDocket[] @relation("CreatedDockets")
-  voidedDockets  CargoDocket[] @relation("VoidedDockets")
-  drafts         DocketDraft[] @relation("DocketDrafts")
-  bills          Bill[]        @relation("CreatedBills")
-  billDrafts     BillDraft[]   @relation("BillDrafts")
-  trackingEvents DocketTrackingEvent[] @relation("LoggedTrackingEvents")
-  recordedPayments DocketPayment[] @relation("RecordedPayments")
-  auditLogEntries  DocketAuditLog[]    @relation("PerformedAuditEntries")
-  quotationSheets  QuotationSheet[]    @relation("QuotationSheets")
-  expenseLedgers   ExpenseLedger[]     @relation("ExpenseLedgers")
+  createdDockets   CargoDocket[]         @relation("CreatedDockets")
+  voidedDockets    CargoDocket[]         @relation("VoidedDockets")
+  drafts           DocketDraft[]         @relation("DocketDrafts")
+  bills            Bill[]                @relation("CreatedBills")
+  billDrafts       BillDraft[]           @relation("BillDrafts")
+  trackingEvents   DocketTrackingEvent[] @relation("LoggedTrackingEvents")
+  recordedPayments DocketPayment[]       @relation("RecordedPayments")
+  voidedPayments   DocketPayment[]       @relation("VoidedPayments")
+  auditLogEntries  DocketAuditLog[]      @relation("PerformedAuditEntries")
+  quotationSheets  QuotationSheet[]      @relation("QuotationSheets")
+  expenseLedgers   ExpenseLedger[]       @relation("ExpenseLedgers")
 
   @@map("users")
 }
@@ -95,21 +99,21 @@ model Customer {
 }
 
 model CargoDocket {
-  id            String        @id @default(uuid())
-  docketNo      String        @unique @map("docket_no")
-  createdBy     String        @map("created_by")
-  creator       User          @relation("CreatedDockets", fields: [createdBy], references: [id])
-  status        Status        @default(issued)
-  voidReason    String?       @map("void_reason")
-  voidedAt      DateTime?     @map("voided_at")
-  voidedBy      String?       @map("voided_by")
-  voider        User?         @relation("VoidedDockets", fields: [voidedBy], references: [id])
+  id         String    @id @default(uuid())
+  docketNo   String    @unique @map("docket_no")
+  createdBy  String    @map("created_by")
+  creator    User      @relation("CreatedDockets", fields: [createdBy], references: [id])
+  status     Status    @default(issued)
+  voidReason String?   @map("void_reason")
+  voidedAt   DateTime? @map("voided_at")
+  voidedBy   String?   @map("voided_by")
+  voider     User?     @relation("VoidedDockets", fields: [voidedBy], references: [id])
 
-  bookingDate   DateTime      @default(now()) @map("booking_date") @db.Date
-  transportMode TransportMode @default(Road) @map("transport_mode")
-  isInternational Boolean     @default(false) @map("is_international")
-  fromCity      String        @map("from_city")
-  toCity        String        @map("to_city")
+  bookingDate     DateTime      @default(now()) @map("booking_date") @db.Date
+  transportMode   TransportMode @default(Road) @map("transport_mode")
+  isInternational Boolean       @default(false) @map("is_international")
+  fromCity        String        @map("from_city")
+  toCity          String        @map("to_city")
 
   consignorName    String  @map("consignor_name")
   consignorAddress String? @map("consignor_address")
@@ -131,6 +135,7 @@ model CargoDocket {
   chargedWeightKg  Decimal? @map("charged_weight_kg") @db.Decimal(10, 2)
   dimensionsLhb    String?  @map("dimensions_lhb")
   goodsDescription String?  @map("goods_description")
+  ewayBillNo       String?  @map("eway_bill_no")
 
   freightAmount        Decimal @default(0.00) @map("freight_amount") @db.Decimal(10, 2)
   riskCharge           Decimal @default(0.00) @map("risk_charge") @db.Decimal(10, 2)
@@ -144,12 +149,13 @@ model CargoDocket {
   grandTotal           Decimal @default(0.00) @map("grand_total") @db.Decimal(10, 2)
 
   paymentMode    PaymentMode    @default(To_Pay) @map("payment_mode")
+  expectedMode   PaymentMethod? @map("expected_mode")
   deliveryStatus DeliveryStatus @default(Booked) @map("delivery_status")
   customerCode   String?        @map("customer_code")
 
-  trackingNo       String?     @map("tracking_no")
-  courierPartner   String?     @map("courier_partner")
-  physicalDocketNo String?     @map("physical_docket_no")
+  trackingNo       String? @map("tracking_no")
+  courierPartner   String? @map("courier_partner")
+  physicalDocketNo String? @map("physical_docket_no")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -182,8 +188,15 @@ model DocketPayment {
   recorder   User          @relation("RecordedPayments", fields: [recordedBy], references: [id])
   createdAt  DateTime      @default(now()) @map("created_at")
 
+  voided     Boolean   @default(false)
+  voidReason String?   @map("void_reason")
+  voidedAt   DateTime? @map("voided_at")
+  voidedBy   String?   @map("voided_by")
+  voider     User?     @relation("VoidedPayments", fields: [voidedBy], references: [id])
+
   @@index([docketId])
   @@index([method, paidAt])
+  @@index([voided, paidAt])
   @@map("docket_payments")
 }
 
@@ -244,10 +257,10 @@ model DocketDraft {
 /// at issue time (mirroring CargoDocket) so a bill's printed figures never
 /// drift even if the customer record or a referenced docket changes later.
 model Bill {
-  id        String   @id @default(uuid())
-  billNo    String   @unique @map("bill_no")
-  createdBy String   @map("created_by")
-  creator   User     @relation("CreatedBills", fields: [createdBy], references: [id])
+  id        String @id @default(uuid())
+  billNo    String @unique @map("bill_no")
+  createdBy String @map("created_by")
+  creator   User   @relation("CreatedBills", fields: [createdBy], references: [id])
 
   invoiceDate DateTime @map("invoice_date") @db.Date
   category    String   @default("B2B") @map("category")
@@ -288,15 +301,15 @@ model Bill {
 /// destination + transport mode. rates/notes are freeform JSON so every
 /// field on the sheet stays editable without a schema change per column.
 model QuotationSheet {
-  id        String   @id @default(uuid())
-  createdBy String   @map("created_by")
-  creator   User     @relation("QuotationSheets", fields: [createdBy], references: [id])
+  id        String @id @default(uuid())
+  createdBy String @map("created_by")
+  creator   User   @relation("QuotationSheets", fields: [createdBy], references: [id])
 
-  name      String
-  sheetType String   @map("sheet_type") // 'ROAD_RAIL' | 'AIR'
+  name       String
+  sheetType  String  @map("sheet_type") // 'ROAD_RAIL' | 'AIR'
   originCity String  @default("Mumbai") @map("origin_city")
-  isDefault Boolean  @default(false) @map("is_default")
-  minQtyKg  Decimal  @default(0.00) @map("min_qty_kg") @db.Decimal(10, 2)
+  isDefault  Boolean @default(false) @map("is_default")
+  minQtyKg   Decimal @default(0.00) @map("min_qty_kg") @db.Decimal(10, 2)
 
   rates Json  @map("rates") // RateItem[]: { region?, destination, ratePerKg, mode, deliveryTime? }
   notes Json? @map("notes") // string[] footer notes
@@ -329,10 +342,10 @@ model BillDraft {
 /// generated ledger number plus a running total, and a child list of entries
 /// (see ExpenseEntry) that can be added to or removed from over time.
 model ExpenseLedger {
-  id        String   @id @default(uuid())
-  ledgerNo  String   @unique @map("ledger_no")
-  createdBy String   @map("created_by")
-  creator   User     @relation("ExpenseLedgers", fields: [createdBy], references: [id])
+  id        String @id @default(uuid())
+  ledgerNo  String @unique @map("ledger_no")
+  createdBy String @map("created_by")
+  creator   User   @relation("ExpenseLedgers", fields: [createdBy], references: [id])
 
   periodStart DateTime @map("period_start") @db.Date
   periodEnd   DateTime @map("period_end") @db.Date

@@ -27,6 +27,7 @@ function docketsCte() {
   WITH paid AS (
     SELECT docket_id, SUM(amount) AS amount
     FROM "docket_payments"
+    WHERE NOT voided
     GROUP BY docket_id
   ),
   d AS (
@@ -34,6 +35,7 @@ function docketsCte() {
       cd.status,
       cd.booking_date,
       cd.payment_mode,
+      cd.expected_mode,
       cd.delivery_status,
       cd.charged_weight_kg,
       cd.subtotal    AS eff_subtotal,
@@ -82,6 +84,18 @@ export async function GET() {
           WHERE status = 'issued' AND (eff_total - eff_paid) > 0.005
         )::int AS "unpaidCount",
 
+        -- Projected, not confirmed — a customer's stated intent at booking
+        -- time, never to be summed with actually-collected cash.
+        COALESCE(SUM(GREATEST(eff_total - eff_paid, 0)) FILTER (
+          WHERE status = 'issued' AND payment_mode IN ('To Pay', 'Credit') AND expected_mode = 'Cash'
+        ), 0)::float8 AS "cashExpectedThisMonth",
+        COUNT(*) FILTER (
+          WHERE status = 'issued' AND payment_mode IN ('To Pay', 'Credit') AND expected_mode IS NULL
+        )::int AS "missingExpectedModeCount",
+        COALESCE(SUM(GREATEST(eff_total - eff_paid, 0)) FILTER (
+          WHERE status = 'issued' AND payment_mode IN ('To Pay', 'Credit') AND expected_mode IS NULL
+        ), 0)::float8 AS "missingExpectedModeAmount",
+
         -- Delivery lifecycle, in fixed stages set by staff on the LR.
         COUNT(*) FILTER (
           WHERE status = 'issued' AND delivery_status <> 'Delivered'
@@ -125,7 +139,8 @@ export async function GET() {
 
     const [cash] = await prisma.$queryRawUnsafe<
       Array<Record<string, number>>
-    >(`
+    >(
+      `
       SELECT
         COALESCE(SUM(amount) FILTER (
           WHERE method = 'Cash'
@@ -135,9 +150,22 @@ export async function GET() {
           WHERE method = 'Cash'
             AND paid_at >= date_trunc('month', (now() AT TIME ZONE '${TZ}')::date) - INTERVAL '1 month'
             AND paid_at <  date_trunc('month', (now() AT TIME ZONE '${TZ}')::date)
-        ), 0)::float8 AS "cashCollectedLastMonth"
+        ), 0)::float8 AS "cashCollectedLastMonth",
+        COALESCE(SUM(amount) FILTER (
+          WHERE method = 'Cash'
+            AND recorded_by = $1::text
+            AND paid_at >= (now() AT TIME ZONE '${TZ}')::date
+        ), 0)::float8 AS "myCashCollectedToday",
+        COALESCE(SUM(amount) FILTER (
+          WHERE method = 'Cash'
+            AND recorded_by = $1::text
+            AND paid_at >= date_trunc('week', (now() AT TIME ZONE '${TZ}')::date)
+        ), 0)::float8 AS "myCashCollectedThisWeek"
       FROM "docket_payments"
-    `);
+      WHERE NOT voided
+      `,
+      user.id
+    );
 
     const [customers] = await prisma.$queryRawUnsafe<
       Array<Record<string, number>>

@@ -10,6 +10,7 @@ import {
   Receipt,
   FileSpreadsheet,
   Wallet,
+  Banknote,
   BarChart3,
   Settings,
   Plus,
@@ -32,6 +33,7 @@ export type NavTab =
   | 'quotation'
   | 'expenses'
   | 'reports'
+  | 'cash_book'
   | 'settings'
   | 'staff'
   | 'new_lr';
@@ -95,6 +97,7 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
     { id: 'quotation' as NavTab, label: 'Quotation', icon: FileSpreadsheet, adminOnly: false },
     { id: 'expenses' as NavTab, label: 'Expenses', icon: Wallet, adminOnly: false },
     { id: 'reports' as NavTab, label: 'Reports', icon: BarChart3, adminOnly: true },
+    { id: 'cash_book' as NavTab, label: 'Cash Book', icon: Banknote, adminOnly: true },
   ];
 
   const handleSignOut = async () => {

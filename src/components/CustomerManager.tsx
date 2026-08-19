@@ -20,6 +20,8 @@ export interface CustomerProfile {
   totalBilled?: number;
   totalPaid?: number;
   outstandingAmount?: number;
+  outstandingCredit?: number;
+  outstandingToPay?: number;
 }
 
 interface CustomerManagerProps {
@@ -237,9 +239,12 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                     )}
                   </div>
                   {!!c.totalBilled && (
-                    <div className="flex items-center gap-x-4 text-xs font-mono">
-                      <span className={c.outstandingAmount ? 'text-[#D14343] font-semibold' : 'text-slate-400'}>
-                        Outstanding: ₹{(c.outstandingAmount ?? 0).toLocaleString('en-IN')}
+                    <div className="flex items-center gap-x-4 text-xs font-mono flex-wrap">
+                      <span className={c.outstandingCredit ? 'text-[#D14343] font-semibold' : 'text-slate-400'}>
+                        Credit Due: ₹{(c.outstandingCredit ?? 0).toLocaleString('en-IN')}
+                      </span>
+                      <span className={c.outstandingToPay ? 'text-[#B7791F] font-semibold' : 'text-slate-400'}>
+                        To Pay Due: ₹{(c.outstandingToPay ?? 0).toLocaleString('en-IN')}
                       </span>
                       <span className="text-[#1F8A4C] font-semibold">
                         Paid: ₹{(c.totalPaid ?? 0).toLocaleString('en-IN')}

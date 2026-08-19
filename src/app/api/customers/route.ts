@@ -16,6 +16,7 @@ export async function GET() {
       WITH paid AS (
         SELECT docket_id, SUM(amount) AS amount
         FROM "docket_payments"
+        WHERE NOT voided
         GROUP BY docket_id
       ),
       docket_agg AS (
@@ -27,7 +28,13 @@ export async function GET() {
               WHEN COALESCE(paid.amount, 0) = 0 AND cd.payment_mode = 'Paid' THEN cd.grand_total
               ELSE COALESCE(paid.amount, 0)
             END
-          ) AS total_paid
+          ) AS total_paid,
+          SUM(
+            CASE WHEN cd.payment_mode = 'Credit' THEN GREATEST(cd.grand_total - COALESCE(paid.amount, 0), 0) ELSE 0 END
+          ) AS outstanding_credit,
+          SUM(
+            CASE WHEN cd.payment_mode = 'To Pay' THEN GREATEST(cd.grand_total - COALESCE(paid.amount, 0), 0) ELSE 0 END
+          ) AS outstanding_to_pay
         FROM "cargo_dockets" cd
         LEFT JOIN paid ON paid.docket_id = cd.id
         WHERE cd.status = 'issued' AND cd.customer_code IS NOT NULL
@@ -38,7 +45,9 @@ export async function GET() {
         c.created_at as "createdAt", c.updated_at as "updatedAt",
         COALESCE(da.total_billed, 0)::float8 AS "totalBilled",
         COALESCE(da.total_paid, 0)::float8 AS "totalPaid",
-        GREATEST(COALESCE(da.total_billed, 0) - COALESCE(da.total_paid, 0), 0)::float8 AS "outstandingAmount"
+        GREATEST(COALESCE(da.total_billed, 0) - COALESCE(da.total_paid, 0), 0)::float8 AS "outstandingAmount",
+        COALESCE(da.outstanding_credit, 0)::float8 AS "outstandingCredit",
+        COALESCE(da.outstanding_to_pay, 0)::float8 AS "outstandingToPay"
       FROM "customers" c
       LEFT JOIN docket_agg da ON da.customer_code = c.code
       ORDER BY c.name ASC

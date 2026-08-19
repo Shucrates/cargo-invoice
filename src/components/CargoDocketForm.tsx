@@ -5,6 +5,7 @@ import { CargoDocket } from '@/types/cargo';
 import { generateInvoicePDF, QuotationRateItem } from '@/lib/pdfGenerator';
 import type { QuotationSheetDTO } from '@/components/QuotationView';
 import { computeDocketTotals, fromPaise } from '@/lib/money';
+import { PAYMENT_METHODS, type PaymentMethodLabel } from '@/lib/paymentMethod';
 import { getCompanySettings } from '@/lib/companyConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -104,6 +105,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const [actualWeightKg, setActualWeightKg] = useState(Number(initialData?.actual_weight_kg) || 0);
   const [chargedWeightKg, setChargedWeightKg] = useState(Number(initialData?.charged_weight_kg) || 0);
   const [goodsDescription, setGoodsDescription] = useState(initialData?.goods_description || '');
+  const [ewayBillNo, setEwayBillNo] = useState(initialData?.eway_bill_no || '');
 
   // Charges
   const [freightAmount, setFreightAmount] = useState(Number(initialData?.freight_amount) || 0);
@@ -125,6 +127,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const [paymentMode, setPaymentMode] = useState<'Paid' | 'To Pay' | 'Credit'>(initialData?.payment_mode || 'To Pay');
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'UPI' | 'Bank Transfer' | ''>(
     initialData?.payment_method || ''
+  );
+  const [expectedMode, setExpectedMode] = useState<PaymentMethodLabel | ''>(
+    initialData?.expected_mode || ''
   );
 
   // Auto-price freight from the default quotation sheet: match toCity against
@@ -209,6 +214,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     actual_weight_kg: actualWeightKg,
     charged_weight_kg: chargedWeightKg,
     goods_description: goodsDescription,
+    eway_bill_no: ewayBillNo,
     freight_amount: freightAmount,
     handling_charge: handlingCharge,
     risk_charge: riskCharge,
@@ -218,6 +224,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     gst_percentage: gstPercentage,
     payment_mode: paymentMode,
     payment_method: paymentMode === 'Paid' ? paymentMethod || undefined : undefined,
+    expected_mode: paymentMode !== 'Paid' ? expectedMode || undefined : undefined,
     courier_partner: courierPartner,
     tracking_no: trackingNo,
     physical_docket_no: physicalDocketNo,
@@ -308,6 +315,10 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     } else if (step === 5) {
       if (paymentMode === 'Paid' && !paymentMethod) {
         setMsg({ type: 'error', text: 'Select how the payment was received (Cash / UPI / Bank Transfer).' });
+        return false;
+      }
+      if (paymentMode !== 'Paid' && !expectedMode) {
+        setMsg({ type: 'error', text: 'Select the payment mode the customer expects to pay with.' });
         return false;
       }
     }
@@ -711,6 +722,13 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                   <Input value={goodsDescription} onChange={(e) => setGoodsDescription(e.target.value)} placeholder="e.g. Cotton Fabrics & Garments" />
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">E-Way Bill No. (optional)</label>
+                  <Input value={ewayBillNo} onChange={(e) => setEwayBillNo(e.target.value)} placeholder="e.g. 1234 5678 9012" />
+                </div>
+              </div>
             </div>
           )}
 
@@ -832,6 +850,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                       onClick={() => {
                         setPaymentMode(mode as any);
                         if (mode !== 'Paid') setPaymentMethod('');
+                        else setExpectedMode('');
                       }}
                       className={`p-3 rounded-xl border text-xs font-medium transition-all ${
                         paymentMode === mode
@@ -867,11 +886,34 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 </div>
               )}
 
+              {paymentMode !== 'Paid' && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-2">Expected Payment Mode *</label>
+                  <p className="text-[11px] text-slate-500 mb-2">How the customer says they'll pay — used for the projected Cash Expected/Pending figure, not a confirmed collection.</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {PAYMENT_METHODS.map((method) => (
+                      <button
+                        type="button"
+                        key={method}
+                        onClick={() => setExpectedMode(method)}
+                        className={`p-3 rounded-xl border text-xs font-medium transition-all ${
+                          expectedMode === method
+                            ? 'border-[#2563EB] bg-blue-50 text-[#2563EB] font-bold ring-1 ring-[#2563EB]'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-xl space-y-2 text-xs text-slate-700">
                 <div className="font-semibold text-slate-900">Summary Review</div>
                 <div>Consignor: <strong className="text-slate-900">{consignorName || 'N/A'}</strong> ({fromCity || 'N/A'})</div>
                 <div>Consignee: <strong className="text-slate-900">{consigneeName || 'N/A'}</strong> ({toCity || 'N/A'})</div>
-                <div>Grand Total: <strong className="text-[#2563EB] font-mono">₹{grandTotal.toFixed(2)}</strong> ({paymentMode}{paymentMode === 'Paid' && paymentMethod ? ` · ${paymentMethod}` : ''})</div>
+                <div>Grand Total: <strong className="text-[#2563EB] font-mono">₹{grandTotal.toFixed(2)}</strong> ({paymentMode}{paymentMode === 'Paid' && paymentMethod ? ` · ${paymentMethod}` : ''}{paymentMode !== 'Paid' && expectedMode ? ` · expects ${expectedMode}` : ''})</div>
               </div>
             </div>
           )}

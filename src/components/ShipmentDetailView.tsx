@@ -68,6 +68,7 @@ const FIELD_LABELS: Record<string, string> = {
   actual_weight_kg: 'Actual Weight',
   charged_weight_kg: 'Charged Weight',
   goods_description: 'Goods Description',
+  eway_bill_no: 'E-Way Bill No.',
   freight_amount: 'Freight Charges',
   risk_charge: 'Risk Charges',
   handling_charge: 'Handling Charges',
@@ -76,6 +77,7 @@ const FIELD_LABELS: Record<string, string> = {
   other_charge: 'Other Charges',
   gst_percentage: 'GST %',
   payment_mode: 'Payment Mode',
+  expected_mode: 'Expected Payment Mode',
   customer_code: 'Customer',
   courier_partner: 'Courier / Network',
   tracking_no: 'Tracking No.',
@@ -352,12 +354,19 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
               </div>
               <div className="flex justify-between items-center pt-2">
                 <span className="text-slate-500 font-medium">Payment Status</span>
-                <Badge
-                  variant={docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
-                  className="font-mono text-xs"
-                >
-                  {docket.payment_mode}
-                </Badge>
+                <div className="flex items-center gap-1.5">
+                  <Badge
+                    variant={docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
+                    className="font-mono text-xs"
+                  >
+                    {docket.payment_mode}
+                  </Badge>
+                  {docket.payment_mode !== 'Paid' && docket.expected_mode && (
+                    <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                      expects {docket.expected_mode}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           </Card>
@@ -584,6 +593,7 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
       {showPaymentModal && (
         <RecordPaymentModal
           docket={docket}
+          isAdmin={isAdmin}
           onClose={() => {
             setShowPaymentModal(false);
             if (onVoidSuccess) onVoidSuccess();

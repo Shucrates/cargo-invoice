@@ -488,6 +488,16 @@ export async function generateInvoicePDF(docket: CargoDocket) {
     setTemplateStyle();
   }
 
+  // Row 4: E-Way Bill No. (optional)
+  if (docket.eway_bill_no) {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.text('E-Way Bill No.', rightColX + 2, tableY + 32);
+    setDataStyle(8);
+    doc.text(docket.eway_bill_no, rightColX + 2, tableY + 37);
+    setTemplateStyle();
+  }
+
   // CHARGES TABLE GRID
   doc.line(rightColX + 45, tableY, rightColX + 45, tableY + 110);
 

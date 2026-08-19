@@ -3,7 +3,7 @@ import type { Prisma, CargoDocket } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
-import { toPaymentMethodEnum } from '@/lib/paymentMethod';
+import { isPaymentMethodLabel, toPaymentMethodEnum, fromPaymentMethodEnum } from '@/lib/paymentMethod';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -69,6 +69,7 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
     charged_weight_kg: decimal(d.chargedWeightKg),
     dimensions_lhb: d.dimensionsLhb || '',
     goods_description: d.goodsDescription || '',
+    eway_bill_no: d.ewayBillNo || '',
 
     freight_amount: decimal(d.freightAmount),
     risk_charge: decimal(d.riskCharge),
@@ -82,6 +83,7 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
     grand_total: decimal(d.grandTotal),
 
     payment_mode: d.paymentMode,
+    expected_mode: d.expectedMode ? fromPaymentMethodEnum(d.expectedMode) : null,
     delivery_status: d.deliveryStatus,
     amount_paid: amountPaid,
     amount_due: amountDue,
@@ -109,6 +111,7 @@ export async function GET(req: Request) {
     const paymentMode = searchParams.get('paymentMode')?.trim();
     const transportMode = searchParams.get('transportMode')?.trim();
     const statusParam = searchParams.get('status')?.trim();
+    const customerCode = searchParams.get('customerCode')?.trim();
 
     const limit = Math.min(
       Math.max(Number(searchParams.get('limit')) || DEFAULT_LIMIT, 1),
@@ -143,6 +146,10 @@ export async function GET(req: Request) {
       where.status = statusParam as Prisma.CargoDocketWhereInput['status'];
     }
 
+    if (customerCode) {
+      where.customerCode = customerCode;
+    }
+
     const [dockets, total] = await Promise.all([
       prisma.cargoDocket.findMany({
         where,
@@ -160,7 +167,7 @@ export async function GET(req: Request) {
     const paidSums = dockets.length
       ? await prisma.docketPayment.groupBy({
           by: ['docketId'],
-          where: { docketId: { in: dockets.map((d) => d.id) } },
+          where: { docketId: { in: dockets.map((d) => d.id) }, voided: false },
           _sum: { amount: true },
         })
       : [];
@@ -233,6 +240,14 @@ export async function POST(req: Request) {
       );
     }
 
+    const expectedMode = body.expected_mode;
+    if ((paymentMode === 'To Pay' || paymentMode === 'Credit') && !isPaymentMethodLabel(expectedMode)) {
+      return NextResponse.json(
+        { error: 'An expected payment mode is required for To Pay or Credit LRs.' },
+        { status: 400 }
+      );
+    }
+
     const [inserted] = await prisma.$transaction(async (tx) => {
       const [row] = await tx.$queryRaw<Array<{ id: string; docket_no: string }>>`
       INSERT INTO "cargo_dockets" (
@@ -240,9 +255,9 @@ export async function POST(req: Request) {
         from_city, to_city, consignor_name, consignor_address, consignor_pin, consignor_phone, consignor_gstin,
         consignee_name, consignee_address, consignee_pin, consignee_phone, consignee_gstin,
         package_count, packing_method, invoice_no, invoice_value, actual_weight_kg, charged_weight_kg,
-        dimensions_lhb, goods_description, freight_amount, risk_charge, handling_charge, docket_charge,
+        dimensions_lhb, goods_description, eway_bill_no, freight_amount, risk_charge, handling_charge, docket_charge,
         pickup_delivery_charge, other_charge, subtotal, gst_percentage, gst_amount, grand_total,
-        payment_mode, customer_code, courier_partner, tracking_no, physical_docket_no, created_at, updated_at
+        payment_mode, expected_mode, customer_code, courier_partner, tracking_no, physical_docket_no, created_at, updated_at
       ) VALUES (
         gen_random_uuid()::text, generate_docket_number(), ${user.id}, ${bookingDate}::date,
         ${body.transport_mode || 'Road'}::"TransportMode", ${Boolean(body.is_international)},
@@ -254,7 +269,7 @@ export async function POST(req: Request) {
         ${body.invoice_value ? Number(body.invoice_value) : null},
         ${body.actual_weight_kg ? Number(body.actual_weight_kg) : null},
         ${body.charged_weight_kg ? Number(body.charged_weight_kg) : null},
-        ${body.dimensions_lhb || null}, ${body.goods_description || null},
+        ${body.dimensions_lhb || null}, ${body.goods_description || null}, ${body.eway_bill_no || null},
         ${paiseToDecimalString(Math.round(Number(body.freight_amount || 0) * 100))}::decimal,
         ${paiseToDecimalString(Math.round(Number(body.risk_charge || 0) * 100))}::decimal,
         ${paiseToDecimalString(Math.round(Number(body.handling_charge || 0) * 100))}::decimal,
@@ -265,7 +280,9 @@ export async function POST(req: Request) {
         ${safeGstPercentage},
         ${paiseToDecimalString(gstPaise)}::decimal,
         ${paiseToDecimalString(grandTotalPaise)}::decimal,
-        ${paymentMode}::"PaymentMode", ${body.customer_code || null},
+        ${paymentMode}::"PaymentMode",
+        ${isPaymentMethodLabel(expectedMode) ? expectedMode : null}::"PaymentMethod",
+        ${body.customer_code || null},
         ${body.courier_partner || 'Self Network'}, ${body.tracking_no || null},
         ${body.physical_docket_no || null},
         NOW(), NOW()

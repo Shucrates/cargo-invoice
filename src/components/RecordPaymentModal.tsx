@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, Wallet, IndianRupee } from 'lucide-react';
+import { X, Wallet, IndianRupee, Ban } from 'lucide-react';
 import { CargoDocket } from '@/types/cargo';
+import { PAYMENT_METHODS } from '@/lib/paymentMethod';
 
 interface Payment {
   id: string;
@@ -11,9 +12,10 @@ interface Payment {
   paid_at: string;
   notes: string;
   recorded_by_name: string;
+  voided: boolean;
+  void_reason?: string;
+  voided_by_name?: string;
 }
-
-const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer'] as const;
 
 /** `2026-08-12` — what a date input needs. */
 function today(): string {
@@ -26,9 +28,10 @@ interface Props {
   docket: CargoDocket;
   onClose: () => void;
   onSettled?: () => void;
+  isAdmin?: boolean;
 }
 
-export default function RecordPaymentModal({ docket, onClose, onSettled }: Props) {
+export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin }: Props) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [grandTotal, setGrandTotal] = useState(docket.grand_total);
   const [amountPaid, setAmountPaid] = useState(docket.amount_paid ?? 0);
@@ -42,6 +45,15 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
   const [paidAt, setPaidAt] = useState(today());
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [updateExpectedMode, setUpdateExpectedMode] = useState(false);
+
+  const [voidingId, setVoidingId] = useState<string | null>(null);
+  const [voidReason, setVoidReason] = useState('');
+  const [voiding, setVoiding] = useState(false);
+
+  const enteredAmount = Number(amount) || 0;
+  const willBePartial = enteredAmount > 0 && enteredAmount < amountDue;
+  const modeDiffersFromExpected = Boolean(docket.expected_mode) && method !== docket.expected_mode;
 
   const fetchPayments = async () => {
     setLoading(true);
@@ -71,6 +83,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
     setMethod('Cash');
     setPaidAt(today());
     setNotes('');
+    setUpdateExpectedMode(false);
     setError(null);
     setShowForm(true);
   };
@@ -83,7 +96,13 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
       const res = await fetch(`/api/dockets/${docket.id}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: Number(amount), method, paid_at: paidAt, notes }),
+        body: JSON.stringify({
+          amount: Number(amount),
+          method,
+          paid_at: paidAt,
+          notes,
+          update_expected_mode: willBePartial && modeDiffersFromExpected ? updateExpectedMode : undefined,
+        }),
       });
       if (!res.ok) {
         const errJson = await res.json();
@@ -97,6 +116,30 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
       setError(err instanceof Error ? err.message : 'Failed to record payment');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleVoid = async (paymentId: string) => {
+    if (!voidReason.trim()) return;
+    setVoiding(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/dockets/${docket.id}/payments/${paymentId}/void`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ void_reason: voidReason.trim() }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json();
+        throw new Error(errJson.error || 'Failed to void payment');
+      }
+      await fetchPayments();
+      setVoidingId(null);
+      setVoidReason('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to void payment');
+    } finally {
+      setVoiding(false);
     }
   };
 
@@ -141,10 +184,12 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
               {payments.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-start justify-between gap-2 p-2.5 rounded-lg border border-slate-200"
+                  className={`flex items-start justify-between gap-2 p-2.5 rounded-lg border ${
+                    p.voided ? 'border-slate-200 bg-slate-50 opacity-60' : 'border-slate-200'
+                  }`}
                 >
                   <div>
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1">
+                    <div className={`text-xs font-bold flex items-center gap-1 ${p.voided ? 'text-slate-500 line-through' : 'text-slate-900'}`}>
                       <IndianRupee className="w-3 h-3" />
                       {p.amount.toFixed(2)}
                       <span className="ml-1 font-normal text-slate-500">via {p.method}</span>
@@ -155,7 +200,48 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
                       {' · '}
                       {p.recorded_by_name}
                     </div>
+                    {p.voided && (
+                      <div className="text-[10px] text-red-600 mt-1">
+                        Voided by {p.voided_by_name || 'admin'}{p.void_reason ? `: ${p.void_reason}` : ''}
+                      </div>
+                    )}
+                    {isAdmin && !p.voided && voidingId === p.id && (
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={voidReason}
+                          onChange={(e) => setVoidReason(e.target.value)}
+                          placeholder="Reason for voiding *"
+                          className="h-7 px-2 border border-red-200 rounded-md bg-white text-[11px] focus:outline-none focus:ring-2 focus:ring-red-400"
+                        />
+                        <button
+                          type="button"
+                          disabled={voiding || !voidReason.trim()}
+                          onClick={() => handleVoid(p.id)}
+                          className="px-2 h-7 bg-red-600 hover:bg-red-700 text-white rounded-md text-[11px] font-semibold disabled:opacity-50 cursor-pointer"
+                        >
+                          {voiding ? 'Voiding...' : 'Confirm'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setVoidingId(null); setVoidReason(''); }}
+                          className="px-2 h-7 border border-slate-300 rounded-md text-[11px] text-slate-600 hover:bg-slate-100 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
+                  {isAdmin && !p.voided && voidingId !== p.id && (
+                    <button
+                      type="button"
+                      onClick={() => { setVoidingId(p.id); setVoidReason(''); }}
+                      title="Void this payment"
+                      className="text-slate-400 hover:text-red-600 cursor-pointer shrink-0"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -211,6 +297,19 @@ export default function RecordPaymentModal({ docket, onClose, onSettled }: Props
                   ))}
                 </div>
               </div>
+              {willBePartial && modeDiffersFromExpected && (
+                <label className="flex items-start gap-1.5 p-2 bg-blue-50 border border-blue-100 rounded-md text-[11px] text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={updateExpectedMode}
+                    onChange={(e) => setUpdateExpectedMode(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Update expected mode for the remaining ₹{(amountDue - enteredAmount).toFixed(2)} to <strong>{method}</strong> too?
+                  </span>
+                </label>
+              )}
               <div>
                 <label className="block text-[11px] font-medium text-slate-700 mb-1">Note (optional)</label>
                 <input

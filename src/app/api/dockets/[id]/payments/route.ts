@@ -14,6 +14,10 @@ function serializePayment(p: {
   recordedBy: string;
   recorder: { fullName: string | null; email: string } | null;
   createdAt: Date;
+  voided: boolean;
+  voidReason: string | null;
+  voidedAt: Date | null;
+  voider: { fullName: string | null; email: string } | null;
 }) {
   return {
     id: p.id,
@@ -25,6 +29,10 @@ function serializePayment(p: {
     recorded_by: p.recordedBy,
     recorded_by_name: p.recorder?.fullName || p.recorder?.email || 'Staff',
     created_at: p.createdAt.toISOString(),
+    voided: p.voided,
+    void_reason: p.voidReason || '',
+    voided_at: p.voidedAt ? p.voidedAt.toISOString() : null,
+    voided_by_name: p.voider?.fullName || p.voider?.email || '',
   };
 }
 
@@ -39,7 +47,7 @@ async function summarizeDocket(id: string) {
   if (!docket) return null;
 
   const sum = await prisma.docketPayment.aggregate({
-    where: { docketId: id },
+    where: { docketId: id, voided: false },
     _sum: { amount: true },
   });
   const grandTotal = Number(docket.grandTotal);
@@ -70,7 +78,10 @@ export async function GET(
     const payments = await prisma.docketPayment.findMany({
       where: { docketId: id },
       orderBy: { paidAt: 'desc' },
-      include: { recorder: { select: { fullName: true, email: true } } },
+      include: {
+        recorder: { select: { fullName: true, email: true } },
+        voider: { select: { fullName: true, email: true } },
+      },
     });
 
     return NextResponse.json({
@@ -128,6 +139,8 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid payment date.' }, { status: 400 });
     }
 
+    const updateExpectedMode = Boolean(body.update_expected_mode) && amountPaise < amountDuePaise;
+
     await prisma.$transaction(async (tx) => {
       await tx.docketPayment.create({
         data: {
@@ -146,6 +159,13 @@ export async function POST(
         await tx.cargoDocket.update({
           where: { id },
           data: { paymentMode: 'Paid' },
+        });
+      } else if (updateExpectedMode) {
+        // Only when the caller explicitly opts in — a partial payment in one
+        // mode doesn't imply the remaining balance will land the same way.
+        await tx.cargoDocket.update({
+          where: { id },
+          data: { expectedMode: toPaymentMethodEnum(method) },
         });
       }
     });

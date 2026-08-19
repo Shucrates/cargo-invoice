@@ -1,4 +1,5 @@
 import type { DeliveryStatus } from '@/lib/deliveryStatus';
+import type { PaymentMethodLabel } from '@/lib/paymentMethod';
 
 export type CargoDocket = {
   id: string;
@@ -45,6 +46,7 @@ export type CargoDocket = {
   stat_charge?: number;
   dimensions_lhb: string;
   goods_description: string;
+  eway_bill_no?: string;
   
   freight_amount: number;
   risk_charge: number;
@@ -58,7 +60,8 @@ export type CargoDocket = {
   grand_total: number;
   
   payment_mode: 'Paid' | 'To Pay' | 'Credit';
-  payment_method?: 'Cash' | 'UPI' | 'Bank Transfer';
+  payment_method?: PaymentMethodLabel;
+  expected_mode?: PaymentMethodLabel | null;
   delivery_status: DeliveryStatus;
   amount_paid: number;
   amount_due: number;
@@ -76,13 +79,18 @@ export type DocketPayment = {
   id: string;
   docket_id: string;
   docket_no?: string;
+  customer_code?: string | null;
   amount: number;
-  method: 'Cash' | 'UPI' | 'Bank Transfer';
+  method: PaymentMethodLabel;
   paid_at: string;
   notes?: string;
   recorded_by: string;
   recorded_by_name?: string;
   created_at: string;
+  voided: boolean;
+  void_reason?: string;
+  voided_at?: string | null;
+  voided_by_name?: string;
 };
 
 export type Customer = {
@@ -98,6 +106,8 @@ export type Customer = {
   totalBilled?: number;
   totalPaid?: number;
   outstandingAmount?: number;
+  outstandingCredit?: number;
+  outstandingToPay?: number;
 };
 
 export type Profile = {

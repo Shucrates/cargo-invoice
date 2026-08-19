@@ -3,7 +3,7 @@ import type { PaymentMethod } from '@prisma/client';
 /** UI/API payment method labels, matching the `PaymentMethod` enum's `@map`'d
  * DB values — but Prisma's generated client type uses the enum member names
  * (`Bank_Transfer`), not those mapped values, so callers must convert. */
-export const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer'] as const;
+export const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Card', 'Other'] as const;
 export type PaymentMethodLabel = (typeof PAYMENT_METHODS)[number];
 
 export function isPaymentMethodLabel(value: string): value is PaymentMethodLabel {

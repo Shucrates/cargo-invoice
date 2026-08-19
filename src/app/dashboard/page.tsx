@@ -14,6 +14,7 @@ import ExpensesView from '@/components/ExpensesView';
 import CompanySettingsView from '@/components/CompanySettingsView';
 import StaffManager from '@/components/StaffManager';
 import ReportsView from '@/components/ReportsView';
+import CashBookView from '@/components/CashBookView';
 import TrackingTimelineModal from '@/components/TrackingTimelineModal';
 import RecordPaymentModal from '@/components/RecordPaymentModal';
 import { RevenueLineChart, ShipmentsBarChart } from '@/components/DashboardCharts';
@@ -40,6 +41,7 @@ import {
   LayoutGrid,
   List,
   AlertTriangle,
+  Clock3,
 } from 'lucide-react';
 
 /** How many dockets the shipments table loads at a time. */
@@ -79,6 +81,11 @@ interface DashboardKpis {
   revenueLastMonth: number;
   cashCollectedThisMonth: number;
   cashCollectedLastMonth: number;
+  cashExpectedThisMonth: number;
+  missingExpectedModeCount: number;
+  missingExpectedModeAmount: number;
+  myCashCollectedToday: number;
+  myCashCollectedThisWeek: number;
   customerCount: number;
   customersThisMonth: number;
 }
@@ -475,7 +482,7 @@ export default function DashboardPage() {
           {/* Essential KPI Cards (Dynamically Filtered by Timeframe).
               Admins see money figures; staff see ops-only figures — the
               dashboard is shared, but earnings/dues are admin-only info. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
             {(isAdmin
               ? [
                   {
@@ -514,6 +521,15 @@ export default function DashboardPage() {
                     icon: IndianRupee,
                     iconBg: 'bg-[#FDECEC]',
                     iconColor: 'text-[#D14343]',
+                  },
+                  {
+                    key: 'cash_expected',
+                    label: 'CASH EXPECTED / PENDING',
+                    value: formatINR(kpis?.cashExpectedThisMonth ?? 0),
+                    sub: 'Projected — not yet received',
+                    icon: Clock3,
+                    iconBg: 'bg-[#FFF3E0]',
+                    iconColor: 'text-[#B7791F]',
                   },
                 ]
               : [
@@ -554,6 +570,15 @@ export default function DashboardPage() {
                     iconBg: 'bg-[#FDECEC]',
                     iconColor: 'text-[#D14343]',
                   },
+                  {
+                    key: 'my_cash',
+                    label: 'CASH COLLECTED BY YOU (TODAY)',
+                    value: formatINR(kpis?.myCashCollectedToday ?? 0),
+                    sub: `This week: ${formatINR(kpis?.myCashCollectedThisWeek ?? 0)}`,
+                    icon: Wallet,
+                    iconBg: 'bg-[#EEF4FF]',
+                    iconColor: 'text-[#2563EB]',
+                  },
                 ]
             ).map((card) => (
               <Card key={card.key} className="p-6 transition-saas hover:-translate-y-0.5 shadow-saas">
@@ -570,6 +595,15 @@ export default function DashboardPage() {
               </Card>
             ))}
           </div>
+
+          {isAdmin && (
+            <button
+              onClick={() => setActiveTab('cash_book')}
+              className="text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
+            >
+              Cash Book →
+            </button>
+          )}
 
           {/* Charts Row — Revenue Breakdown is admin-only; staff see Shipments Volume only */}
           <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-3' : ''} gap-6`}>
@@ -1112,6 +1146,11 @@ export default function DashboardPage() {
       {/* 6. REPORTS TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
       {activeTab === 'reports' && isAdmin && (
         <ReportsView dockets={dockets} cashLog={cashLog} customers={customersList} />
+      )}
+
+      {/* 6b. CASH BOOK TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
+      {activeTab === 'cash_book' && isAdmin && (
+        <CashBookView customers={customersList} onNavigateToShipments={() => setActiveTab('shipments')} />
       )}
 
       {/* 7. SETTINGS TAB */}
