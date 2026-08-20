@@ -272,6 +272,43 @@ export default function DashboardPage() {
   const { data: session, status } = useSession();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
   const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+
+  // Sync activeTab with URL query parameter ?tab=... so browser refresh & back/forward keep active section
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab') as NavTab | null;
+    const validTabs: NavTab[] = [
+      'dashboard',
+      'shipments',
+      'drafts',
+      'customers',
+      'billing',
+      'quotation',
+      'expenses',
+      'reports',
+      'cash_book',
+      'settings',
+      'staff',
+      'new_lr',
+    ];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+
+    const handlePopState = () => {
+      const currentParams = new URLSearchParams(window.location.search);
+      const currentTab = currentParams.get('tab') as NavTab | null;
+      if (currentTab && validTabs.includes(currentTab)) {
+        setActiveTab(currentTab);
+      } else {
+        setActiveTab('dashboard');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [dashboardTimeframe, setDashboardTimeframe] = useState<DashboardTimeframe>('month');
   const [refreshKey, setRefreshKey] = useState(0);
   const cargoFormRef = useRef<CargoDocketFormHandle>(null);
@@ -609,6 +646,12 @@ export default function DashboardPage() {
     setSelectedDocketForDetail(null);
     setEditingDraft(null);
     setActiveTab(tab);
+
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('tab', tab);
+      window.history.pushState({}, '', url.toString());
+    }
   };
 
   const resolvePendingNav = async (action: 'save' | 'discard' | 'cancel') => {

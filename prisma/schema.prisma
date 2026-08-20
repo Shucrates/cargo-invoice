@@ -81,17 +81,21 @@ model User {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  code      String   @unique @map("code")
-  name      String   @map("name")
-  address   String?  @map("address")
-  city      String?  @map("city")
-  pinCode   String?  @map("pin_code")
-  phone     String?  @map("phone")
-  gstin     String?  @map("gstin")
-  email     String?  @map("email")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid())
+  code             String   @unique @map("code")
+  name             String   @map("name")
+  contactPerson    String?  @map("contact_person")
+  address          String?  @map("address")
+  city             String?  @map("city")
+  pinCode          String?  @map("pin_code")
+  phone            String?  @map("phone")
+  gstin            String?  @map("gstin")
+  email            String?  @map("email")
+  paymentTermsDays Int?     @default(30) @map("payment_terms_days")
+  creditLimit      Decimal? @default(500000) @db.Decimal(12,2) @map("credit_limit")
+  notes            String?  @map("notes")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   bills Bill[]
 

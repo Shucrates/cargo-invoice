@@ -81,6 +81,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const [transportMode, setTransportMode] = useState<'Road' | 'Air' | 'Train'>(initialData?.transport_mode || 'Road');
   const [isInternational, setIsInternational] = useState<boolean>(Boolean(initialData?.is_international));
   const [fromCity, setFromCity] = useState(initialData?.from_city || defaultOriginCity);
+  const [remarks, setRemarks] = useState(initialData?.remarks || '');
+  const [includeStaffSignature, setIncludeStaffSignature] = useState<boolean>(true);
   const [toCity, setToCity] = useState(initialData?.to_city || '');
   const [courierPartner, setCourierPartner] = useState<string>(initialData?.courier_partner || 'Self Network');
   const [trackingNo, setTrackingNo] = useState<string>(initialData?.tracking_no || '');
@@ -91,6 +93,17 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const [consignorPin, setConsignorPin] = useState(initialData?.consignor_pin || '');
   const [consignorPhone, setConsignorPhone] = useState(initialData?.consignor_phone || '');
   const [consignorGstin, setConsignorGstin] = useState(initialData?.consignor_gstin || '');
+
+  useEffect(() => {
+    if (consignorName && customers.length > 0) {
+      const match = customers.find(
+        (c: any) => c.name?.toLowerCase().trim() === consignorName.toLowerCase().trim()
+      );
+      if (match && match.code) {
+        setCustomerCode(match.code);
+      }
+    }
+  }, [consignorName, customers]);
 
   // Consignee
   const [consigneeName, setConsigneeName] = useState(initialData?.consignee_name || '');
@@ -665,16 +678,26 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
           {/* Right Header Box */}
           <div style={{ padding: '2px 4px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', ...(noHighlight ? {} : highlight('route')) }}>
             <div style={{ fontSize: 5.5, fontWeight: 800, color: labelCol }}>NON-NEGOTIABLE DOCKET</div>
-            <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 5, display: 'flex', gap: 3, alignItems: 'center' }}>
-              <span style={{ color: labelCol, fontWeight: 700 }}>DATE</span>
-              <DV v={bookingDate} size={6} sw={40} />
+            <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 4.8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: labelCol, fontWeight: 700 }}>DATE:</span>
+              <span style={{ fontSize: 5.2, color: inkCol, fontWeight: 700 }}><DV v={bookingDate} size={5.2} sw={40} /></span>
             </div>
-            <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 5, display: 'flex', flexDirection: 'column' }}>
-              <span style={{ color: labelCol, fontWeight: 700, fontSize: 4.5 }}>WAYBILL NO</span>
-              <span style={{ fontSize: 5.5, color: inkCol, fontWeight: 700 }}>
-                {courierPartner}: {trackingNo || physicalDocketNo || docNo}
-              </span>
+            <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 4.8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: labelCol, fontWeight: 700 }}>LR DOCKET NO:</span>
+              <span style={{ fontSize: 5.2, color: inkCol, fontWeight: 800 }}>{docNo}</span>
             </div>
+            {trackingNo ? (
+              <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 4.8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: labelCol, fontWeight: 700 }}>WAYBILL ({courierPartner}):</span>
+                <span style={{ fontSize: 5.2, color: inkCol, fontWeight: 700 }}>{trackingNo}</span>
+              </div>
+            ) : null}
+            {physicalDocketNo ? (
+              <div style={{ borderTop: `0.4px solid ${borderCol}`, paddingTop: 1, fontSize: 4.8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: labelCol, fontWeight: 700 }}>PAPER LR NO:</span>
+                <span style={{ fontSize: 5.2, color: inkCol, fontWeight: 700 }}>{physicalDocketNo}</span>
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -912,10 +935,14 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 </div>
               </div>
 
-              {/* Consignor Signature */}
+              {/* Staff Signature */}
               <div style={{ fontSize: 4.5, textAlign: 'center', color: labelCol, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div style={{ height: 16, border: `0.4px solid ${borderCol}`, borderRadius: 1 }} />
-                <div>CONSIGNOR&apos;S SIGNATURE</div>
+                <div style={{ height: 16, border: `0.4px solid ${borderCol}`, borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {includeStaffSignature && company.staffSignatureUrl ? (
+                    <img src={company.staffSignatureUrl} alt="Staff Sign" style={{ maxHeight: 14, maxWidth: '100%', objectFit: 'contain' }} />
+                  ) : null}
+                </div>
+                <div>SIGNATURE OF BOOKING STAFF</div>
               </div>
 
               {/* Received by RCS */}
@@ -1075,6 +1102,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                                 type="button"
                                 onClick={() => {
                                   setConsignorName(c.name);
+                                  if (c.code) setCustomerCode(c.code);
                                   if (c.phone) setConsignorPhone(c.phone);
                                   if (c.gstin) setConsignorGstin(c.gstin);
                                   if (c.city) setFromCity(c.city);
@@ -1634,6 +1662,19 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                   </div>
                 </div>
               )}
+
+              {/* Staff Signature Toggle */}
+              <div className="pt-2 border-t border-slate-200">
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200/80 p-3 rounded-xl hover:bg-slate-100/80 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={includeStaffSignature}
+                    onChange={(e) => setIncludeStaffSignature(e.target.checked)}
+                    className="w-4 h-4 rounded text-[#0A2030] focus:ring-[#0A2030]"
+                  />
+                  <span>Print Official Booking Staff Signature on LR</span>
+                </label>
+              </div>
 
               {/* Summary review */}
               <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 space-y-1.5 text-xs text-slate-700 mt-2">

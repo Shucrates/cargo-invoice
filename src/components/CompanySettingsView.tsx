@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Building2,
   QrCode,
@@ -12,8 +12,6 @@ import {
   Trash2,
   Edit3,
   X,
-  Lock,
-  Unlock,
   Check,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -142,27 +140,14 @@ export default function CompanySettingsView() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header with Mode Control */}
+      {/* Minimal Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Company & Payment QR Settings</h1>
-            {isEditing ? (
-              <span className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
-                <Unlock className="w-3 h-3" />
-                Editing Mode
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-[11px] font-medium px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                <Lock className="w-3 h-3 text-slate-400" />
-                Protected View
-              </span>
-            )}
-          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Company & Payment Settings</h1>
           <p className="text-xs text-slate-500 mt-1">
             {isEditing
-              ? 'Make changes to company profile, payment methods, or terms, then click Save Changes.'
-              : 'Click "Edit Information" to safely update company details, payment QR codes, and bank accounts.'}
+              ? 'Edit company details, payment QR codes, or terms below, then click Save.'
+              : 'Company details, payment QR codes, and bank account information.'}
           </p>
         </div>
 
@@ -171,14 +156,14 @@ export default function CompanySettingsView() {
           {savedSuccess && (
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold animate-in fade-in duration-200">
               <CheckCircle className="w-4 h-4 text-emerald-600" />
-              <span>Settings Saved</span>
+              <span>Saved Successfully</span>
             </div>
           )}
 
           {!isEditing ? (
             <Button
               onClick={handleStartEdit}
-              className="bg-[#2563EB] hover:bg-blue-700 text-white gap-2 font-semibold text-xs rounded-xl shadow-saas cursor-pointer px-4 h-10 transition-all"
+              className="bg-[#0A2030] hover:bg-[#071520] text-white gap-2 font-semibold text-xs rounded-xl shadow-saas cursor-pointer px-4 h-10 transition-all"
             >
               <Edit3 className="w-4 h-4" />
               <span>Edit Information</span>
@@ -195,7 +180,7 @@ export default function CompanySettingsView() {
               </Button>
               <Button
                 onClick={handleSave}
-                className="bg-[#2563EB] hover:bg-blue-700 text-white gap-1.5 font-semibold text-xs rounded-xl shadow-saas h-10 px-4 transition-all"
+                className="bg-[#0A2030] hover:bg-[#071520] text-white gap-1.5 font-semibold text-xs rounded-xl shadow-saas h-10 px-4 transition-all"
               >
                 <Save className="w-4 h-4" />
                 <span>Save Changes</span>
@@ -206,22 +191,17 @@ export default function CompanySettingsView() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Supplier Profile Card */}
+        {/* Company Profile Card */}
         <Card
           className={`p-6 space-y-4 border transition-all rounded-2xl bg-white shadow-2xs ${
-            isEditing ? 'border-blue-300 ring-2 ring-blue-500/10' : 'border-slate-200/80'
+            isEditing ? 'border-slate-300 ring-2 ring-slate-400/10' : 'border-slate-200/80'
           }`}
         >
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2.5 text-sm font-bold text-slate-900">
-              <Building2 className="w-4 h-4 text-[#2563EB]" />
-              <span>Supplier Company Profile</span>
+              <Building2 className="w-4 h-4 text-[#0A2030]" />
+              <span>Company Details</span>
             </div>
-            {isEditing && (
-              <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-                Editable
-              </span>
-            )}
           </div>
 
           <div className="space-y-3.5">
@@ -233,7 +213,7 @@ export default function CompanySettingsView() {
                 onChange={(e) => setDraft({ ...draft, tradeName: e.target.value })}
                 className={`mt-1 text-xs font-bold transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
@@ -247,7 +227,7 @@ export default function CompanySettingsView() {
                 onChange={(e) => setDraft({ ...draft, gstin: e.target.value })}
                 className={`mt-1 text-xs font-mono uppercase font-bold transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
@@ -261,7 +241,7 @@ export default function CompanySettingsView() {
                 onChange={(e) => setDraft({ ...draft, address: e.target.value })}
                 className={`mt-1 text-xs transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
@@ -276,7 +256,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, phone1: e.target.value })}
                   className={`mt-1 text-xs transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                      ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -289,7 +269,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, phone2: e.target.value })}
                   className={`mt-1 text-xs transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                      ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -304,7 +284,7 @@ export default function CompanySettingsView() {
                 onChange={(e) => setDraft({ ...draft, email: e.target.value })}
                 className={`mt-1 text-xs transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
@@ -319,26 +299,26 @@ export default function CompanySettingsView() {
                 placeholder="Mumbai"
                 className={`mt-1 text-xs font-semibold transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900 focus:border-[#2563EB]'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
               <p className="text-[10px] text-slate-400 mt-1">
-                Prefills new LR &ldquo;From&rdquo; city and picks which quotation sheet auto-prices freight by default.
+                Prefills new LR &ldquo;From&rdquo; city and picks quotation sheet by default.
               </p>
             </div>
           </div>
         </Card>
 
-        {/* Google Pay QR & Bank Account Card */}
+        {/* Payment QR & Bank Account Card */}
         <Card
           className={`p-6 space-y-4 border transition-all rounded-2xl bg-white shadow-2xs ${
-            isEditing ? 'border-blue-300 ring-2 ring-blue-500/10' : 'border-slate-200/80'
+            isEditing ? 'border-slate-300 ring-2 ring-slate-400/10' : 'border-slate-200/80'
           }`}
         >
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2.5 text-sm font-bold text-slate-900">
-              <QrCode className="w-4 h-4 text-[#2563EB]" />
+              <QrCode className="w-4 h-4 text-[#0A2030]" />
               <span>Payment QR Codes</span>
             </div>
             {isEditing && (
@@ -346,7 +326,7 @@ export default function CompanySettingsView() {
                 type="button"
                 size="sm"
                 onClick={addQrEntry}
-                className="h-7 text-[11px] font-bold gap-1 bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg cursor-pointer"
+                className="h-7 text-[11px] font-bold gap-1 bg-[#0A2030] hover:bg-[#071520] text-white rounded-lg cursor-pointer"
               >
                 <Plus className="w-3 h-3" />
                 <span>Add QR</span>
@@ -361,7 +341,7 @@ export default function CompanySettingsView() {
                 <div
                   key={qr.id}
                   className={`p-3 rounded-xl border space-y-3 transition-all ${
-                    isActive ? 'bg-blue-50/60 border-blue-300 ring-1 ring-blue-200' : 'bg-slate-50/60 border-slate-200'
+                    isActive ? 'bg-slate-50 border-slate-300 ring-1 ring-slate-200' : 'bg-slate-50/60 border-slate-200'
                   }`}
                 >
                   <div className="flex items-center gap-3">
@@ -384,8 +364,8 @@ export default function CompanySettingsView() {
                           }`}
                         />
                         {isActive && (
-                          <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">
-                            <Check className="w-3 h-3" />
+                          <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-slate-800 bg-slate-200 px-2 py-0.5 rounded-full border border-slate-300">
+                            <Check className="w-3 h-3 text-[#0A2030]" />
                             Used for invoice
                           </span>
                         )}
@@ -396,7 +376,7 @@ export default function CompanySettingsView() {
                             type="button"
                             size="sm"
                             onClick={() => setActiveQr(qr.id)}
-                            className="h-6 text-[10px] font-bold bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg cursor-pointer"
+                            className="h-6 text-[10px] font-bold bg-[#0A2030] hover:bg-[#071520] text-white rounded-lg cursor-pointer"
                           >
                             Use for invoice
                           </Button>
@@ -441,7 +421,7 @@ export default function CompanySettingsView() {
                         onChange={(e) => updateQrEntry(qr.id, { gpayNo: e.target.value })}
                         className={`mt-1 h-7 text-xs font-mono font-bold transition-all ${
                           isEditing
-                            ? 'bg-white border-blue-300 text-slate-900'
+                            ? 'bg-white border-slate-300 text-slate-900'
                             : 'bg-slate-50/90 border-slate-200 text-slate-800 cursor-default'
                         }`}
                       />
@@ -455,7 +435,7 @@ export default function CompanySettingsView() {
                         placeholder="9821541984@upi"
                         className={`mt-1 h-7 text-xs font-mono font-bold transition-all ${
                           isEditing
-                            ? 'bg-white border-blue-300 text-slate-900'
+                            ? 'bg-white border-slate-300 text-slate-900'
                             : 'bg-slate-50/90 border-slate-200 text-slate-800 cursor-default'
                         }`}
                       />
@@ -470,7 +450,7 @@ export default function CompanySettingsView() {
                       onChange={(e) => updateQrEntry(qr.id, { qrCodeUrl: e.target.value })}
                       className={`mt-1 h-7 text-xs font-mono transition-all ${
                         isEditing
-                          ? 'bg-white border-blue-300 text-slate-900'
+                          ? 'bg-white border-slate-300 text-slate-900'
                           : 'bg-slate-50/90 border-slate-200 text-slate-600 cursor-default truncate'
                       }`}
                     />
@@ -490,7 +470,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, bankName: e.target.value })}
                   className={`mt-1 text-xs font-semibold transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900'
+                      ? 'bg-white border-slate-300 text-slate-900'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -503,7 +483,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, branch: e.target.value })}
                   className={`mt-1 text-xs font-semibold transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900'
+                      ? 'bg-white border-slate-300 text-slate-900'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -519,7 +499,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, accountNo: e.target.value })}
                   className={`mt-1 text-xs font-mono font-bold transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900'
+                      ? 'bg-white border-slate-300 text-slate-900'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -532,7 +512,7 @@ export default function CompanySettingsView() {
                   onChange={(e) => setDraft({ ...draft, ifsc: e.target.value })}
                   className={`mt-1 text-xs font-mono uppercase font-bold transition-all ${
                     isEditing
-                      ? 'bg-white border-blue-300 text-slate-900'
+                      ? 'bg-white border-slate-300 text-slate-900'
                       : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                   }`}
                 />
@@ -542,22 +522,78 @@ export default function CompanySettingsView() {
         </Card>
       </div>
 
-      {/* Invoice Terms & Conditions Card */}
+      {/* Booking Staff Authorized Signature Card */}
       <Card
         className={`p-6 space-y-4 border transition-all rounded-2xl bg-white shadow-2xs ${
-          isEditing ? 'border-blue-300 ring-2 ring-blue-500/10' : 'border-slate-200/80'
+          isEditing ? 'border-slate-300 ring-2 ring-slate-400/10' : 'border-slate-200/80'
         }`}
       >
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2.5 text-sm font-bold text-slate-900">
-            <FileText className="w-4 h-4 text-[#2563EB]" />
+            <Edit3 className="w-4 h-4 text-[#0A2030]" />
+            <span>Booking Staff Official Signature</span>
+          </div>
+          <span className="text-[11px] text-slate-500 font-medium">
+            Appears on generated LRs when staff signature toggle is ON
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Current Saved Signature */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-slate-700">Current Saved Signature</label>
+            <div className="h-36 border border-slate-200 rounded-xl bg-slate-50/80 flex items-center justify-center p-3 relative overflow-hidden">
+              {draft.staffSignatureUrl ? (
+                <img
+                  src={draft.staffSignatureUrl}
+                  alt="Booking Staff Signature"
+                  className="max-h-full max-w-full object-contain"
+                />
+              ) : (
+                <div className="text-center text-xs text-slate-400 font-medium">
+                  No signature saved yet.<br />Draw or upload a signature below.
+                </div>
+              )}
+            </div>
+            {isEditing && draft.staffSignatureUrl && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDraft({ ...draft, staffSignatureUrl: '' })}
+                className="text-xs text-red-600 border-red-200 hover:bg-red-50"
+              >
+                Remove Signature
+              </Button>
+            )}
+          </div>
+
+          {/* Interactive Signature Studio */}
+          {isEditing ? (
+            <SignaturePad
+              onSaveSignature={(dataUrl) => {
+                setDraft({ ...draft, staffSignatureUrl: dataUrl });
+              }}
+            />
+          ) : (
+            <div className="flex items-center justify-center border border-dashed border-slate-200 rounded-xl p-6 text-center text-xs text-slate-400">
+              Click &ldquo;Edit Information&rdquo; at the top to draw or upload a signature.
+            </div>
+          )}
+        </div>
+      </Card>
+
+      {/* Invoice Terms & Conditions Card */}
+      <Card
+        className={`p-6 space-y-4 border transition-all rounded-2xl bg-white shadow-2xs ${
+          isEditing ? 'border-slate-300 ring-2 ring-slate-400/10' : 'border-slate-200/80'
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2.5 text-sm font-bold text-slate-900">
+            <FileText className="w-4 h-4 text-[#0A2030]" />
             <span>Default Invoice Terms & Conditions</span>
           </div>
-          {isEditing && (
-            <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
-              Editable
-            </span>
-          )}
         </div>
 
         <div className="space-y-2.5">
@@ -570,7 +606,7 @@ export default function CompanySettingsView() {
                 onChange={(e) => updateTerm(idx, e.target.value)}
                 className={`text-xs flex-1 font-medium transition-all ${
                   isEditing
-                    ? 'bg-white border-blue-300 text-slate-900'
+                    ? 'bg-white border-slate-300 text-slate-900 focus:border-[#0A2030]'
                     : 'bg-slate-50/80 border-slate-200 text-slate-800 cursor-default'
                 }`}
               />
@@ -578,6 +614,176 @@ export default function CompanySettingsView() {
           ))}
         </div>
       </Card>
+    </div>
+  );
+}
+
+function SignaturePad({ onSaveSignature }: { onSaveSignature: (dataUrl: string) => void }) {
+  const [activeTab, setActiveTab] = useState<'draw' | 'upload'>('draw');
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+  }, [activeTab]);
+
+  const getCanvasPos = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+    };
+  };
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    setIsDrawing(true);
+    const pos = getCanvasPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const pos = getCanvasPos(e);
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#0A2030';
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    setHasDrawn(true);
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    setHasDrawn(false);
+  };
+
+  const handleSaveCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !hasDrawn) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    onSaveSignature(dataUrl);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      if (event.target?.result) {
+        onSaveSignature(event.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab('draw')}
+          className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+            activeTab === 'draw' ? 'bg-[#0A2030] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          Draw Signature
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('upload')}
+          className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+            activeTab === 'upload' ? 'bg-[#0A2030] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          Upload Image File
+        </button>
+      </div>
+
+      {activeTab === 'draw' ? (
+        <div className="space-y-2">
+          <div className="border-2 border-dashed border-slate-300 rounded-xl bg-white relative overflow-hidden">
+            <canvas
+              ref={canvasRef}
+              onMouseDown={startDrawing}
+              onMouseMove={draw}
+              onMouseUp={stopDrawing}
+              onMouseLeave={stopDrawing}
+              onTouchStart={startDrawing}
+              onTouchMove={draw}
+              onTouchEnd={stopDrawing}
+              className="w-full h-28 touch-none cursor-crosshair"
+            />
+            {!hasDrawn && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-xs text-slate-400 font-medium">
+                Draw signature here with mouse or touchpad
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button type="button" variant="outline" size="sm" onClick={clearCanvas} className="text-xs">
+              Clear Canvas
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={!hasDrawn}
+              onClick={handleSaveCanvas}
+              className="bg-[#0A2030] hover:bg-[#071520] text-white text-xs font-semibold"
+            >
+              Use Drawn Signature
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 bg-slate-50 text-center space-y-2">
+            <p className="text-xs text-slate-600 font-medium">
+              Upload scanned signature or official stamp (PNG / JPG)
+            </p>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleFileUpload}
+              className="text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-[#0A2030] file:text-white hover:file:bg-[#071520] cursor-pointer"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

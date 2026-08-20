@@ -29,6 +29,8 @@ export interface CompanySettings {
   /** Default origin city used to prefill new LRs and to pick which
    *  quotation sheet (by origin city) prices them automatically. */
   defaultOriginCity: string;
+  /** Saved signature image (Data URL / PNG) of booking staff / authorized signatory */
+  staffSignatureUrl?: string;
 }
 
 const DEFAULT_QR_ID = 'default';
@@ -65,6 +67,7 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
     'Google pay Number: 9821541984',
   ],
   defaultOriginCity: 'Mumbai',
+  staffSignatureUrl: '',
 };
 
 export const companyConfig = {

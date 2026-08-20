@@ -115,8 +115,8 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   // HEADER SECTION (Company Logo & Info)
   // ==========================================
   setTemplateStyle();
-  doc.line(130, marginY + 7, 130, marginY + 28);
-  doc.line(196, marginY + 7, 196, marginY + 28);
+  doc.line(130, marginY + 7, 130, marginY + 29.5);
+  doc.line(196, marginY + 7, 196, marginY + 29.5);
 
   // Left Company Logo Graphic
   try {
@@ -152,44 +152,98 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.text(docket.from_city || 'MUMBAI', 140, marginY + 15);
 
   setTemplateStyle();
-  doc.line(130, marginY + 21, 196, marginY + 21);
+  doc.line(130, marginY + 21.5, 196, marginY + 21.5);
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('T', 132, marginY + 25);
-  doc.text('O', 132, marginY + 27);
+  doc.text('T', 132, marginY + 25.5);
+  doc.text('O', 132, marginY + 27.5);
 
   // TO CITY (Royal Blue Ink)
   setDataStyle(11);
-  doc.text(docket.to_city || 'GUWAHATI', 140, marginY + 26);
+  doc.text(docket.to_city || 'GUWAHATI', 140, marginY + 27);
 
   // Right Header Docket Type, Date & Tracking Info
   setTemplateStyle();
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('NON-NEGOTIABLE DOCKET', 198, marginY + 10);
+  doc.text('NON-NEGOTIABLE DOCKET', 198, marginY + 11);
 
-  doc.line(196, marginY + 12, marginX + pageW, marginY + 12);
+  doc.line(196, marginY + 12.5, marginX + pageW, marginY + 12.5);
 
+  // Row 2: DATE
   doc.setFontSize(6.5);
-  doc.text('DATE', 198, marginY + 15.5);
-
-  // BOOKING DATE (Royal Blue Ink)
-  setDataStyle(8);
-  doc.text(docket.booking_date, 208, marginY + 15.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('DATE:', 198, marginY + 16.5);
+  setDataStyle(7.5);
+  doc.text(docket.booking_date, 236, marginY + 16.5);
 
   setTemplateStyle();
   doc.line(196, marginY + 18, marginX + pageW, marginY + 18);
 
+  // Row 3: LR DOCKET NO
   doc.setFontSize(6.5);
-  doc.text('WAYBILL NO', 198, marginY + 22);
-
-  // COURIER & TRACKING NO (Royal Blue Ink)
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('LR DOCKET NO:', 198, marginY + 22);
   setDataStyle(7.5);
-  doc.text(`${docket.courier_partner || 'Self'}: ${docket.tracking_no || docket.docket_no}`, 198, marginY + 26);
+  doc.text(docket.docket_no, 236, marginY + 22);
+
+  let headerBottomY = marginY + 23.5;
+
+  if (docket.tracking_no && docket.physical_docket_no) {
+    setTemplateStyle();
+    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`WAYBILL (${docket.courier_partner || 'Self'}):`, 198, marginY + 27.5);
+    setDataStyle(7.5);
+    doc.text(docket.tracking_no, 236, marginY + 27.5);
+
+    setTemplateStyle();
+    doc.line(196, marginY + 29, marginX + pageW, marginY + 29);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('PAPER LR NO:', 198, marginY + 33);
+    setDataStyle(7.5);
+    doc.text(docket.physical_docket_no, 236, marginY + 33);
+
+    headerBottomY = marginY + 34.5;
+  } else if (docket.tracking_no) {
+    setTemplateStyle();
+    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`WAYBILL (${docket.courier_partner || 'Self'}):`, 198, marginY + 27.5);
+    setDataStyle(7.5);
+    doc.text(docket.tracking_no, 236, marginY + 27.5);
+
+    headerBottomY = marginY + 29;
+  } else if (docket.physical_docket_no) {
+    setTemplateStyle();
+    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
+
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('PAPER LR NO:', 198, marginY + 27.5);
+    setDataStyle(7.5);
+    doc.text(docket.physical_docket_no, 236, marginY + 27.5);
+
+    headerBottomY = marginY + 29;
+  }
 
   setTemplateStyle();
-  doc.line(marginX, marginY + 28, marginX + pageW, marginY + 28);
+  doc.line(130, marginY + 7, 130, headerBottomY);
+  doc.line(196, marginY + 7, 196, headerBottomY);
+  doc.line(marginX, headerBottomY, marginX + pageW, headerBottomY);
 
   // ==========================================
   // LEFT COLUMN: CONSIGNOR, CONSIGNEE, INSURANCE, PAYMENT
@@ -197,10 +251,10 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   const leftColW = 125;
   const rightColX = marginX + leftColW; // 135
 
-  doc.line(rightColX, marginY + 28, rightColX, marginY + 178);
+  doc.line(rightColX, headerBottomY, rightColX, marginY + 178);
 
   // --- 1. CONSIGNOR BOX ---
-  let curY = marginY + 28;
+  let curY = headerBottomY;
   setTemplateStyle();
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
@@ -417,7 +471,7 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   // ==========================================
   // RIGHT COLUMN: PACKAGES, WEIGHT, CHARGES GRID & SIGNATURES
   // ==========================================
-  let tableY = marginY + 28;
+  let tableY = headerBottomY;
 
   setTemplateStyle();
   doc.setFontSize(7);
@@ -607,10 +661,18 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   setTemplateStyle();
   doc.line(rightColX + 45, sigY, rightColX + 45, marginY + 178);
 
-  // 2. Consignor Signature Box (X = 180 to X = 230)
+  // 2. Booking Staff Signature Box (X = 180 to X = 230)
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text("CONSIGNOR'S SIGNATURE", rightColX + 48, sigY + 5);
+  doc.text('SIGNATURE OF BOOKING STAFF', rightColX + 46, sigY + 5);
+
+  if (settings.staffSignatureUrl) {
+    try {
+      doc.addImage(settings.staffSignatureUrl, 'PNG', rightColX + 48, sigY + 7, 40, 15);
+    } catch (e) {
+      // Ignore invalid or missing signature image
+    }
+  }
 
   // Vertical Divider 2 at X = 230
   doc.line(rightColX + 95, sigY, rightColX + 95, marginY + 178);
