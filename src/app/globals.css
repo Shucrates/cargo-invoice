@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-heading: var(--font-geist-sans), 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-inter), 'Inter', sans-serif;
+}
+
 @layer base {
   :root {
     --background: 210 40% 98%;
@@ -16,15 +22,30 @@
     --input: 214.3 31.8% 91.4%;
     --radius: 0.75rem;
   }
+
+  html, body {
+    font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+    background-color: #F6F8FB;
+    color: #0F172A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Major headings use Geist */
+  h1, h2, h3, h4, h5, h6, .font-heading {
+    font-family: var(--font-geist-sans), 'Geist', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.025em;
+  }
+
+  /* Inputs, buttons, tables, text, and numbers throughout the website use Inter with tabular figures */
+  input, select, textarea, button, p, span, td, th, label, .font-mono {
+    font-family: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-feature-settings: 'tnum', 'cv02', 'cv03', 'cv04', 'cv11';
+  }
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif;
-  background-color: #F6F8FB;
-  color: #0F172A;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+
 
 /* Custom Soft SaaS Elevation */
 .shadow-saas {

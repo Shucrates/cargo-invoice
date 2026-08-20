@@ -218,7 +218,7 @@ export async function POST(req: Request) {
     // Totals are always recomputed here from the individual charges. Whatever
     // subtotal/gst/grand_total the client sent is ignored — a tampered or stale
     // client must never be able to set the amount on a tax invoice.
-    const { subtotalPaise, gstPaise, grandTotalPaise } = computeDocketTotals(body, body.gst_percentage);
+    const { subtotalPaise, serviceChargePaise, gstPaise, grandTotalPaise } = computeDocketTotals(body, body.gst_percentage, body.transport_mode);
 
     const bookingDate = new Date(body.booking_date || Date.now());
     if (Number.isNaN(bookingDate.getTime())) {
@@ -233,9 +233,9 @@ export async function POST(req: Request) {
 
     const paymentMode = body.payment_mode || 'To Pay';
     const paymentMethod = body.payment_method;
-    if (paymentMode === 'Paid' && !['Cash', 'UPI', 'Bank Transfer'].includes(paymentMethod)) {
+    if (paymentMode === 'Paid' && !isPaymentMethodLabel(paymentMethod)) {
       return NextResponse.json(
-        { error: 'A payment method (Cash, UPI, or Bank Transfer) is required when marking an LR as Paid.' },
+        { error: 'A valid payment method (Cash, UPI, Bank Transfer, Cheque, Card, or Other) is required when marking an LR as Paid.' },
         { status: 400 }
       );
     }

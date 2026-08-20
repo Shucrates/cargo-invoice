@@ -42,9 +42,10 @@ interface AppShellProps {
   activeTab: NavTab;
   onTabChange: (tab: NavTab) => void;
   children: ReactNode;
+  navCounts?: Partial<Record<NavTab, number>>;
 }
 
-export default function AppShell({ activeTab, onTabChange, children }: AppShellProps) {
+export default function AppShell({ activeTab, onTabChange, children, navCounts }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { data: session } = useSession();
   const userName = session?.user?.name || 'Logistics Admin';
@@ -85,6 +86,40 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
     .substring(0, 2)
     .toUpperCase();
 
+  const getBreadcrumb = (tab: NavTab) => {
+    switch (tab) {
+      case 'dashboard':
+        return { section: 'Main Menu', label: 'Dashboard', icon: LayoutDashboard };
+      case 'shipments':
+        return { section: 'Main Menu', label: 'Shipments', icon: Package };
+      case 'drafts':
+        return { section: 'Main Menu', label: 'Drafts', icon: Archive };
+      case 'customers':
+        return { section: 'Main Menu', label: 'Customers', icon: Users };
+      case 'billing':
+        return { section: 'Finance & Reports', label: 'Billing', icon: Receipt };
+      case 'quotation':
+        return { section: 'Finance & Reports', label: 'Quotation', icon: FileSpreadsheet };
+      case 'expenses':
+        return { section: 'Finance & Reports', label: 'Expenses', icon: Wallet };
+      case 'reports':
+        return { section: 'Finance & Reports', label: 'Reports', icon: BarChart3 };
+      case 'cash_book':
+        return { section: 'Finance & Reports', label: 'Cash Book', icon: Banknote };
+      case 'staff':
+        return { section: 'System', label: 'Staff Management', icon: ShieldCheck };
+      case 'settings':
+        return { section: 'System', label: 'Company Settings', icon: Settings };
+      case 'new_lr':
+        return { section: 'Main Menu', label: 'Create New LR', icon: Plus };
+      default:
+        return { section: 'Main Menu', label: 'Dashboard', icon: LayoutDashboard };
+    }
+  };
+
+  const breadcrumb = getBreadcrumb(activeTab);
+  const BreadcrumbIcon = breadcrumb.icon;
+
   const mainNavItems = [
     { id: 'dashboard' as NavTab, label: 'Dashboard', icon: LayoutDashboard, adminOnly: false },
     { id: 'shipments' as NavTab, label: 'Shipments', icon: Package, adminOnly: false },
@@ -121,7 +156,7 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
         <div className="space-y-6 flex-1 min-h-0 overflow-y-auto overflow-x-hidden pr-1">
           {/* Brand Header & Organization */}
           <div className="px-2 space-y-3">
-            <div className={`flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
+            <div className={`flex items-center ${collapsed ? 'justify-between' : 'justify-between'}`}>
               <div className={`flex items-center gap-3 ${collapsed ? 'justify-center' : ''}`}>
                 <div className="w-9 h-9 bg-white border border-slate-200/80 rounded-xl flex items-center justify-center shadow-saas overflow-hidden p-0.5 shrink-0">
                   <img src="/rudra-logo.png" alt="Rudra Cargo Logo" className="w-full h-full object-contain" />
@@ -133,36 +168,14 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                   </div>
                 )}
               </div>
-              {!collapsed && (
-                <button
-                  onClick={() => setCollapsed(true)}
-                  className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 flex items-center justify-center transition-saas cursor-pointer"
-                  title="Collapse sidebar"
-                >
-                  <PanelLeftClose className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-
-            {collapsed ? (
               <button
-                onClick={() => setCollapsed(false)}
-                className="w-full flex items-center justify-center py-2 text-slate-400 hover:text-slate-700 hover:bg-slate-50 rounded-xl transition-saas cursor-pointer"
-                title="Expand sidebar"
+                onClick={() => setCollapsed(!collapsed)}
+                className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 flex items-center justify-center transition-saas cursor-pointer"
+                title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
-                <PanelLeftOpen className="w-4 h-4" />
+                {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
               </button>
-            ) : (
-              <div className="pt-1 flex items-center justify-between bg-slate-50 border border-slate-100 p-2 rounded-xl">
-                <div className="flex items-center gap-2">
-                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-xs font-semibold text-slate-700">Rudra NX Desk</span>
-                </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono bg-[#EEF4FF] text-[#2563EB]">
-                  {isAdmin ? 'ADMIN' : 'STAFF'}
-                </span>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* Navigation Links */}
@@ -177,6 +190,7 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
               {mainNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
+                const count = navCounts?.[item.id];
                 return (
                   <button
                     key={item.id}
@@ -186,12 +200,21 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                       collapsed ? 'justify-center' : ''
                     } ${
                       isActive
-                        ? 'bg-[#EEF4FF] text-[#2563EB] font-semibold shadow-2xs'
+                        ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold shadow-2xs'
                         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
-                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-400'}`} />
-                    {!collapsed && <span>{item.label}</span>}
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0A2030]' : 'text-slate-400'}`} />
+                    {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
+                    {!collapsed && !!count && (
+                      <span
+                        className={`text-[10px] font-mono tabular-nums ${
+                          isActive ? 'text-[#0A2030]/70' : 'text-slate-400'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -218,11 +241,11 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                         collapsed ? 'justify-center' : ''
                       } ${
                         isActive
-                          ? 'bg-[#EEF4FF] text-[#2563EB] font-semibold shadow-2xs'
+                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold shadow-2xs'
                           : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                       }`}
                     >
-                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#2563EB]' : 'text-slate-400'}`} />
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0A2030]' : 'text-slate-400'}`} />
                       {!collapsed && <span>{item.label}</span>}
                     </button>
                   );
@@ -244,11 +267,11 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                     collapsed ? 'justify-center' : ''
                   } ${
                     activeTab === 'staff'
-                      ? 'bg-[#EEF4FF] text-[#2563EB] font-semibold shadow-2xs'
+                      ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold shadow-2xs'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'staff' ? 'text-[#2563EB]' : 'text-slate-400'}`} />
+                  <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'staff' ? 'text-[#0A2030]' : 'text-slate-400'}`} />
                   {!collapsed && <span>Staff Management</span>}
                 </button>
                 <button
@@ -258,11 +281,11 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                     collapsed ? 'justify-center' : ''
                   } ${
                     activeTab === 'settings'
-                      ? 'bg-[#EEF4FF] text-[#2563EB] font-semibold shadow-2xs'
+                      ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold shadow-2xs'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                   }`}
                 >
-                  <Settings className={`w-4 h-4 shrink-0 ${activeTab === 'settings' ? 'text-[#2563EB]' : 'text-slate-400'}`} />
+                  <Settings className={`w-4 h-4 shrink-0 ${activeTab === 'settings' ? 'text-[#0A2030]' : 'text-slate-400'}`} />
                   {!collapsed && <span>Company Settings</span>}
                 </button>
               </div>
@@ -271,16 +294,7 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
         </div>
 
         {/* Bottom Sidebar Action Buttons */}
-        <div className="space-y-3 pt-4 mt-4 border-t border-slate-100 shrink-0">
-          <button
-            onClick={() => onTabChange('new_lr')}
-            title={collapsed ? 'Create New LR' : undefined}
-            className="w-full h-11 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-saas transition-saas flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
-          >
-            <Plus className="w-4 h-4 shrink-0" />
-            {!collapsed && <span>Create New LR</span>}
-          </button>
-
+        <div className="pt-4 mt-4 border-t border-slate-100 shrink-0">
           <button
             onClick={handleSignOut}
             title={collapsed ? 'Sign out' : undefined}
@@ -297,28 +311,38 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         {/* Top Header Navigation Bar (72px height) */}
-        <header className="h-[72px] bg-white border-b border-[#EEF1F4] px-6 flex items-center justify-between shrink-0 sticky top-0 z-30 shadow-2xs">
-          {/* Left: Quick Search */}
-          <div className="flex items-center gap-4 flex-1 max-w-md">
-            <div className="relative w-full">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search dockets, clients, tracking #..."
-                onFocus={() => {
-                  if (activeTab !== 'shipments') onTabChange('shipments');
-                }}
-                className="w-full h-10 pl-10 pr-4 bg-[#F8FAFC] border border-slate-200/80 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:ring-4 focus:ring-[#2563EB]/10 transition-saas"
-              />
-            </div>
+        <header className="h-[72px] bg-white border-b border-[#EEF1F4] px-6 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30 shadow-2xs">
+          {/* Left: Breadcrumb Root location indicator */}
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-400 font-normal">{breadcrumb.section}</span>
+            <span className="text-slate-300">/</span>
+            <span className="text-slate-900 font-semibold flex items-center gap-1.5">
+              <BreadcrumbIcon className="w-4 h-4 text-slate-700" />
+              <span>{breadcrumb.label}</span>
+            </span>
           </div>
 
           {/* Right Top Bar Controls */}
           <div className="flex items-center gap-3">
-            {/* Quick Action Button */}
+            {/* Quick Search */}
+            <div className="relative w-40 sm:w-56">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search dockets..."
+                onFocus={() => {
+                  if (activeTab !== 'shipments') onTabChange('shipments');
+                }}
+                className="w-full h-9 pl-9 pr-3 bg-[#F8FAFC] border border-slate-200/80 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0A2030] focus:ring-4 focus:ring-[#0A2030]/10 transition-saas"
+              />
+            </div>
+
+            <div className="h-6 w-px bg-slate-200/80 mx-1 hidden sm:block"></div>
+
+            {/* New LR Quick-Action Button */}
             <button
               onClick={() => onTabChange('new_lr')}
-              className="h-10 px-4 bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-xs rounded-xl shadow-saas transition-saas flex items-center gap-1.5 cursor-pointer hidden sm:flex"
+              className="hidden sm:flex items-center gap-1.5 h-9 px-4 bg-[#0A2030] hover:bg-[#071520] text-white font-semibold text-xs rounded-xl shadow-saas transition-saas shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>New LR</span>
@@ -332,12 +356,12 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                 onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                 className={`flex items-center gap-2.5 p-1 pr-3 rounded-xl border transition-saas cursor-pointer select-none text-left ${
                   accountMenuOpen
-                    ? 'border-[#2563EB] bg-blue-50/40 ring-2 ring-[#2563EB]/10'
+                    ? 'border-[#0A2030] bg-[#0A2030]/5 ring-2 ring-[#0A2030]/10'
                     : 'border-slate-200/80 bg-white hover:bg-slate-50/80'
                 }`}
                 aria-label="User Account Menu"
               >
-                <div className="w-8 h-8 rounded-lg bg-[#EEF4FF] text-[#2563EB] font-bold text-xs flex items-center justify-center font-mono border border-blue-100 shrink-0">
+                <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] font-bold text-xs flex items-center justify-center font-mono border border-slate-200 shrink-0">
                   {userInitials}
                 </div>
                 <div className="hidden lg:block text-left">
@@ -346,7 +370,7 @@ export default function AppShell({ activeTab, onTabChange, children }: AppShellP
                 </div>
                 <ChevronDown
                   className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${
-                    accountMenuOpen ? 'rotate-180 text-[#2563EB]' : ''
+                    accountMenuOpen ? 'rotate-180 text-[#0A2030]' : ''
                   }`}
                 />
               </button>

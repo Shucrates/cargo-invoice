@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
-import { toPaymentMethodEnum } from '@/lib/paymentMethod';
+import { isPaymentMethodLabel, toPaymentMethodEnum } from '@/lib/paymentMethod';
 
 type Snapshot = Record<string, string | number | boolean | null>;
 
@@ -57,9 +57,11 @@ export async function PATCH(
       );
     }
 
-    // Same recompute-from-charges rule as creation — a client-sent total is
-    // never trusted, corrected or not.
-    const { subtotalPaise, gstPaise, grandTotalPaise } = computeDocketTotals(body, body.gst_percentage);
+    const { subtotalPaise, serviceChargePaise, gstPaise, grandTotalPaise } = computeDocketTotals(
+      body,
+      body.gst_percentage,
+      body.transport_mode || existing.transportMode
+    );
 
     const bookingDate = new Date(body.booking_date || existing.bookingDate);
     if (Number.isNaN(bookingDate.getTime())) {
@@ -75,9 +77,9 @@ export async function PATCH(
     const paymentMode = body.payment_mode || existing.paymentMode;
     const paymentMethod = body.payment_method;
     const switchingToPaid = paymentMode === 'Paid' && existing.paymentMode !== 'Paid';
-    if (switchingToPaid && !['Cash', 'UPI', 'Bank Transfer'].includes(paymentMethod)) {
+    if (switchingToPaid && !isPaymentMethodLabel(paymentMethod)) {
       return NextResponse.json(
-        { error: 'A payment method (Cash, UPI, or Bank Transfer) is required when marking an LR as Paid.' },
+        { error: 'A valid payment method (Cash, UPI, Bank Transfer, Cheque, Card, or Other) is required when marking an LR as Paid.' },
         { status: 400 }
       );
     }

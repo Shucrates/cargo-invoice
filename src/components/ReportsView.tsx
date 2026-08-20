@@ -325,7 +325,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
 
           <Button
             onClick={handleExportPDF}
-            className="gap-2 text-xs font-semibold rounded-xl bg-[#2563EB] hover:bg-blue-700 text-white shadow-saas h-10 cursor-pointer"
+            className="gap-2 text-xs font-semibold rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas h-10 cursor-pointer"
           >
             <Download className="w-4 h-4" />
             <span>Download PDF</span>
@@ -338,7 +338,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
         <Card className="p-5 space-y-4 border border-slate-200/90 rounded-2xl bg-white shadow-saas animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[#2563EB]" />
+              <Filter className="w-4 h-4 text-[#0A2030]" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900">Custom Statement Filters</h3>
             </div>
             <div className="flex items-center gap-3">
@@ -382,7 +382,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
                   onClick={() => handlePresetChange(item.id)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
                     preset === item.id
-                      ? 'bg-[#2563EB] text-white shadow-saas'
+                      ? 'bg-[#0A2030] text-white shadow-saas'
                       : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200/80'
                   }`}
                 >
@@ -429,7 +429,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
               <select
                 value={paymentModeFilter}
                 onChange={(e) => setPaymentModeFilter(e.target.value as any)}
-                className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#0A2030]"
               >
                 <option value="all">All Payment Modes</option>
                 <option value="Paid">Paid</option>
@@ -443,7 +443,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
               <select
                 value={transportModeFilter}
                 onChange={(e) => setTransportModeFilter(e.target.value as any)}
-                className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#2563EB]"
+                className="w-full h-9 px-3 rounded-xl border border-slate-200 bg-slate-50/70 focus:bg-white text-xs font-medium text-slate-800 focus:outline-none focus:border-[#0A2030]"
               >
                 <option value="all">All Transport Modes</option>
                 <option value="Road">Road</option>
@@ -471,7 +471,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
         <div className="flex items-center justify-between gap-3 p-3 bg-white border border-slate-200 rounded-xl shadow-2xs">
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-slate-500 font-medium">Applied Statement Filter:</span>
-            <span className="px-2.5 py-1 rounded-lg bg-blue-50 text-[#2563EB] font-semibold border border-blue-100 flex items-center gap-1.5">
+            <span className="px-2.5 py-1 rounded-lg bg-[#0A2030]/10 text-[#0A2030] font-semibold border border-slate-200 flex items-center gap-1.5">
               <Calendar className="w-3.5 h-3.5" />
               {getPresetDates(preset).label}
             </span>
@@ -496,7 +496,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
             size="sm"
             variant="ghost"
             onClick={() => setShowFilters(true)}
-            className="text-xs text-[#2563EB] hover:text-blue-700 hover:bg-blue-50 font-semibold h-7 px-2.5 cursor-pointer"
+            className="text-xs text-[#0A2030] hover:text-[#071520] hover:bg-[#0A2030]/10 font-semibold h-7 px-2.5 cursor-pointer"
           >
             Edit Filters
           </Button>
@@ -525,7 +525,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
 
         <Card className="p-6 shadow-saas">
           <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">GST Output Tax (18%)</div>
-          <div className="text-2xl font-bold text-[#2563EB] mt-2 font-mono tracking-tight">
+          <div className="text-2xl font-bold text-[#0A2030] mt-2 font-mono tracking-tight">
             ₹{metrics.totalTax.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
           <div className="text-xs text-slate-500 mt-2 font-medium">Output tax liability</div>
@@ -536,9 +536,9 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
           <div className="text-2xl font-bold text-[#1F8A4C] mt-2 font-mono tracking-tight">
             ₹{metrics.paidSum.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
           </div>
-          <div className="text-xs text-slate-500 mt-2 font-medium flex items-center justify-between">
-            <span>Outstanding Due:</span>
-            <span className="font-semibold text-[#D14343] font-mono">
+          <div className="text-xs text-slate-500 mt-2 font-medium flex items-center justify-between gap-1.5 min-w-0">
+            <span className="truncate">Due:</span>
+            <span className="font-semibold text-[#D14343] font-mono shrink-0">
               ₹{metrics.pendingSum.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </span>
           </div>
@@ -551,7 +551,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
           onClick={() => setActiveReportTab('statement')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             activeReportTab === 'statement'
-              ? 'bg-[#2563EB] text-white shadow-saas'
+              ? 'bg-[#0A2030] text-white shadow-saas'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
@@ -562,7 +562,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
           onClick={() => setActiveReportTab('cash')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
             activeReportTab === 'cash'
-              ? 'bg-[#2563EB] text-white shadow-saas'
+              ? 'bg-[#0A2030] text-white shadow-saas'
               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
           }`}
         >
@@ -636,7 +636,7 @@ export default function ReportsView({ dockets, cashLog = [] }: ReportsViewProps)
                       <td className="px-5 py-3 text-right font-mono text-slate-700">
                         ₹{Number(d.subtotal || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                       </td>
-                      <td className="px-5 py-3 text-right font-mono text-[#2563EB]">
+                      <td className="px-5 py-3 text-right font-mono text-[#0A2030]">
                         ₹{Number(d.gst_amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                       </td>
                       <td className="px-5 py-3 text-right font-mono font-bold text-slate-900">

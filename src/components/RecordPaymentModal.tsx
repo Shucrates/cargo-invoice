@@ -149,7 +149,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div>
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-              <Wallet className="w-4 h-4 text-[#2563EB]" />
+              <Wallet className="w-4 h-4 text-[#0A2030]" />
               Payments
             </h3>
             <p className="text-[11px] text-slate-500 font-mono mt-0.5">{docket.docket_no}</p>
@@ -288,7 +288,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
                       onClick={() => setMethod(m)}
                       className={`h-8 rounded-md border text-[11px] font-medium transition-all ${
                         method === m
-                          ? 'border-[#2563EB] bg-blue-50 text-[#2563EB] font-bold ring-1 ring-[#2563EB]'
+                          ? 'border-[#0A2030] bg-[#0A2030]/10 text-[#0A2030] font-bold ring-1 ring-[#0A2030]'
                           : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                       }`}
                     >
@@ -330,7 +330,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-3 py-1.5 bg-[#2563EB] hover:bg-blue-700 text-white rounded-md text-xs font-semibold disabled:opacity-50 cursor-pointer"
+                  className="px-3 py-1.5 bg-[#0A2030] hover:bg-[#071520] text-white rounded-md text-xs font-semibold disabled:opacity-50 cursor-pointer"
                 >
                   {submitting ? 'Saving...' : 'Record Payment'}
                 </button>
@@ -344,7 +344,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
             <button
               onClick={openForm}
               disabled={amountDue <= 0}
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-[#2563EB] hover:text-[#2563EB] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-slate-300 text-xs font-semibold text-slate-600 hover:border-[#0A2030] hover:text-[#0A2030] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               <Wallet className="w-3.5 h-3.5" />
               {amountDue <= 0 ? 'Fully Settled' : 'Record Payment'}

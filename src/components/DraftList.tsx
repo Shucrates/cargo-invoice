@@ -15,7 +15,13 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-export default function DraftList({ onEdit }: { onEdit: (draft: DocketDraft) => void }) {
+export default function DraftList({
+  onEdit,
+  onDraftsChanged,
+}: {
+  onEdit: (draft: DocketDraft) => void;
+  onDraftsChanged?: (count: number) => void;
+}) {
   const [drafts, setDrafts] = useState<DocketDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<DocketDraft | null>(null);
@@ -27,7 +33,9 @@ export default function DraftList({ onEdit }: { onEdit: (draft: DocketDraft) => 
       const res = await fetch('/api/dockets/drafts');
       if (res.ok) {
         const data = await res.json();
-        setDrafts((data.drafts ?? []) as DocketDraft[]);
+        const list = (data.drafts ?? []) as DocketDraft[];
+        setDrafts(list);
+        onDraftsChanged?.(list.length);
       } else {
         setDrafts([]);
       }
@@ -49,7 +57,11 @@ export default function DraftList({ onEdit }: { onEdit: (draft: DocketDraft) => 
     try {
       const res = await fetch(`/api/dockets/drafts/${deleteTarget.id}`, { method: 'DELETE' });
       if (res.ok) {
-        setDrafts((prev) => prev.filter((d) => d.id !== deleteTarget.id));
+        setDrafts((prev) => {
+          const next = prev.filter((d) => d.id !== deleteTarget.id);
+          onDraftsChanged?.(next.length);
+          return next;
+        });
         setDeleteTarget(null);
       }
     } catch (err) {

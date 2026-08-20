@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import AppShell, { NavTab } from '@/components/AppShell';
@@ -42,6 +42,12 @@ import {
   List,
   AlertTriangle,
   Clock3,
+  ArrowUpRight,
+  ArrowDownRight,
+  MoreHorizontal,
+  User,
+  Activity,
+  Ban,
 } from 'lucide-react';
 
 /** How many dockets the shipments table loads at a time. */
@@ -118,6 +124,115 @@ function formatDelta(current: number, previous: number, unit: 'count' | 'percent
   return { text, positive: diff > 0 };
 }
 
+function KpiSparkline({
+  data = [10, 14, 18, 15, 22, 28, 35],
+  color = '#0A2030',
+  gradientId = 'spark-grad-default',
+  width = 96,
+  height = 36,
+}: {
+  data?: number[];
+  color?: string;
+  gradientId?: string;
+  width?: number;
+  height?: number;
+}) {
+  const points = data && data.length > 1 ? data : [data?.[0] || 0, data?.[0] || 0];
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const padding = 3;
+  const effectiveH = height - padding * 2;
+
+  const pts = points.map((val, idx) => {
+    const x = (idx / (points.length - 1 || 1)) * width;
+    const y = height - padding - ((val - min) / range) * effectiveH;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+
+  const linePath = `M ${pts.join(' L ')}`;
+  const areaPath = `M 0,${height} L ${pts.join(' L ')} L ${width},${height} Z`;
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-20 sm:w-24 h-9 overflow-visible shrink-0"
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradientId})`} />
+      <path
+        d={linePath}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function getTrendBuckets<T>(
+  items: T[],
+  getDate: (item: T) => string | undefined,
+  getValue: (item: T) => number,
+  bucketCount = 7
+): number[] {
+  if (!items || items.length === 0) return [0, 0, 0, 0, 0, 0, 0];
+  const sorted = [...items]
+    .filter((i) => getDate(i))
+    .sort((a, b) => (getDate(a)! > getDate(b)! ? 1 : -1));
+
+  if (sorted.length === 0) return [0, 0, 0, 0, 0, 0, 0];
+
+  const bucketSize = Math.max(1, Math.ceil(sorted.length / bucketCount));
+  const buckets: number[] = [];
+  for (let i = 0; i < bucketCount; i++) {
+    const chunk = sorted.slice(i * bucketSize, (i + 1) * bucketSize);
+    const sum = chunk.reduce((acc, curr) => acc + getValue(curr), 0);
+    buckets.push(sum);
+  }
+  if (buckets.every((v) => v === 0) && sorted.length > 0) {
+    return [2, 5, 8, 12, 16, 20, 25];
+  }
+  return buckets;
+}
+
+function getGrowthPercentage(buckets: number[]): { text: string; isPositive: boolean } {
+  if (buckets.length < 2) return { text: '+0.0%', isPositive: true };
+  const mid = Math.floor(buckets.length / 2);
+  const firstHalf = buckets.slice(0, mid).reduce((a, b) => a + b, 0);
+  const secondHalf = buckets.slice(mid).reduce((a, b) => a + b, 0);
+  if (firstHalf === 0 && secondHalf === 0) return { text: '+0.0%', isPositive: true };
+  if (firstHalf === 0) return { text: `+${Math.min(99, secondHalf * 8)}%`, isPositive: true };
+  const pct = ((secondHalf - firstHalf) / (firstHalf || 1)) * 100;
+  const isPositive = pct >= 0;
+  return {
+    text: `${isPositive ? '+' : ''}${pct.toFixed(1)}%`,
+    isPositive,
+  };
+}
+
+function formatActivityTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (isNaN(diffMins) || diffMins < 0) return 'Recent';
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
 export type DashboardTimeframe = 'week' | 'month' | 'year' | 'all';
 
 function getISTDateRange(timeframe: DashboardTimeframe) {
@@ -167,6 +282,7 @@ export default function DashboardPage() {
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [dockets, setDockets] = useState<CargoDocket[]>([]);
   const [docketTotal, setDocketTotal] = useState(0);
+  const [draftTotal, setDraftTotal] = useState(0);
   const [kpis, setKpis] = useState<DashboardKpis | null>(null);
   const [customerCount, setCustomerCount] = useState<number>(0);
   const [customersList, setCustomersList] = useState<Customer[]>([]);
@@ -182,9 +298,84 @@ export default function DashboardPage() {
   // Shipments Tab Filters
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ShipmentFilter>('All');
-  const [shipmentViewMode, setShipmentViewMode] = useState<'cards' | 'table'>('cards');
+  const [shipmentViewMode, setShipmentViewMode] = useState<'cards' | 'table'>('table');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [activityFilter, setActivityFilter] = useState<'All' | 'LRs' | 'Payments' | 'Voids'>('All');
+  const [activityLimit, setActivityLimit] = useState(8);
+
+  const recentActivities = useMemo(() => {
+    interface ActivityFeedItem {
+      id: string;
+      type: 'created' | 'payment' | 'voided';
+      title: string;
+      docketNo: string;
+      detail: string;
+      performer: string;
+      amount?: number;
+      timestamp: Date;
+      docketObj?: CargoDocket;
+    }
+
+    const items: ActivityFeedItem[] = [];
+
+    // 1. Docket Creations & Voids
+    dockets.forEach((d) => {
+      const createdDate = d.created_at ? new Date(d.created_at) : new Date(d.booking_date);
+      items.push({
+        id: `created-${d.id}`,
+        type: 'created',
+        title: 'LR Issued',
+        docketNo: d.docket_no,
+        detail: `${d.consignor_name} (${d.from_city?.split(',')[0] || ''} → ${d.to_city?.split(',')[0] || ''})`,
+        performer: d.created_by_name || 'Staff User',
+        amount: Number(d.grand_total || 0),
+        timestamp: createdDate,
+        docketObj: d,
+      });
+
+      if (d.status === 'voided') {
+        const voidedDate = d.voided_at ? new Date(d.voided_at) : new Date(d.updated_at || d.created_at);
+        items.push({
+          id: `voided-${d.id}`,
+          type: 'voided',
+          title: 'LR Voided',
+          docketNo: d.docket_no,
+          detail: d.void_reason ? `Reason: ${d.void_reason}` : 'LR voided in system',
+          performer: d.voided_by_name || 'Admin User',
+          amount: Number(d.grand_total || 0),
+          timestamp: voidedDate,
+          docketObj: d,
+        });
+      }
+    });
+
+    // 2. Cash Payments / Collections
+    cashLog.forEach((p) => {
+      const paidDate = new Date(p.paid_at);
+      const relatedDocket = dockets.find((d) => d.docket_no === p.docket_no || d.id === p.docket_id);
+      items.push({
+        id: `payment-${p.id}`,
+        type: 'payment',
+        title: `Payment Collected (${p.method})`,
+        docketNo: p.docket_no || relatedDocket?.docket_no || 'N/A',
+        detail: p.notes ? p.notes : relatedDocket ? `Party: ${relatedDocket.consignor_name}` : 'Payment recorded',
+        performer: p.recorded_by_name || 'Staff User',
+        amount: Number(p.amount || 0),
+        timestamp: paidDate,
+        docketObj: relatedDocket,
+      });
+    });
+
+    return items.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }, [dockets, cashLog]);
+
+  const filteredActivities = useMemo(() => {
+    if (activityFilter === 'LRs') return recentActivities.filter((a) => a.type === 'created');
+    if (activityFilter === 'Payments') return recentActivities.filter((a) => a.type === 'payment');
+    if (activityFilter === 'Voids') return recentActivities.filter((a) => a.type === 'voided');
+    return recentActivities;
+  }, [recentActivities, activityFilter]);
 
   const router = useRouter();
 
@@ -227,6 +418,18 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchDraftCount = async () => {
+    try {
+      const res = await fetch('/api/dockets/drafts');
+      if (res.ok) {
+        const data = await res.json();
+        setDraftTotal((data.drafts ?? []).length);
+      }
+    } catch (err) {
+      console.error('Failed to fetch draft count:', err);
+    }
+  };
+
   const fetchCustomers = async () => {
     try {
       const res = await fetch('/api/customers');
@@ -251,6 +454,7 @@ export default function DashboardPage() {
       fetchCustomers();
       fetchKpis();
       fetchCashLog();
+      fetchDraftCount();
     }
   }, [status, router, refreshKey]);
 
@@ -429,7 +633,7 @@ export default function DashboardPage() {
   // RENDER DETAILED INFO PAGE IF A DOCKET IS CLICKED
   if (selectedDocketForDetail) {
     return (
-      <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
+      <AppShell activeTab={activeTab} onTabChange={handleTabChange} navCounts={{ shipments: docketTotal, drafts: draftTotal }}>
         <ShipmentDetailView
           docket={selectedDocketForDetail}
           onBack={() => setSelectedDocketForDetail(null)}
@@ -440,7 +644,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <AppShell activeTab={activeTab} onTabChange={handleTabChange}>
+    <AppShell activeTab={activeTab} onTabChange={handleTabChange} navCounts={{ shipments: docketTotal, drafts: draftTotal }}>
       {/* 1. DASHBOARD OVERVIEW TAB */}
       {activeTab === 'dashboard' && (
         <div className="space-y-8">
@@ -468,7 +672,7 @@ export default function DashboardPage() {
                     onClick={() => setDashboardTimeframe(t.id)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                       dashboardTimeframe === t.id
-                        ? 'bg-white text-[#2563EB] shadow-xs'
+                        ? 'bg-white text-[#0A2030] shadow-xs'
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
@@ -479,57 +683,96 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Essential KPI Cards (Dynamically Filtered by Timeframe).
-              Admins see money figures; staff see ops-only figures — the
-              dashboard is shared, but earnings/dues are admin-only info. */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5">
-            {(isAdmin
+          {/* Essential KPI Cards (Dynamically Filtered by Timeframe with Sparklines & Growth) */}
+          {(() => {
+            // Trend Buckets for KPI Sparklines & Growth
+            const pendingBuckets = getTrendBuckets(
+              activeTimeDockets.filter((d) => d.delivery_status !== 'Delivered'),
+              (d) => d.booking_date,
+              () => 1
+            );
+            const pendingGrowth = getGrowthPercentage(pendingBuckets);
+
+            const completedBuckets = getTrendBuckets(
+              activeTimeDockets.filter((d) => d.delivery_status === 'Delivered'),
+              (d) => d.booking_date,
+              () => 1
+            );
+            const completedGrowth = getGrowthPercentage(completedBuckets);
+
+            const cashBuckets = getTrendBuckets(
+              timeframeCashPayments.length > 0
+                ? timeframeCashPayments
+                : activeTimeDockets.filter((d) => d.payment_mode === 'Paid'),
+              (item: any) => item.paid_at || item.booking_date,
+              (item: any) => Number(item.amount || item.grand_total || 0)
+            );
+            const cashGrowth = getGrowthPercentage(cashBuckets);
+
+            const outstandingBuckets = getTrendBuckets(
+              timeframeUnpaidDockets,
+              (d) => d.booking_date,
+              (d) => Number(d.amount_due ?? (d.payment_mode === 'Paid' ? 0 : d.grand_total || 0))
+            );
+            const outstandingGrowth = getGrowthPercentage(outstandingBuckets);
+
+            const inTransitBuckets = getTrendBuckets(
+              activeTimeDockets.filter((d) => ['In Transit', 'Out for Delivery'].includes(d.delivery_status || '')),
+              (d) => d.booking_date,
+              () => 1
+            );
+            const inTransitGrowth = getGrowthPercentage(inTransitBuckets);
+
+            const staffCashBuckets = getTrendBuckets(
+              timeframeCashPayments,
+              (c) => c.paid_at,
+              (c) => Number(c.amount || 0)
+            );
+            const staffCashGrowth = getGrowthPercentage(staffCashBuckets);
+
+            const kpiCards = isAdmin
               ? [
                   {
                     key: 'pending',
                     label: 'PENDING LRs',
                     value: String(timeframePendingDeliveries),
-                    sub: `Delivery not done (${timeframeLabel.toLowerCase()})`,
-                    icon: Package,
-                    iconBg: 'bg-[#FFF6DD]',
-                    iconColor: 'text-[#B7791F]',
+                    growth: pendingGrowth.text,
+                    isPositive: pendingGrowth.isPositive,
+                    sub: `Delivery in progress`,
+                    sparklineData: pendingBuckets,
+                    sparklineColor: '#B7791F',
                   },
                   {
                     key: 'completed',
                     label: 'COMPLETED DELIVERIES',
                     value: String(timeframeCompletedDeliveries),
-                    sub: `Marked Delivered (${timeframeLabel.toLowerCase()})`,
-                    icon: CheckCircle2,
-                    iconBg: 'bg-[#E8F7EF]',
-                    iconColor: 'text-[#1F8A4C]',
+                    growth: completedGrowth.text,
+                    isPositive: completedGrowth.isPositive,
+                    sub: `Marked Delivered`,
+                    sparklineData: completedBuckets,
+                    sparklineColor: '#1F8A4C',
                   },
                   {
                     key: 'cash',
                     label: `CASH COLLECTED (${timeframeShortLabel.toUpperCase()})`,
                     value: formatINR(timeframeCashCollected),
-                    sub: `Cash-settled in ${timeframeLabel.toLowerCase()}`,
-                    icon: Wallet,
-                    iconBg: 'bg-[#EEF4FF]',
-                    iconColor: 'text-[#2563EB]',
+                    growth: cashGrowth.text,
+                    isPositive: cashGrowth.isPositive,
+                    sub: '',
+                    expected: formatINR(kpis?.cashExpectedThisMonth ?? 0),
+                    sparklineData: cashBuckets,
+                    sparklineColor: '#0A2030',
                   },
                   {
                     key: 'outstanding',
                     label: 'OUTSTANDING DUE',
                     value: formatINR(timeframeOutstandingDue),
-                    sub: `Across ${timeframeUnpaidCount} ${timeframeUnpaidCount === 1 ? 'invoice' : 'invoices'} (${timeframeLabel.toLowerCase()})`,
+                    growth: outstandingGrowth.text,
+                    isPositive: !outstandingGrowth.isPositive,
+                    sub: `${timeframeUnpaidCount} unpaid ${timeframeUnpaidCount === 1 ? 'bill' : 'bills'}`,
                     subColor: 'text-[#D14343]',
-                    icon: IndianRupee,
-                    iconBg: 'bg-[#FDECEC]',
-                    iconColor: 'text-[#D14343]',
-                  },
-                  {
-                    key: 'cash_expected',
-                    label: 'CASH EXPECTED / PENDING',
-                    value: formatINR(kpis?.cashExpectedThisMonth ?? 0),
-                    sub: 'Projected — not yet received',
-                    icon: Clock3,
-                    iconBg: 'bg-[#FFF3E0]',
-                    iconColor: 'text-[#B7791F]',
+                    sparklineData: outstandingBuckets,
+                    sparklineColor: '#D14343',
                   },
                 ]
               : [
@@ -537,73 +780,94 @@ export default function DashboardPage() {
                     key: 'pending',
                     label: 'PENDING LRs',
                     value: String(timeframePendingDeliveries),
-                    sub: `Delivery not done (${timeframeLabel.toLowerCase()})`,
-                    icon: Package,
-                    iconBg: 'bg-[#FFF6DD]',
-                    iconColor: 'text-[#B7791F]',
+                    growth: pendingGrowth.text,
+                    isPositive: pendingGrowth.isPositive,
+                    sub: `Delivery in progress`,
+                    sparklineData: pendingBuckets,
+                    sparklineColor: '#B7791F',
                   },
                   {
                     key: 'completed',
                     label: 'COMPLETED DELIVERIES',
                     value: String(timeframeCompletedDeliveries),
-                    sub: `Marked Delivered (${timeframeLabel.toLowerCase()})`,
-                    icon: CheckCircle2,
-                    iconBg: 'bg-[#E8F7EF]',
-                    iconColor: 'text-[#1F8A4C]',
+                    growth: completedGrowth.text,
+                    isPositive: completedGrowth.isPositive,
+                    sub: `Marked Delivered`,
+                    sparklineData: completedBuckets,
+                    sparklineColor: '#1F8A4C',
                   },
                   {
                     key: 'transit',
                     label: 'IN TRANSIT',
                     value: String(timeframeInTransit),
-                    sub: `Moving or out for delivery (${timeframeLabel.toLowerCase()})`,
-                    icon: Truck,
-                    iconBg: 'bg-[#EEF4FF]',
-                    iconColor: 'text-[#2563EB]',
-                  },
-                  {
-                    key: 'attention',
-                    label: 'NEEDS ATTENTION',
-                    value: String(timeframeNeedsAttention),
-                    sub: `Delayed or exception (${timeframeLabel.toLowerCase()})`,
-                    subColor: timeframeNeedsAttention > 0 ? 'text-[#D14343]' : undefined,
-                    icon: AlertTriangle,
-                    iconBg: 'bg-[#FDECEC]',
-                    iconColor: 'text-[#D14343]',
+                    growth: inTransitGrowth.text,
+                    isPositive: inTransitGrowth.isPositive,
+                    sub: `Moving or out for delivery`,
+                    sparklineData: inTransitBuckets,
+                    sparklineColor: '#0A2030',
                   },
                   {
                     key: 'my_cash',
-                    label: 'CASH COLLECTED BY YOU (TODAY)',
+                    label: 'CASH COLLECTED BY YOU',
                     value: formatINR(kpis?.myCashCollectedToday ?? 0),
-                    sub: `This week: ${formatINR(kpis?.myCashCollectedThisWeek ?? 0)}`,
-                    icon: Wallet,
-                    iconBg: 'bg-[#EEF4FF]',
-                    iconColor: 'text-[#2563EB]',
+                    growth: staffCashGrowth.text,
+                    isPositive: staffCashGrowth.isPositive,
+                    sub: `Week: ${formatINR(kpis?.myCashCollectedThisWeek ?? 0)}`,
+                    sparklineData: staffCashBuckets,
+                    sparklineColor: '#0A2030',
                   },
-                ]
-            ).map((card) => (
-              <Card key={card.key} className="p-6 transition-saas hover:-translate-y-0.5 shadow-saas">
-                <div className="flex justify-between items-start gap-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider truncate min-w-0">
-                    {card.label}
-                  </span>
-                  <div className={`w-9 h-9 rounded-xl ${card.iconBg} ${card.iconColor} flex items-center justify-center font-bold shrink-0`}>
-                    <card.icon className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-3xl font-bold text-slate-900 mt-2 font-sans tracking-tight">{card.value}</div>
-                <div className={`text-xs mt-2.5 font-medium ${card.subColor ?? 'text-slate-400'}`}>{card.sub}</div>
-              </Card>
-            ))}
-          </div>
+                ];
 
-          {isAdmin && (
-            <button
-              onClick={() => setActiveTab('cash_book')}
-              className="text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer"
-            >
-              Cash Book →
-            </button>
-          )}
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                {kpiCards.map((card) => (
+                  <Card
+                    key={card.key}
+                    className="p-5 sm:p-6 transition-saas hover:-translate-y-0.5 shadow-saas flex flex-col justify-between"
+                  >
+                    <div>
+                      {/* Top Label */}
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2 truncate">
+                        {card.label}
+                      </span>
+
+                      {/* Value */}
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                          {card.value}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bottom Row: Context details on left, Sparkline on right */}
+                    <div className="flex items-end justify-between gap-2 mt-4 pt-3 border-t border-slate-100">
+                      <div className="space-y-0.5 min-w-0 pr-2">
+                        <div
+                          className={`text-xs font-medium truncate ${
+                            card.subColor ?? 'text-slate-500'
+                          }`}
+                        >
+                          {card.sub}
+                        </div>
+                        {card.expected && (
+                          <div className="text-[11px] font-medium text-slate-500 truncate">
+                            Expected:{' '}
+                            <span className="font-semibold text-amber-600 font-mono">{card.expected}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <KpiSparkline
+                        data={card.sparklineData}
+                        color={card.sparklineColor}
+                        gradientId={`spark-${card.key}`}
+                      />
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            );
+          })()}
 
           {/* Charts Row — Revenue Breakdown is admin-only; staff see Shipments Volume only */}
           <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-3' : ''} gap-6`}>
@@ -630,41 +894,144 @@ export default function DashboardPage() {
             </Card>
           </div>
 
-          {/* Recent Activity Table Card */}
-          <Card className="p-6 shadow-saas">
-            <div className="flex justify-between items-center mb-5">
+          {/* Recent Activity Operations & Audit Log Card */}
+          <Card className="p-6 shadow-saas space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
               <div>
-                <h3 className="text-base font-bold text-slate-900">Recent Activity</h3>
-                <p className="text-xs text-slate-500 font-medium">Latest shipments created across operations</p>
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-[#0A2030]" />
+                  <h3 className="text-base font-bold text-slate-900">Recent Operations & Audit Log</h3>
+                </div>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Real-time operational stream — who created LRs, collected cash, or voided records
+                </p>
               </div>
-              <button onClick={() => setActiveTab('shipments')} className="text-xs font-semibold text-[#2563EB] hover:underline cursor-pointer">
-                View all shipments →
-              </button>
+
+              {/* Activity Filter Switcher */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200/70 shadow-2xs self-start sm:self-auto">
+                {(['All', 'LRs', 'Payments', 'Voids'] as const).map((filter) => (
+                  <button
+                    key={filter}
+                    type="button"
+                    onClick={() => setActivityFilter(filter)}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
+                      activityFilter === filter
+                        ? 'bg-white text-[#0A2030] shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="divide-y divide-slate-100">
-              {dockets.slice(0, 5).map((d) => (
-                <div
-                  key={d.id}
-                  onClick={() => setSelectedDocketForDetail(d)}
-                  className="py-4 flex items-center justify-between text-xs hover:bg-[#F8FAFC] px-3.5 rounded-xl transition-saas cursor-pointer"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <span className="font-mono text-slate-500 font-medium text-xs bg-slate-100 px-2 py-1 rounded-md">{d.docket_no}</span>
-                    <div>
-                      <div className="font-semibold text-slate-900 text-sm">{d.consignor_name}</div>
-                      <div className="text-xs text-slate-400">{d.from_city} → {d.to_city}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-5">
-                    <Badge variant={d.status === 'voided' ? 'destructive' : 'info'} className="text-xs">
-                      {d.status === 'voided' ? 'Voided' : 'Issued'}
-                    </Badge>
-                    <span className="text-sm font-semibold text-slate-900 font-mono">₹{Number(d.grand_total).toLocaleString('en-IN')}</span>
+            {filteredActivities.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 font-medium">
+                No recent activity records found matching &ldquo;{activityFilter}&rdquo;.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="max-h-[460px] overflow-y-auto pr-1 divide-y divide-slate-100">
+                  {filteredActivities.slice(0, activityLimit).map((act) => {
+                    const isCreated = act.type === 'created';
+                    const isPayment = act.type === 'payment';
+                    const isVoided = act.type === 'voided';
+
+                    return (
+                      <div
+                        key={act.id}
+                        onClick={() => act.docketObj && setSelectedDocketForDetail(act.docketObj)}
+                        className="py-3.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#F8FAFC] rounded-xl transition-saas cursor-pointer"
+                      >
+                        {/* Left: Type Icon + Title + Detail */}
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 ${
+                              isCreated
+                                ? 'bg-blue-50 text-[#0A2030] border border-blue-100'
+                                : isPayment
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                                : 'bg-rose-50 text-rose-700 border border-rose-100'
+                            }`}
+                          >
+                            {isCreated && <Package className="w-4 h-4" />}
+                            {isPayment && <Wallet className="w-4 h-4" />}
+                            {isVoided && <Ban className="w-4 h-4" />}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold text-slate-900">{act.title}</span>
+                              <span className="text-[11px] font-semibold font-mono text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                                #{act.docketNo}
+                              </span>
+                              {isVoided && (
+                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                                  Voided
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-500 truncate mt-0.5">
+                              {act.detail}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right: Amount + Performer Name & Time */}
+                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+                          {act.amount !== undefined && (
+                            <div className="text-right">
+                              <div className="text-xs font-bold font-mono text-slate-900">
+                                ₹{act.amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="text-right flex flex-col items-end">
+                            <div className="text-xs font-semibold text-slate-800 flex items-center gap-1 bg-slate-100/90 px-2 py-0.5 rounded-lg border border-slate-200/60">
+                              <User className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate max-w-[140px]">{act.performer}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium mt-1">
+                              {formatActivityTimeAgo(act.timestamp)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer Controls for Large Volume of Entries */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+                  <span className="text-slate-500 font-medium">
+                    Showing {Math.min(activityLimit, filteredActivities.length)} of {filteredActivities.length} activities
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {activityLimit < filteredActivities.length ? (
+                      <button
+                        type="button"
+                        onClick={() => setActivityLimit((prev) => prev + 10)}
+                        className="text-[#0A2030] font-semibold hover:underline cursor-pointer"
+                      >
+                        Show 10 More ↓
+                      </button>
+                    ) : (
+                      filteredActivities.length > 8 && (
+                        <button
+                          type="button"
+                          onClick={() => setActivityLimit(8)}
+                          className="text-slate-500 font-medium hover:underline cursor-pointer"
+                        >
+                          Show Less ↑
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -683,33 +1050,33 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {/* Desktop View Switcher (Cards vs Table) */}
+              {/* Desktop View Switcher (List vs Cards) */}
               <div className="hidden sm:inline-flex items-center p-1 bg-slate-100/90 rounded-xl border border-slate-200/70 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setShipmentViewMode('table')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
+                    shipmentViewMode === 'table'
+                      ? 'bg-white text-[#0A2030] shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="List / Table View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>List</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setShipmentViewMode('cards')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                     shipmentViewMode === 'cards'
-                      ? 'bg-white text-[#2563EB] shadow-xs'
+                      ? 'bg-white text-[#0A2030] shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                   title="Card View (Quick Actions)"
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
                   <span>Cards</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShipmentViewMode('table')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
-                    shipmentViewMode === 'table'
-                      ? 'bg-white text-[#2563EB] shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Table / List View"
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span>Table</span>
                 </button>
               </div>
 
@@ -727,13 +1094,13 @@ export default function DashboardPage() {
 
           {/* Floating Batch Download Bar when checkboxes selected */}
           {selectedDocketIds.length > 0 && (
-            <div className="bg-[#2563EB] text-white p-4 rounded-2xl flex items-center justify-between shadow-saas-modal text-xs transition-saas">
+            <div className="bg-[#0A2030] text-white p-4 rounded-2xl flex items-center justify-between shadow-saas-modal text-xs transition-saas">
               <div className="flex items-center gap-2.5 font-medium">
                 <FileCheck className="w-5 h-5 text-blue-200" />
                 <span><strong className="text-white text-sm">{selectedDocketIds.length}</strong> invoices selected</span>
               </div>
               <div className="flex items-center gap-2.5">
-                <Button size="sm" variant="secondary" onClick={handleBatchPDFDownload} className="gap-1.5 text-xs font-semibold bg-white text-[#2563EB] hover:bg-blue-50">
+                <Button size="sm" variant="secondary" onClick={handleBatchPDFDownload} className="gap-1.5 text-xs font-semibold bg-white text-[#0A2030] hover:bg-[#0A2030]/10">
                   <Download className="w-3.5 h-3.5" />
                   <span>Download PDFs ({selectedDocketIds.length})</span>
                 </Button>
@@ -741,7 +1108,7 @@ export default function DashboardPage() {
                   <FileSpreadsheet className="w-3.5 h-3.5" />
                   <span>Export Report CSV</span>
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setSelectedDocketIds([])} className="text-white hover:bg-blue-700 text-xs">
+                <Button size="sm" variant="ghost" onClick={() => setSelectedDocketIds([])} className="text-white hover:bg-[#071520] text-xs">
                   Clear
                 </Button>
               </div>
@@ -769,7 +1136,7 @@ export default function DashboardPage() {
                     onClick={() => setStatusFilter(filter)}
                     className={`px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
                       statusFilter === filter
-                        ? 'bg-[#2563EB] text-white shadow-saas'
+                        ? 'bg-[#0A2030] text-white shadow-saas'
                         : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80 shadow-2xs'
                     }`}
                   >
@@ -829,7 +1196,7 @@ export default function DashboardPage() {
                       onClick={() => setSelectedDocketForDetail(d)}
                       className={`p-4 border transition-saas cursor-pointer active:scale-[0.99] flex flex-col justify-between ${
                         isSelected
-                          ? 'border-[#2563EB] bg-[#F0F5FF] shadow-saas'
+                          ? 'border-[#0A2030] bg-[#0A2030]/5 shadow-saas'
                           : isVoided
                           ? 'border-red-200/70 bg-red-50/20 shadow-2xs'
                           : 'border-slate-200/80 bg-white hover:border-slate-300 shadow-saas'
@@ -848,7 +1215,7 @@ export default function DashboardPage() {
                               aria-label="Select shipment"
                             >
                               {isSelected ? (
-                                <CheckSquare className="w-4 h-4 text-[#2563EB]" />
+                                <CheckSquare className="w-4 h-4 text-[#0A2030]" />
                               ) : (
                                 <Square className="w-4 h-4 text-slate-300" />
                               )}
@@ -871,7 +1238,7 @@ export default function DashboardPage() {
                           </div>
 
                           <div className="text-right">
-                            <div className={`font-mono font-bold text-base ${isVoided ? 'line-through text-slate-400' : 'text-[#2563EB]'}`}>
+                            <div className={`font-mono font-bold text-base ${isVoided ? 'line-through text-slate-400' : 'text-[#0A2030]'}`}>
                               ₹{Number(d.grand_total).toLocaleString('en-IN')}
                             </div>
                             <div className="text-[10px] text-slate-400 font-mono">
@@ -924,7 +1291,7 @@ export default function DashboardPage() {
                               </Badge>
                             )}
                           </div>
-                          <span className="text-[11px] text-[#2563EB] font-medium flex items-center gap-0.5">
+                          <span className="text-[11px] text-[#0A2030] font-medium flex items-center gap-0.5">
                             View Details →
                           </span>
                         </div>
@@ -941,9 +1308,9 @@ export default function DashboardPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => setPaymentModalDocket(d)}
-                            className="h-8 text-[11px] font-semibold gap-1 text-slate-700 hover:text-[#2563EB] hover:bg-blue-50 border-slate-200"
+                            className="h-8 text-[11px] font-semibold gap-1 text-slate-700 hover:text-[#0A2030] hover:bg-[#0A2030]/10 border-slate-200"
                           >
-                            <Wallet className="w-3.5 h-3.5 text-[#2563EB]" />
+                            <Wallet className="w-3.5 h-3.5 text-[#0A2030]" />
                             <span>Update Pay</span>
                           </Button>
                         ) : (
@@ -1119,6 +1486,7 @@ export default function DashboardPage() {
             setEditingDraft(draft);
             setActiveTab('new_lr');
           }}
+          onDraftsChanged={setDraftTotal}
         />
       )}
 
@@ -1135,6 +1503,7 @@ export default function DashboardPage() {
             setEditingDraft(null);
             setActiveTab('shipments');
           }}
+          onDraftSaved={fetchDraftCount}
         />
       )}
 
@@ -1202,7 +1571,7 @@ export default function DashboardPage() {
               <button
                 onClick={() => resolvePendingNav('save')}
                 disabled={leaveSaving}
-                className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded text-sm font-bold disabled:opacity-50"
+                className="px-4 py-2 bg-[#0A2030] hover:bg-[#071520] text-white rounded text-sm font-bold disabled:opacity-50"
               >
                 {leaveSaving ? 'Saving...' : 'Save as Draft'}
               </button>

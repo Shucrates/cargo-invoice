@@ -106,7 +106,7 @@ export function CityInput({ value, onChange, extraCities, className = '', ...inp
                 }}
                 onMouseEnter={() => setHighlight(idx)}
                 className={`block w-full truncate px-3 py-1.5 text-left text-sm ${
-                  idx === highlight ? 'bg-[#2563EB]/10 text-[#2563EB] font-medium' : 'text-slate-700'
+                  idx === highlight ? 'bg-[#0A2030]/10 text-[#0A2030] font-medium' : 'text-slate-700'
                 }`}
               >
                 {city}

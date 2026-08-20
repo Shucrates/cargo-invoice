@@ -16,10 +16,13 @@ export interface DocketCharges {
   docket_charge?: unknown;
   pickup_delivery_charge?: unknown;
   other_charge?: unknown;
+  transport_mode?: unknown;
 }
 
 export interface DocketTotals {
   subtotalPaise: number;
+  serviceChargePaise: number;
+  serviceChargeRate: number;
   gstPaise: number;
   grandTotalPaise: number;
 }
@@ -64,12 +67,13 @@ export function formatPaise(paise: number): string {
  * form call this, so a quote shown to the customer and the row written to the
  * database can never disagree.
  *
- * GST is rounded half-up to the nearest paise on the subtotal as a whole, which
- * is what GSTR-1 expects — rounding each line separately would drift.
+ * If transport_mode is 'Air', an additional 35% service charge is added to the subtotal.
+ * GST is rounded half-up to the nearest paise on the subtotal as a whole.
  */
 export function computeDocketTotals(
   charges: DocketCharges,
-  gstPercentage: unknown
+  gstPercentage: unknown,
+  transportMode?: unknown
 ): DocketTotals {
   const subtotalPaise =
     toPaise(charges.freight_amount) +
@@ -79,6 +83,11 @@ export function computeDocketTotals(
     toPaise(charges.pickup_delivery_charge) +
     toPaise(charges.other_charge);
 
+  const mode = transportMode ?? charges.transport_mode;
+  const isAir = mode === 'Air';
+  const serviceChargeRate = isAir ? 35 : 0;
+  const serviceChargePaise = isAir ? Math.round((subtotalPaise * 35) / 100) : 0;
+
   const rate = Number(gstPercentage);
   const gstRate = Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : 18;
 
@@ -86,8 +95,10 @@ export function computeDocketTotals(
 
   return {
     subtotalPaise,
+    serviceChargePaise,
+    serviceChargeRate,
     gstPaise,
-    grandTotalPaise: subtotalPaise + gstPaise,
+    grandTotalPaise: subtotalPaise + serviceChargePaise + gstPaise,
   };
 }
 

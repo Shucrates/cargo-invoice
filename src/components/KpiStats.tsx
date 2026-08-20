@@ -63,7 +63,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
       {/* Top Dashboard Period Time-Scope Selector */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-saas gap-3">
         <div className="flex items-center gap-2.5 text-xs font-semibold text-slate-700">
-          <Clock className="w-4 h-4 text-[#2563EB]" />
+          <Clock className="w-4 h-4 text-[#0A2030]" />
           <span>Dashboard Scope:</span>
         </div>
         <div className="flex items-center gap-1.5 bg-[#F8FAFC] p-1 rounded-xl border border-slate-200/80 text-xs font-medium">
@@ -71,7 +71,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
             onClick={() => setTimeScope('today')}
             className={`px-3.5 py-1.5 rounded-lg transition-saas cursor-pointer ${
               timeScope === 'today'
-                ? 'bg-[#2563EB] text-white shadow-2xs font-semibold'
+                ? 'bg-[#0A2030] text-white shadow-2xs font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -81,7 +81,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
             onClick={() => setTimeScope('this_month')}
             className={`px-3.5 py-1.5 rounded-lg transition-saas cursor-pointer ${
               timeScope === 'this_month'
-                ? 'bg-[#2563EB] text-white shadow-2xs font-semibold'
+                ? 'bg-[#0A2030] text-white shadow-2xs font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -91,7 +91,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
             onClick={() => setTimeScope('all_time')}
             className={`px-3.5 py-1.5 rounded-lg transition-saas cursor-pointer ${
               timeScope === 'all_time'
-                ? 'bg-[#2563EB] text-white shadow-2xs font-semibold'
+                ? 'bg-[#0A2030] text-white shadow-2xs font-semibold'
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
@@ -111,7 +111,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
                 ₹{totalRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center font-bold">
               <IndianRupee className="w-5 h-5" />
             </div>
           </div>
@@ -131,7 +131,7 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
                 {activeDockets.length} <span className="text-xs font-medium text-slate-400 font-sans">issued</span>
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center font-bold">
               <FileText className="w-5 h-5" />
             </div>
           </div>
@@ -188,11 +188,11 @@ export default function KpiStats({ dockets }: { dockets: CargoDocket[] }) {
           <div className="flex justify-between items-start">
             <div>
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">To Pay Total</p>
-              <h3 className="text-2xl font-bold text-[#2563EB] font-mono mt-1.5 tracking-tight">
+              <h3 className="text-2xl font-bold text-[#0A2030] font-mono mt-1.5 tracking-tight">
                 ₹{toPayTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
             </div>
-            <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center font-bold">
               <Wallet className="w-5 h-5" />
             </div>
           </div>

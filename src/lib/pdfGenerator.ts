@@ -23,7 +23,7 @@ function numberToWords(num: number): string {
   return inWords(Math.floor(num)) + ' Rupees Only';
 }
 
-export async function generateInvoicePDF(docket: CargoDocket) {
+export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   const settings = getCompanySettings();
 
   // Precise Calculation Audit
@@ -37,11 +37,14 @@ export async function generateInvoicePDF(docket: CargoDocket) {
   const calculatedSubtotal = freight + handling + risk + docketChg + pickup + other;
   const subtotal = Number(docket.subtotal || calculatedSubtotal);
 
+  const isAir = docket.transport_mode === 'Air';
+  const serviceCharge = isAir ? Math.round(subtotal * 0.35 * 100) / 100 : 0;
+
   const gstPercentage = Number(docket.gst_percentage || 18);
   const calculatedGST = Math.round(subtotal * (gstPercentage / 100));
   const gstAmount = Number(docket.gst_amount || calculatedGST);
 
-  const grandTotal = Number(docket.grand_total || (subtotal + gstAmount));
+  const grandTotal = Number(docket.grand_total || (subtotal + serviceCharge + gstAmount));
 
   // A4 Landscape Mode (297mm x 210mm)
   const doc = new jsPDF({
@@ -61,9 +64,9 @@ export async function generateInvoicePDF(docket: CargoDocket) {
     doc.setDrawColor(148, 163, 184); // #94A3B8 Border Lines
   };
 
-  // Dynamic Data Ink Style: Vibrant Royal Blue Ink (#1D4ED8)
+  // Dynamic Data Ink Style: Black Ink (#0F172A)
   const setDataStyle = (fontSize: number = 9) => {
-    doc.setTextColor(29, 78, 216); // #1D4ED8 Royal Blue Ink
+    doc.setTextColor(15, 23, 42); // #0F172A Dark Black Ink
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(fontSize);
   };
@@ -77,19 +80,6 @@ export async function generateInvoicePDF(docket: CargoDocket) {
   // ==========================================
   // TOP BAR: Transport Mode Checkboxes & Docket Number
   // ==========================================
-  setTemplateStyle();
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-
-  doc.text('International', 105, marginY + 4.5);
-  doc.rect(123, marginY + 1.5, 3.5, 3.5);
-
-  if (docket.is_international) {
-    setDataStyle(8);
-    doc.text('X', 123.8, marginY + 4.3);
-    setTemplateStyle();
-  }
-
   const drawCheckbox = (x: number, y: number, label: string, isChecked: boolean) => {
     setTemplateStyle();
     doc.rect(x, y, 3.5, 3.5);
@@ -104,6 +94,7 @@ export async function generateInvoicePDF(docket: CargoDocket) {
     }
   };
 
+  drawCheckbox(105, marginY + 1.5, 'International', Boolean(docket.is_international));
   drawCheckbox(132, marginY + 1.5, 'Air', docket.transport_mode === 'Air');
   drawCheckbox(150, marginY + 1.5, 'Road', docket.transport_mode === 'Road');
   drawCheckbox(170, marginY + 1.5, 'Train', docket.transport_mode === 'Train');
@@ -134,10 +125,10 @@ export async function generateInvoicePDF(docket: CargoDocket) {
     console.error('Failed to render company logo on PDF:', e);
   }
 
-  // Left Company Title (Royal Blue) - Shifted to marginX + 23 to sit beside logo
+  // Left Company Title (Dark Black) - Shifted to marginX + 23 to sit beside logo
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(29, 78, 216);
+  doc.setTextColor(15, 23, 42);
   doc.text(settings.tradeName, marginX + 23, marginY + 12);
 
   setTemplateStyle();
@@ -525,6 +516,7 @@ export async function generateInvoicePDF(docket: CargoDocket) {
     { name: 'Pick-up & Delivery Charges', val: pickup },
     { name: 'Other Charges', val: other },
     { name: 'Subtotal', val: subtotal },
+    ...(isAir ? [{ name: 'Air Service Charge (35%)', val: serviceCharge }] : []),
     { name: `GST ${gstPercentage}%`, val: gstAmount },
   ];
 
@@ -578,7 +570,7 @@ export async function generateInvoicePDF(docket: CargoDocket) {
   // Left Column Text (X = 137 to X = 156, width 19mm)
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(29, 78, 216);
+  doc.setTextColor(15, 23, 42);
   doc.text('PAYMENT QR', rightColX + 2, sigY + 4);
   doc.text('CODE', rightColX + 2, sigY + 7.5);
 
@@ -592,7 +584,7 @@ export async function generateInvoicePDF(docket: CargoDocket) {
 
   doc.setFontSize(6);
   doc.setFont('helvetica', 'bold');
-  doc.setTextColor(29, 78, 216);
+  doc.setTextColor(15, 23, 42);
   doc.text('Scan & Pay', rightColX + 2, sigY + 22);
 
   // Render Scannable GPay UPI QR Code Image (Size 20mm x 20mm at X = rightColX + 23 = 158mm to 178mm)
@@ -651,8 +643,18 @@ export async function generateInvoicePDF(docket: CargoDocket) {
   // Reset text color
   doc.setTextColor(0, 0, 0);
 
-  // Save Docket PDF
+  return doc;
+}
+
+export async function generateInvoicePDF(docket: CargoDocket) {
+  const doc = await buildInvoicePDF(docket);
   doc.save(`${docket.docket_no}.pdf`);
+}
+
+export async function getInvoicePDFBlobUrl(docket: CargoDocket): Promise<string> {
+  const doc = await buildInvoicePDF(docket);
+  const blob = doc.output('blob');
+  return URL.createObjectURL(blob);
 }
 
 
@@ -683,7 +685,7 @@ export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
   const rightX = marginX + pageW;
 
   const slate = () => doc.setTextColor(71, 85, 105);
-  const ink = () => doc.setTextColor(29, 78, 216);
+  const ink = () => doc.setTextColor(15, 23, 42);
   const dark = () => doc.setTextColor(15, 23, 42);
   doc.setDrawColor(100, 116, 139);
   doc.setLineWidth(0.3);

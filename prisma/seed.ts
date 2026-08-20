@@ -31,6 +31,17 @@ async function main() {
   console.log('Seed completed successfully:');
   console.log(' - Admin:', admin.email);
   console.log(' - Staff:', staff.email);
+
+  console.log('Seeding real Indian corporate customers...');
+  const { REAL_INDIAN_CUSTOMERS } = await import('./seedCustomers');
+  for (const c of REAL_INDIAN_CUSTOMERS) {
+    await prisma.customer.upsert({
+      where: { code: c.code },
+      update: c,
+      create: c,
+    });
+  }
+  console.log(` - Customers: ${REAL_INDIAN_CUSTOMERS.length} authentic Indian brands configured.`);
 }
 
 main()
