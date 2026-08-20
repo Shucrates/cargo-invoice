@@ -42,6 +42,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         case 'blue dart':
         case 'bluedart':
           return `https://www.bluedart.com/tracking?handler=t&trackFor=0&waybillNo=${cleanW}`;
+        case 'dtdc':
+          return `https://www.dtdc.in/tracking/tracking_results.asp?TknNo=${cleanW}`;
+        case 'trackon':
+        case 'track on':
+          return `https://trackon.in/Tracking/Search?awbNo=${cleanW}`;
+        case 'delhivery':
+          return `https://www.delhivery.com/track/package/${cleanW}`;
+        case 'ekart':
+          return `https://ekartlogistics.com/shipmenttrack/${cleanW}`;
         default:
           return `https://www.google.com/search?q=track+package+${cleanW}`;
       }

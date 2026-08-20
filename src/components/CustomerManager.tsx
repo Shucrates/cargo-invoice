@@ -30,9 +30,11 @@ import {
   DollarSign,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  Download
 } from 'lucide-react';
 import { PAYMENT_METHODS } from '@/lib/paymentMethod';
+import { downloadCSV } from '@/lib/exportUtils';
 
 export interface CustomerProfile {
   id: string;
@@ -105,10 +107,11 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
   const [activeTab, setActiveTab] = useState<'lrs' | 'payments' | 'info'>('lrs');
   const [lrFilter, setLrFilter] = useState<'all' | 'credit' | 'unpaid' | 'paid'>('all');
 
-  // Bulk credit payment modal
+  // Bulk payment modal
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payMethod, setPayMethod] = useState('Bank Transfer');
+  const [payTargetMode, setPayTargetMode] = useState<'all' | 'credit' | 'to_pay'>('all');
   const [payNotes, setPayNotes] = useState('');
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [submittingPay, setSubmittingPay] = useState(false);
@@ -132,8 +135,6 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
   const [pinCode, setPinCode] = useState('');
   const [gstin, setGstin] = useState('');
   const [email, setEmail] = useState('');
-  const [paymentTermsDays, setPaymentTermsDays] = useState('30');
-  const [creditLimit, setCreditLimit] = useState('500000');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -192,8 +193,6 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
     setPinCode('');
     setGstin('');
     setEmail('');
-    setPaymentTermsDays('30');
-    setCreditLimit('500000');
     setNotes('');
     setError(null);
     setShowModal(true);
@@ -209,8 +208,6 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
     setPinCode(c.pinCode || '');
     setGstin(c.gstin || '');
     setEmail(c.email || '');
-    setPaymentTermsDays(String(c.paymentTermsDays ?? 30));
-    setCreditLimit(String(c.creditLimit ?? 500000));
     setNotes(c.notes || '');
     setError(null);
     setShowModal(true);
@@ -260,8 +257,6 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
         pinCode,
         gstin,
         email,
-        paymentTermsDays: Number(paymentTermsDays) || 30,
-        creditLimit: Number(creditLimit) || 0,
         notes,
       };
       const url = editingCustomer ? `/api/customers/${editingCustomer.id}` : '/api/customers';
@@ -309,6 +304,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
         body: JSON.stringify({
           amount: amt,
           method: payMethod,
+          targetMode: payTargetMode,
           notes: payNotes,
           paidAt: payDate,
         }),
@@ -421,6 +417,81 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
   const formatCurrency = (val?: number | null) => `₹${(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  const handleExportCustomersCSV = () => {
+    if (sortedCustomers.length === 0) return;
+    const headers = [
+      'Customer Code',
+      'Company / Customer Name',
+      'Contact Person',
+      'Phone',
+      'Email',
+      'GSTIN',
+      'Address',
+      'City',
+      'PIN Code',
+      'Total LRs',
+      'Total Billed (₹)',
+      'Total Collected (₹)',
+      'Outstanding Credit (₹)',
+      'Notes',
+    ];
+
+    const rows = sortedCustomers.map((c) => [
+      c.code || '',
+      c.name || '',
+      c.contactPerson || '',
+      c.phone || '',
+      c.email || '',
+      c.gstin || '',
+      c.address || '',
+      c.city || '',
+      c.pinCode || '',
+      c.totalLRCount || 0,
+      (c.totalBilled || 0).toFixed(2),
+      (c.totalPaid || 0).toFixed(2),
+      (c.outstandingCredit || 0).toFixed(2),
+      c.notes || '',
+    ]);
+
+    const filename = `customer_profiles_${new Date().toISOString().split('T')[0]}.csv`;
+    downloadCSV(headers, rows, filename);
+  };
+
+  const handleExportCustomerLedgerCSV = () => {
+    if (!customerDetail) return;
+    const headers = [
+      'LR Number',
+      'Booking Date',
+      'From',
+      'To',
+      'Consignee',
+      'Mode',
+      'Payment Mode',
+      'Grand Total (₹)',
+      'Paid (₹)',
+      'Credit Balance (₹)',
+      'Status',
+    ];
+
+    const rows = (customerDetail.dockets || []).map((d) => [
+      d.docket_no,
+      d.booking_date,
+      d.from_city,
+      d.to_city,
+      d.consignee_name,
+      d.transport_mode,
+      d.payment_mode,
+      d.grand_total.toFixed(2),
+      d.total_paid.toFixed(2),
+      d.outstanding_amount.toFixed(2),
+      d.status,
+    ]);
+
+    const sanitizedName = customerDetail.name.replace(/[^a-zA-Z0-9]/g, '_');
+    const filename = `${customerDetail.code}_${sanitizedName}_ledger_${new Date().toISOString().split('T')[0]}.csv`;
+    downloadCSV(headers, rows, filename);
+  };
+
   /* ─────────────────────────────────────────────────────────────
      IF A CUSTOMER IS SELECTED: RENDER A COMPLETE NEW FULL-PAGE VIEW 
      (NOT A POPUP WINDOW)
@@ -443,18 +514,29 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
           </div>
 
           <div className="flex items-center gap-2">
-            {customerDetail && customerDetail.outstandingCredit! > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCustomerLedgerCSV}
+              className="gap-1.5 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export LRs (CSV)</span>
+            </Button>
+            {customerDetail && ((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 && (
               <Button
                 size="sm"
                 onClick={() => {
-                  setPayAmount(String(customerDetail.outstandingCredit));
+                  const totalOutstanding = (customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0);
+                  setPayAmount(totalOutstanding > 0 ? totalOutstanding.toFixed(2) : '');
+                  setPayTargetMode('all');
                   setPayError(null);
                   setShowPaymentModal(true);
                 }}
                 className="bg-[#0A2030] hover:bg-[#071520] text-white font-semibold gap-1.5 shadow-saas"
               >
                 <CreditCard className="w-4 h-4" />
-                <span>Record Bulk Credit Payment</span>
+                <span>Record Bulk Settlement</span>
               </Button>
             )}
             {customerDetail && (
@@ -504,17 +586,17 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
           ) : customerDetail ? (
             <div className="space-y-6">
               {/* Financial KPI Dashboard Bar (Monochromatic Subtle Style) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-1">
                   <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                    <span>Accumulated Credit</span>
+                    <span>Total Outstanding</span>
                     <Clock className="w-4 h-4 text-slate-400" />
                   </div>
-                  <div className={`text-2xl font-bold font-heading ${customerDetail.outstandingCredit! > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
-                    {formatCurrency(customerDetail.outstandingCredit)}
+                  <div className={`text-2xl font-bold font-heading ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
+                    {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
                   </div>
                   <div className="text-[11px] text-slate-400 font-medium">
-                    Unpaid balance on Credit LRs
+                    Credit: {formatCurrency(customerDetail.outstandingCredit)} • To Pay: {formatCurrency(customerDetail.outstandingToPay)}
                   </div>
                 </div>
 
@@ -541,19 +623,6 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
                   <div className="text-[11px] text-slate-400 font-medium">
                     Cleared & settled payments
-                  </div>
-                </div>
-
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                    <span>Credit Limit & Terms</span>
-                    <CreditCard className="w-4 h-4 text-slate-400" />
-                  </div>
-                  <div className="text-2xl font-bold text-slate-900 font-heading">
-                    {formatCurrency(customerDetail.creditLimit)}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-medium">
-                    Payment Terms: {customerDetail.paymentTermsDays || 30} Days Net
                   </div>
                 </div>
               </div>
@@ -633,7 +702,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                               <th className="px-4 py-3">Route</th>
                               <th className="px-4 py-3">Consignee</th>
                               <th className="px-4 py-3">Mode</th>
-                              <th className="px-4 py-3">Payment Terms</th>
+                              <th className="px-4 py-3">Payment Mode</th>
                               <th className="px-4 py-3 text-right">Grand Total</th>
                               <th className="px-4 py-3 text-right">Paid</th>
                               <th className="px-4 py-3 text-right">Credit Balance</th>
@@ -766,12 +835,10 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div className="space-y-3">
-                    <h3 className="font-bold text-sm text-slate-900 border-b border-slate-200 pb-2">Credit & Contact Terms</h3>
+                    <h3 className="font-bold text-sm text-slate-900 border-b border-slate-200 pb-2">Contact Details</h3>
                     <div><span className="text-slate-500">Primary Contact Person:</span> <span className="font-semibold text-slate-900">{customerDetail.contactPerson || 'N/A'}</span></div>
                     <div><span className="text-slate-500">Phone:</span> <span className="font-semibold text-slate-900">{customerDetail.phone || 'N/A'}</span></div>
                     <div><span className="text-slate-500">Email:</span> <span className="font-semibold text-slate-900">{customerDetail.email || 'N/A'}</span></div>
-                    <div><span className="text-slate-500">Credit Limit:</span> <span className="font-bold text-blue-900">{formatCurrency(customerDetail.creditLimit)}</span></div>
-                    <div><span className="text-slate-500">Payment Terms:</span> <span className="font-semibold text-slate-900">{customerDetail.paymentTermsDays || 30} Days Net</span></div>
                     {customerDetail.notes && (
                       <div className="pt-2 border-t border-slate-200"><span className="text-slate-500">Account Notes:</span> <p className="mt-1 italic text-slate-700 bg-white p-2.5 rounded-lg border border-slate-200">{customerDetail.notes}</p></div>
                     )}
@@ -782,15 +849,15 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
           ) : null}
         </Card>
 
-        {/* ── RECORD CREDIT PAYMENT MODAL ── */}
+        {/* ── RECORD BULK SETTLEMENT MODAL ── */}
         {showPaymentModal && customerDetail && (
           <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
             <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl rounded-3xl p-6">
               <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
                 <div>
-                  <CardTitle className="text-lg font-bold text-slate-900">Record Bulk Credit Payment</CardTitle>
+                  <CardTitle className="text-lg font-bold text-slate-900">Record Bulk Settlement</CardTitle>
                   <CardDescription className="text-xs text-slate-500 mt-0.5">
-                    Allocate payment to {customerDetail.name}'s credit balance.
+                    Allocate payment across {customerDetail.name}'s outstanding LRs (oldest first).
                   </CardDescription>
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => setShowPaymentModal(false)}>
@@ -806,9 +873,51 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                 )}
 
                 <form onSubmit={handleRecordPayment} className="space-y-4 text-xs">
-                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex items-center justify-between">
-                    <span className="text-amber-800 font-medium">Total Credit Outstanding:</span>
-                    <span className="font-bold text-[#D14343] text-sm">{formatCurrency(customerDetail.outstandingCredit)}</span>
+                  <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-amber-900 font-semibold">Total Outstanding Balance:</span>
+                      <span className="font-bold text-[#D14343] text-sm">
+                        {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-amber-800/80 pt-1 border-t border-amber-200/60">
+                      <span>Credit LRs: {formatCurrency(customerDetail.outstandingCredit)}</span>
+                      <span>To Pay LRs: {formatCurrency(customerDetail.outstandingToPay)}</span>
+                    </div>
+                  </div>
+
+                  {/* Target mode filter */}
+                  <div>
+                    <label className="block font-semibold text-slate-700 mb-1">Apply Settlement To</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'all', label: 'All Unpaid LRs' },
+                        { id: 'credit', label: 'Credit Only' },
+                        { id: 'to_pay', label: 'To Pay Only' },
+                      ].map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            setPayTargetMode(t.id as any);
+                            if (t.id === 'credit') {
+                              setPayAmount((customerDetail.outstandingCredit || 0).toFixed(2));
+                            } else if (t.id === 'to_pay') {
+                              setPayAmount((customerDetail.outstandingToPay || 0).toFixed(2));
+                            } else {
+                              setPayAmount(((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)).toFixed(2));
+                            }
+                          }}
+                          className={`p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                            payTargetMode === t.id
+                              ? 'border-[#0A2030] bg-[#0A2030]/5 text-[#0A2030] ring-1 ring-[#0A2030]'
+                              : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div>
@@ -869,7 +978,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                       Cancel
                     </Button>
                     <Button type="submit" size="sm" disabled={submittingPay} className="bg-[#0A2030] hover:bg-[#071520] text-white font-semibold">
-                      {submittingPay ? 'Recording...' : 'Record Payment'}
+                      {submittingPay ? 'Recording...' : 'Record Settlement'}
                     </Button>
                   </div>
                 </form>
@@ -1000,6 +1109,16 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="md"
+              onClick={handleExportCustomersCSV}
+              disabled={filteredCustomers.length === 0}
+              className="gap-2 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              <span>Export CSV</span>
+            </Button>
             <Button size="md" onClick={openNewForm} className="gap-2 shadow-saas bg-[#0A2030] hover:bg-[#071520] text-white">
               <Plus className="w-4 h-4" />
               <span>Add Customer</span>
@@ -1280,20 +1399,9 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-100">
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Credit Limit (₹)</label>
-                    <Input type="number" value={creditLimit} onChange={(e) => setCreditLimit(e.target.value)} placeholder="500000" className="font-mono" />
-                  </div>
-                  <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Payment Terms (Days)</label>
-                    <Input type="number" value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(e.target.value)} placeholder="30" className="font-mono" />
-                  </div>
-                </div>
-
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Internal Account Notes</label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special delivery instructions, credit terms..." />
+                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special delivery instructions, account notes..." />
                 </div>
 
                 <div className="pt-3 flex justify-end gap-2">

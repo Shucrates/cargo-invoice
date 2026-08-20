@@ -48,12 +48,15 @@ import {
   User,
   Activity,
   Ban,
+  Calendar,
+  ChevronRight,
+  MapPin,
 } from 'lucide-react';
 
 /** How many dockets the shipments table loads at a time. */
 const DOCKET_PAGE_SIZE = 100;
 
-const SHIPMENT_FILTERS = ['All', 'Issued', 'To Pay', 'Paid', 'Unpaid', 'Voided'] as const;
+const SHIPMENT_FILTERS = ['All', 'Issued', 'To Pay', 'Paid', 'Credit', 'Voided'] as const;
 type ShipmentFilter = (typeof SHIPMENT_FILTERS)[number];
 
 interface CashPayment {
@@ -598,7 +601,7 @@ export default function DashboardPage() {
         return d.status === 'issued' && (d.payment_mode === 'To Pay' || (d as any).payment_mode === 'To_Pay');
       case 'Paid':
         return d.status === 'issued' && d.payment_mode === 'Paid';
-      case 'Unpaid':
+      case 'Credit':
         return d.status === 'issued' && (d.payment_mode === 'To Pay' || d.payment_mode === 'Credit');
       default:
         return true;
@@ -673,18 +676,7 @@ export default function DashboardPage() {
     setPendingNavSource(null);
   };
 
-  // RENDER DETAILED INFO PAGE IF A DOCKET IS CLICKED
-  if (selectedDocketForDetail) {
-    return (
-      <AppShell activeTab={activeTab} onTabChange={handleTabChange} navCounts={{ shipments: docketTotal, drafts: draftTotal }}>
-        <ShipmentDetailView
-          docket={selectedDocketForDetail}
-          onBack={() => setSelectedDocketForDetail(null)}
-          onVoidSuccess={() => setRefreshKey((prev) => prev + 1)}
-        />
-      </AppShell>
-    );
-  }
+
 
   return (
     <AppShell activeTab={activeTab} onTabChange={handleTabChange} navCounts={{ shipments: docketTotal, drafts: draftTotal }}>
@@ -1228,168 +1220,442 @@ export default function DashboardPage() {
                 No shipments found matching your criteria.
               </Card>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 {filteredDockets.map((d) => {
                   const isVoided = d.status === 'voided';
                   const isSelected = selectedDocketIds.includes(d.id);
+                  const vehicleImage =
+                    d.transport_mode === 'Air'
+                      ? '/images/plane.jpg'
+                      : d.transport_mode === 'Train'
+                      ? '/images/train.jpg'
+                      : '/images/truck.jpg';
+
+                  const statusLower = (d.delivery_status || 'Booked').toLowerCase();
+                  const isDelivered = statusLower.includes('deliver');
+                  const isInTransit = statusLower.includes('transit') || statusLower.includes('out') || isDelivered;
 
                   return (
                     <Card
                       key={d.id}
                       onClick={() => setSelectedDocketForDetail(d)}
-                      className={`p-4 border transition-saas cursor-pointer active:scale-[0.99] flex flex-col justify-between ${
+                      className={`p-5 sm:p-6 border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
                         isSelected
-                          ? 'border-[#0A2030] bg-[#0A2030]/5 shadow-saas'
+                          ? 'border-[#0A2030] bg-[#0A2030]/5 ring-2 ring-[#0A2030]/10 shadow-saas'
                           : isVoided
-                          ? 'border-red-200/70 bg-red-50/20 shadow-2xs'
-                          : 'border-slate-200/80 bg-white hover:border-slate-300 shadow-saas'
+                          ? 'border-red-200 bg-red-50/20 opacity-85'
+                          : 'border-slate-200/80 bg-white hover:border-slate-300 shadow-saas hover:shadow-md'
                       }`}
                     >
-                      <div className="space-y-3">
-                        {/* Header Row: Checkbox, LR No, Booking Date & Grand Total */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
+                      {/* MOBILE VIEW (Matching Image 2 1-to-1 on small screens) */}
+                      <div className="block md:hidden space-y-4">
+                        {/* Top Row: Checkbox, LR #, Payment Badge */}
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 toggleSelectDocket(d.id, e);
                               }}
-                              className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5"
+                              className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5 shrink-0"
                               aria-label="Select shipment"
                             >
                               {isSelected ? (
-                                <CheckSquare className="w-4 h-4 text-[#0A2030]" />
+                                <CheckSquare className="w-5 h-5 text-[#0A2030]" />
                               ) : (
-                                <Square className="w-4 h-4 text-slate-300" />
+                                <Square className="w-5 h-5 text-slate-300" />
                               )}
                             </button>
+                            <span className={`font-mono font-extrabold text-base tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                              LR #{d.docket_no}
+                            </span>
+                          </div>
+
+                          <Badge
+                            variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
+                            className="text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
+                          >
+                            {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                          </Badge>
+                        </div>
+
+                        {d.physical_docket_no && (
+                          <div className="text-xs font-mono text-slate-400 -mt-2">
+                            (Paper: {d.physical_docket_no})
+                          </div>
+                        )}
+
+                        {/* Route Box (Mobile Screenshot Match) */}
+                        <div className="bg-slate-50/70 border border-slate-200/60 rounded-2xl p-3 flex items-center justify-center gap-3">
+                          <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                            <MapPin className="w-3.5 h-3.5 text-[#0A2030]" />
+                            <span>{d.from_city}</span>
+                          </div>
+                          <span className="text-slate-400 text-xs">→</span>
+                          <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                            <MapPin className="w-3.5 h-3.5 text-[#0A2030]" />
+                            <span>{d.to_city}</span>
+                          </div>
+                        </div>
+
+                        {/* From / To Parties (Mobile) */}
+                        <div className="text-xs text-slate-500 font-medium flex items-center gap-2 flex-wrap">
+                          <span>From: <strong className="text-slate-800 font-bold">{d.consignor_name}</strong></span>
+                          <span className="text-slate-300">|</span>
+                          <span>To: <strong className="text-slate-800 font-bold">{d.consignee_name}</strong></span>
+                        </div>
+
+                        {/* Created by & Created on side-by-side (Mobile) */}
+                        <div className="flex items-center gap-4 flex-wrap">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                              <User className="w-4 h-4" />
+                            </div>
                             <div>
-                              <div className="flex items-center gap-2">
-                                <span className={`font-mono font-bold text-sm tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                                  {d.docket_no}
-                                </span>
-                                <span className="text-[11px] text-slate-400 font-medium">
-                                  {d.booking_date}
-                                </span>
-                              </div>
-                              {d.physical_docket_no && (
-                                <div className="text-[10px] font-mono text-slate-500">
-                                  Paper LR: {d.physical_docket_no}
-                                </div>
-                              )}
+                              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                              <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
                             </div>
                           </div>
 
-                          <div className="text-right">
-                            <div className={`font-mono font-bold text-base ${isVoided ? 'line-through text-slate-400' : 'text-[#0A2030]'}`}>
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                              <Calendar className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                              <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-100 my-2" />
+
+                        {/* Total Amount & Vehicle Image Row (Mobile) */}
+                        <div className="flex items-center justify-between relative min-h-[70px]">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">TOTAL AMOUNT</span>
+                            <span className={`font-mono font-extrabold text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                               ₹{Number(d.grand_total).toLocaleString('en-IN')}
-                            </div>
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              {d.charged_weight_kg} kg · {d.package_count} {d.package_count === 1 ? 'pkg' : 'pkgs'}
-                            </div>
+                            </span>
+                          </div>
+
+                          <div className="w-44 h-24 relative pointer-events-none mix-blend-multiply flex items-center justify-end">
+                            <img
+                              src={vehicleImage}
+                              alt={d.transport_mode || 'Road'}
+                              className="w-full h-full object-contain object-right"
+                            />
                           </div>
                         </div>
 
-                        {/* Route & Parties */}
-                        <div className="bg-slate-50/80 border border-slate-100 rounded-xl p-2.5 space-y-1.5 text-xs">
-                          <div className="flex items-center justify-between font-semibold text-slate-800">
-                            <span className="truncate">{d.from_city}</span>
-                            <span className="text-slate-400 font-normal px-1.5">→</span>
-                            <span className="truncate">{d.to_city}</span>
-                            <span className="ml-auto text-[11px] text-slate-500 font-medium px-2 py-0.5 bg-white border border-slate-200/60 rounded-md">
-                              {d.transport_mode}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 border-t border-slate-100/80">
-                            <span className="truncate max-w-[48%]">
-                              From: <strong className="text-slate-700 font-medium">{d.consignor_name}</strong>
-                            </span>
-                            <span className="truncate max-w-[48%] text-right">
-                              To: <strong className="text-slate-700 font-medium">{d.consignee_name}</strong>
-                            </span>
+                        {/* Timeline Box (Mobile) */}
+                        <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-3">
+                          <div className="flex items-center gap-1 w-full text-[9px] font-semibold">
+                            {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
+                              const stepLower = stepName.toLowerCase();
+                              const currentLower = (d.delivery_status || 'Booked').toLowerCase();
+
+                              let isPassed = false;
+                              let isCurrent = false;
+
+                              if (currentLower.includes('deliver')) {
+                                isPassed = true;
+                                if (stepLower.includes('deliver')) isCurrent = true;
+                              } else if (currentLower.includes('out')) {
+                                if (idx <= 3) isPassed = true;
+                                if (stepLower.includes('out')) isCurrent = true;
+                              } else if (currentLower.includes('transit')) {
+                                if (idx <= 2) isPassed = true;
+                                if (stepLower.includes('transit')) isCurrent = true;
+                              } else if (currentLower.includes('dispatch')) {
+                                if (idx <= 1) isPassed = true;
+                                if (stepLower.includes('dispatch')) isCurrent = true;
+                              } else {
+                                if (idx === 0) {
+                                  isPassed = true;
+                                  isCurrent = true;
+                                }
+                              }
+
+                              return (
+                                <div key={stepName} className="flex flex-col items-center flex-1 min-w-0 relative">
+                                  <div className="flex items-center w-full">
+                                    {idx > 0 ? (
+                                      <div className={`flex-1 h-0.5 ${isPassed ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                    ) : (
+                                      <div className="flex-1 opacity-0" />
+                                    )}
+
+                                    <div
+                                      className={`w-3 h-3 rounded-full flex items-center justify-center shrink-0 ${
+                                        isCurrent
+                                          ? 'bg-slate-900 ring-2 ring-slate-200'
+                                          : isPassed
+                                          ? 'bg-slate-800'
+                                          : 'bg-slate-200'
+                                      }`}
+                                    >
+                                      {(isPassed || isCurrent) && <div className="w-1 h-1 bg-white rounded-full" />}
+                                    </div>
+
+                                    {idx < arr.length - 1 ? (
+                                      <div className={`flex-1 h-0.5 ${isPassed && !isCurrent ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                    ) : (
+                                      <div className="flex-1 opacity-0" />
+                                    )}
+                                  </div>
+
+                                  <span className={`mt-1.5 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                                    {stepName}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
 
-                        {/* Badges Row */}
-                        <div className="flex items-center justify-between gap-2 pt-0.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {isVoided ? (
-                              <Badge variant="destructive" className="text-[10px] px-2 py-0.5">
-                                VOIDED
-                              </Badge>
-                            ) : (
-                              <Badge
-                                variant={d.payment_mode === 'Paid' ? 'success' : d.payment_mode === 'Credit' ? 'warning' : 'info'}
-                                className="text-[10px] px-2 py-0.5"
-                              >
-                                {d.payment_mode}
-                              </Badge>
-                            )}
-                            {!isVoided && (
-                              <Badge
-                                variant={deliveryStatusBadgeVariant(d.delivery_status)}
-                                className="text-[10px] px-2 py-0.5"
-                              >
-                                {d.delivery_status || 'Booked'}
-                              </Badge>
-                            )}
-                          </div>
-                          <span className="text-[11px] text-[#0A2030] font-medium flex items-center gap-0.5">
-                            View Details →
-                          </span>
+                        {/* Stacked Full-Width Buttons with Chevrons (Mobile) */}
+                        <div className="space-y-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                          {!isVoided ? (
+                            <button
+                              type="button"
+                              onClick={() => setPaymentModalDocket(d)}
+                              className="w-full py-3 px-4 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 flex items-center justify-between cursor-pointer shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Wallet className="w-4 h-4 text-slate-700" />
+                                <span>Update Pay</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            </button>
+                          ) : (
+                            <div className="w-full py-3 px-4 text-xs text-slate-400 font-medium bg-slate-50 rounded-xl text-center">
+                              Voided
+                            </div>
+                          )}
+
+                          {!isVoided && (
+                            <button
+                              type="button"
+                              onClick={() => setTrackingModalDocket(d)}
+                              className="w-full py-3 px-4 text-xs font-bold rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-100 text-slate-900 flex items-center justify-between cursor-pointer shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Truck className="w-4 h-4 text-slate-800" />
+                                <span>Update Status</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      {/* Quick Action Buttons Row */}
-                      <div
-                        className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {!isVoided ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setPaymentModalDocket(d)}
-                            className="h-8 text-[11px] font-semibold gap-1 text-slate-700 hover:text-[#0A2030] hover:bg-[#0A2030]/10 border-slate-200"
-                          >
-                            <Wallet className="w-3.5 h-3.5 text-[#0A2030]" />
-                            <span>Update Pay</span>
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            disabled
-                            className="h-8 text-[11px] text-slate-300 border-slate-100"
-                          >
-                            <Wallet className="w-3.5 h-3.5" />
-                            <span>Voided</span>
-                          </Button>
-                        )}
+                      {/* DESKTOP VIEW (Visible on md:flex / medium & large screens) */}
+                      <div className="hidden md:flex flex-col justify-between space-y-6">
+                        {/* Vehicle image clipped outside right border — larger size, mix-blend-multiply removes white background! */}
+                        <div className="absolute -right-6 top-10 w-64 md:w-80 lg:w-[380px] h-36 md:h-44 pointer-events-none opacity-85 flex items-center justify-end z-0 mix-blend-multiply">
+                          <img
+                            src={vehicleImage}
+                            alt={d.transport_mode || 'Road'}
+                            className="w-full h-full object-contain object-right"
+                          />
+                        </div>
 
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setTrackingModalDocket(d)}
-                          className="h-8 text-[11px] font-semibold gap-1 text-slate-700 hover:text-[#2563EB] hover:bg-blue-50 border-slate-200"
-                        >
-                          <Truck className="w-3.5 h-3.5 text-[#2563EB]" />
-                          <span>Status</span>
-                        </Button>
+                        {/* TOP ROW: Checkbox + LR Number + Payment Badge --- FAR RIGHT (RIGHT ABOVE TRUCK): Total Amount */}
+                        <div className="relative z-10 flex items-start justify-between gap-4 pr-16 md:pr-44">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleSelectDocket(d.id, e);
+                              }}
+                              className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5 shrink-0"
+                              aria-label="Select shipment"
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-5 h-5 text-[#0A2030]" />
+                              ) : (
+                                <Square className="w-5 h-5 text-slate-300" />
+                              )}
+                            </button>
 
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => generateInvoicePDF(d)}
-                          className="h-8 text-[11px] font-semibold gap-1 text-slate-700 hover:text-slate-900 hover:bg-slate-50 border-slate-200"
-                        >
-                          <Download className="w-3.5 h-3.5 text-slate-500" />
-                          <span>PDF</span>
-                        </Button>
+                            <span className={`font-mono font-extrabold text-lg sm:text-xl tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                              LR #{d.docket_no}
+                            </span>
+
+                            {/* Payment Badge Pill */}
+                            <Badge
+                              variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
+                              className="text-[11px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
+                            >
+                              {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                            </Badge>
+
+                            {d.physical_docket_no && (
+                              <span className="text-xs font-mono text-slate-400">
+                                (Paper: {d.physical_docket_no})
+                              </span>
+                            )}
+                          </div>
+
+                          {/* TOTAL AMOUNT — ALIGNED TO FAR TOP RIGHT, DIRECTLY ABOVE TRUCK */}
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Amount</span>
+                            <span className={`font-mono font-extrabold text-2xl sm:text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                              ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* MIDDLE ROW: Route & Parties */}
+                        <div className="relative z-10 flex flex-col justify-start space-y-1 max-w-lg">
+                          <div className="flex items-center gap-3 text-base sm:text-lg font-extrabold text-slate-900">
+                            <span>{d.from_city}</span>
+                            <span className="text-slate-400 font-normal">→</span>
+                            <span>{d.to_city}</span>
+                          </div>
+                          <div className="text-xs text-slate-500 font-medium flex items-center gap-2 flex-wrap">
+                            <span>From: <strong className="text-slate-800 font-bold">{d.consignor_name}</strong></span>
+                            <span className="text-slate-300 font-light">|</span>
+                            <span>To: <strong className="text-slate-800 font-bold">{d.consignee_name}</strong></span>
+                          </div>
+                        </div>
+
+                        {/* BOTTOM ROW (MORE GAP FROM TRUCK): Created By & Created On + STATUS LINE IN SAME ROW (Left & Center) + Action Buttons (Right) */}
+                        <div className="relative z-10 flex flex-wrap items-center justify-between gap-6 pt-4 border-t border-slate-100 mt-6">
+                          {/* Left & Center: Created By / On AND Status Line in SAME row */}
+                          <div className="flex items-center gap-6 flex-wrap flex-1">
+                            {/* Block 1: Created by */}
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                                <User className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                                <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
+                              </div>
+                            </div>
+
+                            {/* Block 2: Created on */}
+                            <div className="flex items-center gap-2.5 shrink-0">
+                              <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                                <Calendar className="w-4 h-4" />
+                              </div>
+                              <div>
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                                <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                              </div>
+                            </div>
+
+                            {/* Status Line in SAME Row! */}
+                            <div className="flex-1 max-w-sm ml-2">
+                              <div className="flex items-center gap-1 w-full text-[10px] font-semibold">
+                                {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
+                                  const stepLower = stepName.toLowerCase();
+                                  const currentLower = (d.delivery_status || 'Booked').toLowerCase();
+
+                                  let isPassed = false;
+                                  let isCurrent = false;
+
+                                  if (currentLower.includes('deliver')) {
+                                    isPassed = true;
+                                    if (stepLower.includes('deliver')) isCurrent = true;
+                                  } else if (currentLower.includes('out')) {
+                                    if (idx <= 3) isPassed = true;
+                                    if (stepLower.includes('out')) isCurrent = true;
+                                  } else if (currentLower.includes('transit')) {
+                                    if (idx <= 2) isPassed = true;
+                                    if (stepLower.includes('transit')) isCurrent = true;
+                                  } else if (currentLower.includes('dispatch')) {
+                                    if (idx <= 1) isPassed = true;
+                                    if (stepLower.includes('dispatch')) isCurrent = true;
+                                  } else {
+                                    if (idx === 0) {
+                                      isPassed = true;
+                                      isCurrent = true;
+                                    }
+                                  }
+
+                                  return (
+                                    <div key={stepName} className="flex flex-col items-center flex-1 min-w-0 relative">
+                                      <div className="flex items-center w-full">
+                                        {idx > 0 ? (
+                                          <div className={`flex-1 h-0.5 ${isPassed ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                        ) : (
+                                          <div className="flex-1 opacity-0" />
+                                        )}
+
+                                        <div
+                                          className={`w-3 h-3 rounded-full flex items-center justify-center shrink-0 ${
+                                            isCurrent
+                                              ? 'bg-slate-900 ring-4 ring-slate-100'
+                                              : isPassed
+                                              ? 'bg-slate-800'
+                                              : 'bg-slate-200'
+                                          }`}
+                                        >
+                                          {(isPassed || isCurrent) && <div className="w-1 h-1 bg-white rounded-full" />}
+                                        </div>
+
+                                        {idx < arr.length - 1 ? (
+                                          <div className={`flex-1 h-0.5 ${isPassed && !isCurrent ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                        ) : (
+                                          <div className="flex-1 opacity-0" />
+                                        )}
+                                      </div>
+
+                                      <span className={`mt-1 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                                        {stepName}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right Action Buttons */}
+                          <div
+                            className="flex items-center gap-3 shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {!isVoided ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPaymentModalDocket(d)}
+                                className="h-9 px-4 text-xs font-bold gap-2 text-slate-800 bg-white hover:bg-slate-50 border-slate-200 rounded-xl shadow-2xs"
+                              >
+                                <Wallet className="w-4 h-4 text-slate-700" />
+                                <span>Update Pay</span>
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled
+                                className="h-9 px-4 text-xs text-slate-300 border-slate-100 rounded-xl"
+                              >
+                                <span>Voided</span>
+                              </Button>
+                            )}
+
+                            {!isVoided && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setTrackingModalDocket(d)}
+                                className="h-9 px-4 text-xs font-bold gap-2 text-[#0A2030] bg-blue-50/40 hover:bg-blue-50 border-blue-200/60 rounded-xl shadow-2xs"
+                              >
+                                <Truck className="w-4 h-4 text-[#0A2030]" />
+                                <span>Update Status</span>
+                              </Button>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </Card>
                   );
@@ -1622,6 +1888,14 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Slide-over Drawer for LR Details */}
+      <ShipmentDetailView
+        docket={selectedDocketForDetail}
+        isOpen={!!selectedDocketForDetail}
+        onBack={() => setSelectedDocketForDetail(null)}
+        onVoidSuccess={() => setRefreshKey((prev) => prev + 1)}
+      />
     </AppShell>
   );
 }

@@ -28,23 +28,25 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   // Precise Calculation Audit
   const freight = Number(docket.freight_amount || 0);
+  const fuel = Number(docket.fuel_charge || 0);
+  const clearing = Number(docket.clearing_charge || 0);
+  const airService = Number(docket.air_service_charge || 0);
   const handling = Number(docket.handling_charge || 0);
   const risk = Number(docket.risk_charge || 0);
   const docketChg = Number(docket.docket_charge || 0);
   const pickup = Number(docket.pickup_delivery_charge || 0);
   const other = Number(docket.other_charge || 0);
 
-  const calculatedSubtotal = freight + handling + risk + docketChg + pickup + other;
+  const calculatedSubtotal = freight + fuel + clearing + airService + handling + risk + docketChg + pickup + other;
   const subtotal = Number(docket.subtotal || calculatedSubtotal);
 
   const isAir = docket.transport_mode === 'Air';
-  const serviceCharge = isAir ? Math.round(subtotal * 0.35 * 100) / 100 : 0;
 
   const gstPercentage = Number(docket.gst_percentage || 18);
   const calculatedGST = Math.round(subtotal * (gstPercentage / 100));
   const gstAmount = Number(docket.gst_amount || calculatedGST);
 
-  const grandTotal = Number(docket.grand_total || (subtotal + serviceCharge + gstAmount));
+  const grandTotal = Number(docket.grand_total || (subtotal + gstAmount));
 
   // A4 Landscape Mode (297mm x 210mm)
   const doc = new jsPDF({
@@ -73,9 +75,8 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   doc.setLineWidth(0.4);
 
-  // Outer Docket Border Box
-  setTemplateStyle();
-  doc.rect(marginX, marginY, pageW, pageH);
+  // NOTE: outer border is drawn LAST (after layout is computed) so it matches
+  // the dynamic content height — see end of function.
 
   // ==========================================
   // TOP BAR: Transport Mode Checkboxes & Docket Number
@@ -147,21 +148,21 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.text('O', 132, marginY + 17);
   doc.text('M', 132, marginY + 20);
 
-  // FROM CITY (Royal Blue Ink)
+  // FROM CITY
   setDataStyle(11);
-  doc.text(docket.from_city || 'MUMBAI', 140, marginY + 15);
+  doc.text(docket.from_city || 'MUMBAI', 140, marginY + 15.5);
 
   setTemplateStyle();
-  doc.line(130, marginY + 21.5, 196, marginY + 21.5);
+  doc.line(130, marginY + 21, 196, marginY + 21);
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('T', 132, marginY + 25.5);
-  doc.text('O', 132, marginY + 27.5);
+  doc.text('T', 132, marginY + 26);
+  doc.text('O', 132, marginY + 29);
 
-  // TO CITY (Royal Blue Ink)
+  // TO CITY
   setDataStyle(11);
-  doc.text(docket.to_city || 'GUWAHATI', 140, marginY + 27);
+  doc.text(docket.to_city || 'GUWAHATI', 140, marginY + 28);
 
   // Right Header Docket Type, Date & Tracking Info
   setTemplateStyle();
@@ -190,55 +191,29 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   setDataStyle(7.5);
   doc.text(docket.docket_no, 236, marginY + 22);
 
-  let headerBottomY = marginY + 23.5;
+  const headerBottomY = marginY + 34.5;
 
-  if (docket.tracking_no && docket.physical_docket_no) {
-    setTemplateStyle();
-    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
+  // Row 4: WAYBILL / TRACKING NO
+  setTemplateStyle();
+  doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
 
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text(`WAYBILL (${docket.courier_partner || 'Self'}):`, 198, marginY + 27.5);
-    setDataStyle(7.5);
-    doc.text(docket.tracking_no, 236, marginY + 27.5);
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text(`WAYBILL (${docket.courier_partner || 'Self'}):`, 198, marginY + 27.5);
+  setDataStyle(7.5);
+  doc.text(docket.tracking_no || '-', 236, marginY + 27.5);
 
-    setTemplateStyle();
-    doc.line(196, marginY + 29, marginX + pageW, marginY + 29);
+  // Row 5: PAPER LR NO
+  setTemplateStyle();
+  doc.line(196, marginY + 29, marginX + pageW, marginY + 29);
 
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text('PAPER LR NO:', 198, marginY + 33);
-    setDataStyle(7.5);
-    doc.text(docket.physical_docket_no, 236, marginY + 33);
-
-    headerBottomY = marginY + 34.5;
-  } else if (docket.tracking_no) {
-    setTemplateStyle();
-    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
-
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text(`WAYBILL (${docket.courier_partner || 'Self'}):`, 198, marginY + 27.5);
-    setDataStyle(7.5);
-    doc.text(docket.tracking_no, 236, marginY + 27.5);
-
-    headerBottomY = marginY + 29;
-  } else if (docket.physical_docket_no) {
-    setTemplateStyle();
-    doc.line(196, marginY + 23.5, marginX + pageW, marginY + 23.5);
-
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(71, 85, 105);
-    doc.text('PAPER LR NO:', 198, marginY + 27.5);
-    setDataStyle(7.5);
-    doc.text(docket.physical_docket_no, 236, marginY + 27.5);
-
-    headerBottomY = marginY + 29;
-  }
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(71, 85, 105);
+  doc.text('PAPER LR NO:', 198, marginY + 33);
+  setDataStyle(7.5);
+  doc.text(docket.physical_docket_no || '-', 236, marginY + 33);
 
   setTemplateStyle();
   doc.line(130, marginY + 7, 130, headerBottomY);
@@ -251,7 +226,7 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   const leftColW = 125;
   const rightColX = marginX + leftColW; // 135
 
-  doc.line(rightColX, headerBottomY, rightColX, marginY + 178);
+  doc.line(rightColX, headerBottomY, rightColX, marginY + 178); // extended later
 
   // --- 1. CONSIGNOR BOX ---
   let curY = headerBottomY;
@@ -544,8 +519,6 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   }
 
   // CHARGES TABLE GRID
-  doc.line(rightColX + 45, tableY, rightColX + 45, tableY + 110);
-
   let chargeY = tableY;
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
@@ -557,11 +530,11 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   doc.line(rightColX + 45, chargeY + 6, marginX + pageW, chargeY + 6);
 
-  doc.line(rightColX + 95, chargeY + 6, rightColX + 95, chargeY + 80);
-  doc.line(rightColX + 125, chargeY + 6, rightColX + 125, chargeY + 80);
-
   const chargesList = [
     { name: 'Freight', val: freight },
+    { name: 'Fuel Charge', val: fuel },
+    { name: 'Clearing Charges', val: clearing },
+    ...(isAir || airService > 0 ? [{ name: 'Air Service Charge', val: airService }] : []),
     { name: 'Risk Charge/F.O.V.', val: risk },
     { name: 'Handling Charges', val: handling },
     { name: 'Docket Charges', val: docketChg },
@@ -570,7 +543,6 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     { name: 'Pick-up & Delivery Charges', val: pickup },
     { name: 'Other Charges', val: other },
     { name: 'Subtotal', val: subtotal },
-    ...(isAir ? [{ name: 'Air Service Charge (35%)', val: serviceCharge }] : []),
     { name: `GST ${gstPercentage}%`, val: gstAmount },
   ];
 
@@ -593,6 +565,13 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     rY += 6.5;
   });
 
+  // Draw vertical dividers for charges columns now that we know the total height
+  const chargesGridBottom = rY + 2;
+  setTemplateStyle();
+  doc.line(rightColX + 45, chargeY, rightColX + 45, chargesGridBottom);
+  doc.line(rightColX + 95, chargeY + 6, rightColX + 95, chargesGridBottom);
+  doc.line(rightColX + 125, chargeY + 6, rightColX + 125, chargesGridBottom);
+
   // GRAND TOTAL ROW
   setTemplateStyle();
   doc.setFontSize(8.5);
@@ -614,11 +593,12 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   setDataStyle(7.5);
   doc.text(numberToWords(grandTotal), rightColX + 70, rY + 8);
 
+  // Signature area starts below Rs. in words row, with a minimum gap
+  const sigY = Math.max(rY + 13, marginY + 148);
   setTemplateStyle();
-  doc.line(rightColX, marginY + 150, marginX + pageW, marginY + 150);
+  doc.line(rightColX, sigY, marginX + pageW, sigY);
 
   // --- GOOGLE PAY PAYMENT QR CODE & SIGNATURES AREA (3 Equal Columns) ---
-  let sigY = marginY + 150;
 
   // 1. Google Pay QR Box on PDF (X = 135 to X = 180, width 45mm)
   // Left Column Text (X = 137 to X = 156, width 19mm)
@@ -657,11 +637,14 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     console.error('Failed to generate GPay QR Code image on PDF:', e);
   }
 
-  // Vertical Divider 1 at X = 180
-  setTemplateStyle();
-  doc.line(rightColX + 45, sigY, rightColX + 45, marginY + 178);
+  // Bottom border for signature area — 28mm tall from sigY
+  const sigBottom = sigY + 28;
 
-  // 2. Booking Staff Signature Box (X = 180 to X = 230)
+  // Vertical Divider 1
+  setTemplateStyle();
+  doc.line(rightColX + 45, sigY, rightColX + 45, sigBottom);
+
+  // 2. Booking Staff Signature Box
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
   doc.text('SIGNATURE OF BOOKING STAFF', rightColX + 46, sigY + 5);
@@ -674,10 +657,12 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     }
   }
 
-  // Vertical Divider 2 at X = 230
-  doc.line(rightColX + 95, sigY, rightColX + 95, marginY + 178);
+  // Vertical Divider 2
+  doc.line(rightColX + 95, sigY, rightColX + 95, sigBottom);
 
-  // 3. Received by RCS Box (X = 230 to X = 287)
+  // 3. Received by RCS Box
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
   doc.text('Received by RCS', rightColX + 98, sigY + 5);
   doc.setFontSize(7);
   doc.setFont('helvetica', 'normal');
@@ -685,12 +670,16 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.text('Date : ................... Time : ................', rightColX + 98, sigY + 14);
   doc.text('Sign of Booking Staff', rightColX + 98, sigY + 22);
 
-  doc.line(marginX, marginY + 178, marginX + pageW, marginY + 178);
+  doc.line(marginX, sigBottom, marginX + pageW, sigBottom);
+
+  // Redraw left-column vertical divider to match dynamic height
+  setTemplateStyle();
+  doc.line(rightColX, headerBottomY, rightColX, sigBottom);
 
   // ==========================================
   // FOOTER SECTION (Phone, Email, Address)
   // ==========================================
-  let footY = marginY + 182;
+  const footY = sigBottom + 4;
   setTemplateStyle();
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
@@ -701,6 +690,11 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.text(`(${settings.address})`, marginX + 3, footY + 4);
   doc.setFont('helvetica', 'bold');
   doc.text('INTERNATIONAL SELF NETWORK COURIER TO 200+ COUNTRIES', marginX + 3, footY + 8);
+
+  // Draw outer docket border last so it encloses all dynamic content
+  const outerH = Math.min(footY + 10 - marginY, pageH); // cap to A4 landscape
+  setTemplateStyle();
+  doc.rect(marginX, marginY, pageW, outerH);
 
   // Reset text color
   doc.setTextColor(0, 0, 0);

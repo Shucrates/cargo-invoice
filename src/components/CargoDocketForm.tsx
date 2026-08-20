@@ -129,6 +129,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   // as city/mode/weight change, but stop the moment the user types over it.
   const [freightAutoPriced, setFreightAutoPriced] = useState(false);
   const [freightHint, setFreightHint] = useState<string>('');
+  const [fuelCharge, setFuelCharge] = useState(Number(initialData?.fuel_charge) || 0);
+  const [clearingCharge, setClearingCharge] = useState(Number(initialData?.clearing_charge) || 0);
+  const [airServiceCharge, setAirServiceCharge] = useState(Number(initialData?.air_service_charge) || 0);
   const [handlingCharge, setHandlingCharge] = useState(Number(initialData?.handling_charge) || 0);
   const [riskCharge, setRiskCharge] = useState(Number(initialData?.risk_charge) || 0);
   const [docketCharge, setDocketCharge] = useState(
@@ -192,6 +195,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const previewTotals = computeDocketTotals(
     {
       freight_amount: freightAmount,
+      fuel_charge: fuelCharge,
+      clearing_charge: clearingCharge,
+      air_service_charge: airServiceCharge,
       handling_charge: handlingCharge,
       risk_charge: riskCharge,
       docket_charge: docketCharge,
@@ -234,6 +240,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     goods_description: goodsDescription,
     eway_bill_no: ewayBillNo,
     freight_amount: freightAmount,
+    fuel_charge: fuelCharge,
+    clearing_charge: clearingCharge,
+    air_service_charge: airServiceCharge,
     handling_charge: handlingCharge,
     risk_charge: riskCharge,
     docket_charge: docketCharge,
@@ -339,6 +348,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     const { subtotalPaise, serviceChargePaise, gstPaise, grandTotalPaise } = computeDocketTotals(
       {
         freight_amount: freightAmount,
+        fuel_charge: fuelCharge,
+        clearing_charge: clearingCharge,
+        air_service_charge: airServiceCharge,
         handling_charge: handlingCharge,
         risk_charge: riskCharge,
         docket_charge: docketCharge,
@@ -861,6 +873,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                   <tbody>
                     {[
                       { name: 'Freight', val: freightAmount },
+                      { name: 'Fuel Charge', val: fuelCharge },
+                      { name: 'Clearing Charges', val: clearingCharge },
+                      ...(transportMode === 'Air' || airServiceCharge > 0 ? [{ name: 'Air Service Charge', val: airServiceCharge }] : []),
                       { name: 'Risk Charge/F.O.V.', val: riskCharge },
                       { name: 'Handling Charges', val: handlingCharge },
                       { name: 'Docket Charges', val: docketCharge },
@@ -869,7 +884,6 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                       { name: 'Pick-up & Delivery Charges', val: pickupDeliveryCharge },
                       { name: 'Other Charges', val: otherCharge },
                       { name: 'Subtotal', val: subtotal, isBold: true },
-                      ...(transportMode === 'Air' ? [{ name: 'Air Service Charge (35%)', val: serviceCharge, isBold: true }] : []),
                       { name: `GST ${gstPercentage}%`, val: gstAmount, isBold: true },
                     ].map((r) => (
                       <tr key={r.name}>
@@ -1543,7 +1557,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                   onChange={(e) => setCourierPartner(e.target.value)}
                   className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10"
                 >
-                  {['Self Network', 'FedEx', 'DHL', 'UPS', 'Aramex', 'Blue Dart'].map((n) => <option key={n}>{n}</option>)}
+                  {['Self Network', 'FedEx', 'DHL', 'UPS', 'Aramex', 'Blue Dart', 'DTDC', 'Trackon', 'Delhivery', 'Ekart'].map((n) => <option key={n}>{n}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -1570,10 +1584,14 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
             <div className="space-y-3">
               {[
                 { label: 'Freight amount (₹)', val: freightAmount, set: (v: number) => { setFreightAmount(v); setFreightAutoPriced(false); }, hint: freightHint },
+                { label: 'Fuel charge (₹)', val: fuelCharge, set: setFuelCharge },
+                { label: 'Clearing charges (₹)', val: clearingCharge, set: setClearingCharge },
+                ...(transportMode === 'Air' ? [{ label: 'Air service charge (₹)', val: airServiceCharge, set: setAirServiceCharge, hint: 'Optional manual air service charge' }] : []),
                 { label: 'Handling charge (₹)', val: handlingCharge, set: setHandlingCharge },
                 { label: 'Risk charge (₹)', val: riskCharge, set: setRiskCharge },
                 { label: 'Docket charge (₹)', val: docketCharge, set: setDocketCharge },
                 { label: 'Pickup / Delivery (₹)', val: pickupDeliveryCharge, set: setPickupDeliveryCharge },
+                { label: 'Other charges (₹)', val: otherCharge, set: setOtherCharge },
                 { label: 'GST rate (%)', val: gstPercentage, set: setGstPercentage },
               ].map(({ label, val, set, hint }) => (
                 <div key={label}>
@@ -1585,12 +1603,6 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
 
               <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 space-y-1.5 text-sm mt-2">
                 <div className="flex justify-between text-slate-600 text-xs"><span>Subtotal</span><span>₹{subtotal.toFixed(2)}</span></div>
-                {transportMode === 'Air' && (
-                  <div className="flex justify-between text-amber-900 bg-amber-50 -mx-2.5 px-2.5 py-1 rounded-md border border-amber-200/80 text-xs font-medium">
-                    <span>Air Service Charge (35%)</span>
-                    <span className="font-semibold">₹{serviceCharge.toFixed(2)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between text-slate-600 text-xs"><span>GST ({gstPercentage}%)</span><span>₹{gstAmount.toFixed(2)}</span></div>
                 <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-2"><span>Grand Total</span><span className="text-[#0A2030] text-base font-bold">₹{grandTotal.toFixed(2)}</span></div>
               </div>

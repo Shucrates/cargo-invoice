@@ -72,6 +72,9 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
     eway_bill_no: d.ewayBillNo || '',
 
     freight_amount: decimal(d.freightAmount),
+    fuel_charge: decimal(d.fuelCharge),
+    clearing_charge: decimal(d.clearingCharge),
+    air_service_charge: decimal(d.airServiceCharge),
     risk_charge: decimal(d.riskCharge),
     handling_charge: decimal(d.handlingCharge),
     docket_charge: decimal(d.docketCharge),
@@ -255,7 +258,8 @@ export async function POST(req: Request) {
         from_city, to_city, consignor_name, consignor_address, consignor_pin, consignor_phone, consignor_gstin,
         consignee_name, consignee_address, consignee_pin, consignee_phone, consignee_gstin,
         package_count, packing_method, invoice_no, invoice_value, actual_weight_kg, charged_weight_kg,
-        dimensions_lhb, goods_description, eway_bill_no, freight_amount, risk_charge, handling_charge, docket_charge,
+        dimensions_lhb, goods_description, eway_bill_no, freight_amount, fuel_charge, clearing_charge, air_service_charge,
+        risk_charge, handling_charge, docket_charge,
         pickup_delivery_charge, other_charge, subtotal, gst_percentage, gst_amount, grand_total,
         payment_mode, expected_mode, customer_code, courier_partner, tracking_no, physical_docket_no, created_at, updated_at
       ) VALUES (
@@ -271,6 +275,9 @@ export async function POST(req: Request) {
         ${body.charged_weight_kg ? Number(body.charged_weight_kg) : null},
         ${body.dimensions_lhb || null}, ${body.goods_description || null}, ${body.eway_bill_no || null},
         ${paiseToDecimalString(Math.round(Number(body.freight_amount || 0) * 100))}::decimal,
+        ${paiseToDecimalString(Math.round(Number(body.fuel_charge || 0) * 100))}::decimal,
+        ${paiseToDecimalString(Math.round(Number(body.clearing_charge || 0) * 100))}::decimal,
+        ${paiseToDecimalString(Math.round(Number(body.air_service_charge || 0) * 100))}::decimal,
         ${paiseToDecimalString(Math.round(Number(body.risk_charge || 0) * 100))}::decimal,
         ${paiseToDecimalString(Math.round(Number(body.handling_charge || 0) * 100))}::decimal,
         ${paiseToDecimalString(Math.round(Number(body.docket_charge || 0) * 100))}::decimal,

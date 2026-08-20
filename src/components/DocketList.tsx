@@ -5,18 +5,29 @@ import { useSession } from 'next-auth/react';
 import { CargoDocket } from '@/types/cargo';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
 import { exportToCSV, exportSummaryPDF } from '@/lib/exportUtils';
-import { User, AlertCircle, Truck, ExternalLink, CheckCircle2, Clock, MapPin, Plus, Edit2, ShieldAlert } from 'lucide-react';
+import { User, AlertCircle, Truck, ExternalLink, CheckCircle2, Clock, MapPin, Plus, Edit2, ShieldAlert, LayoutGrid, LayoutList, Wallet, Download, Calendar, ChevronRight, Square, CheckSquare } from 'lucide-react';
 import { formatCreatedAt } from '@/lib/formatDate';
+import RecordPaymentModal from '@/components/RecordPaymentModal';
+import TrackingTimelineModal from '@/components/TrackingTimelineModal';
+import ShipmentDetailView from '@/components/ShipmentDetailView';
+import { Badge } from '@/components/ui/badge';
 
 export default function DocketList({ refreshKey }: { refreshKey: number }) {
   const { data: session } = useSession();
-  // Voiding is admin-only server-side; hide the control so staff never hit a 403.
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
 
   const [dockets, setDockets] = useState<CargoDocket[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   
+  // Selected docket for drawer detail view
+  const [selectedDocket, setSelectedDocket] = useState<CargoDocket | null>(null);
+  const [recordPaymentDocket, setRecordPaymentDocket] = useState<CargoDocket | null>(null);
+  const [updateTrackingDocket, setUpdateTrackingDocket] = useState<CargoDocket | null>(null);
+
+  // View mode switcher: 'cards' (default) or 'table'
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+
   // Filters
   const [durationPreset, setDurationPreset] = useState<'all' | 'this_month' | 'last_month' | 'custom'>('all');
   const [startDate, setStartDate] = useState('');
@@ -229,6 +240,15 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
       case 'blue dart':
       case 'bluedart':
         return <span className="bg-blue-100 text-blue-900 border border-blue-300 px-1.5 py-0.5 rounded font-bold text-[10px]">BLUE DART</span>;
+      case 'dtdc':
+        return <span className="bg-rose-100 text-rose-900 border border-rose-300 px-1.5 py-0.5 rounded font-bold text-[10px]">DTDC</span>;
+      case 'trackon':
+      case 'track on':
+        return <span className="bg-orange-100 text-orange-900 border border-orange-300 px-1.5 py-0.5 rounded font-bold text-[10px]">TRACKON</span>;
+      case 'delhivery':
+        return <span className="bg-emerald-100 text-emerald-900 border border-emerald-300 px-1.5 py-0.5 rounded font-bold text-[10px]">DELHIVERY</span>;
+      case 'ekart':
+        return <span className="bg-yellow-100 text-yellow-900 border border-yellow-300 px-1.5 py-0.5 rounded font-bold text-[10px]">EKART</span>;
       default:
         return <span className="bg-slate-100 text-slate-600 border border-slate-300 px-1.5 py-0.5 rounded font-semibold text-[10px]">Self</span>;
     }
@@ -242,7 +262,7 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
           <h2 className="text-lg font-bold text-slate-800 uppercase tracking-wide">
             Cargo Docket Audit History & Package Tracker
           </h2>
-          <p className="text-xs text-slate-500 mt-0.5">Live tracking for FedEx, DHL, UPS, Aramex, Blue Dart & Self Network</p>
+          <p className="text-xs text-slate-500 mt-0.5">Live tracking for FedEx, DHL, UPS, Aramex, Blue Dart, DTDC, Trackon, Delhivery, Ekart & Self Network</p>
         </div>
 
         <input
@@ -368,28 +388,454 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
           </div>
         )}
 
-        {/* Active Filter Summary Indicator */}
-        <div className="text-[11px] text-slate-500 font-medium flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <span>
-            Showing <strong className="text-slate-800">{filteredDockets.length}</strong> of{' '}
-            <strong className="text-slate-800">{dockets.length}</strong> total records —{' '}
-            <span className="text-[#1C3E4E] font-semibold bg-[#1C3E4E]/10 px-2 py-0.5 rounded">
-              {getFilterSummaryDetails()}
+        {/* Active Filter Summary Indicator & View Switcher */}
+        <div className="text-[11px] text-slate-500 font-medium flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pt-2 border-t border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span>
+              Showing <strong className="text-slate-800">{filteredDockets.length}</strong> of{' '}
+              <strong className="text-slate-800">{dockets.length}</strong> total records —{' '}
+              <span className="text-[#1C3E4E] font-semibold bg-[#1C3E4E]/10 px-2 py-0.5 rounded">
+                {getFilterSummaryDetails()}
+              </span>
             </span>
-          </span>
-          {filteredDockets.length > 0 && (
-            <span className="font-mono text-slate-700">
-              Filtered Total: <strong>₹{filteredDockets.reduce((sum, d) => sum + (d.grand_total || 0), 0).toFixed(2)}</strong>
-            </span>
-          )}
+
+            {filteredDockets.length > 0 && (
+              <span className="font-mono text-slate-700 ml-2">
+                Filtered Total: <strong>₹{filteredDockets.reduce((sum, d) => sum + (d.grand_total || 0), 0).toFixed(2)}</strong>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200/80 shrink-0">
+            <button
+              type="button"
+              onClick={() => setViewMode('cards')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'cards'
+                  ? 'bg-[#0A2030] text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>Cards</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                viewMode === 'table'
+                  ? 'bg-[#0A2030] text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              <span>Table</span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Table Section */}
+      {/* Main Content Section: Cards Grid or Table */}
       {loading ? (
-        <div className="text-center py-8 text-slate-500 font-medium">Loading docket records...</div>
+        <div className="text-center py-12 text-slate-500 font-medium">Loading docket records...</div>
       ) : filteredDockets.length === 0 ? (
-        <div className="text-center py-8 text-slate-400 font-medium">No docket records found matching current filters.</div>
+        <div className="text-center py-12 text-slate-400 font-medium">No docket records found matching current filters.</div>
+      ) : viewMode === 'cards' ? (
+        <div className="grid grid-cols-1 gap-4">
+          {filteredDockets.map((d) => {
+            const isVoided = d.status === 'voided';
+            const vehicleImage =
+              d.transport_mode === 'Air'
+                ? '/images/plane.jpg'
+                : d.transport_mode === 'Train'
+                ? '/images/train.jpg'
+                : '/images/truck.jpg';
+
+            const statusLower = (d.delivery_status || 'Booked').toLowerCase();
+            const isDelivered = statusLower.includes('deliver');
+            const isInTransit = statusLower.includes('transit') || statusLower.includes('out') || isDelivered;
+
+            return (
+              <div
+                key={d.id}
+                onClick={() => setSelectedDocket(d)}
+                className={`bg-white border rounded-2xl p-5 sm:p-6 shadow-saas hover:shadow-md transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
+                  isVoided ? 'border-red-200 bg-red-50/20 opacity-85' : 'border-slate-200/80 hover:border-slate-300'
+                }`}
+              >
+                {/* MOBILE VIEW (Matching Image 2 1-to-1 on small screens) */}
+                <div className="block md:hidden space-y-4">
+                  {/* Top Row: Checkbox, LR #, Payment Badge */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-mono font-extrabold text-base tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                        LR #{d.docket_no}
+                      </span>
+                    </div>
+
+                    <Badge
+                      variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
+                      className="text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
+                    >
+                      {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                    </Badge>
+                  </div>
+
+                  {d.physical_docket_no && (
+                    <div className="text-xs font-mono text-slate-400 -mt-2">
+                      (Paper: {d.physical_docket_no})
+                    </div>
+                  )}
+
+                  {/* Route Box (Mobile Screenshot Match) */}
+                  <div className="bg-slate-50/70 border border-slate-200/60 rounded-2xl p-3 flex items-center justify-center gap-3">
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <MapPin className="w-3.5 h-3.5 text-[#0A2030]" />
+                      <span>{d.from_city}</span>
+                    </div>
+                    <span className="text-slate-400 text-xs">→</span>
+                    <div className="flex items-center gap-1.5 font-bold text-xs text-slate-900">
+                      <MapPin className="w-3.5 h-3.5 text-[#0A2030]" />
+                      <span>{d.to_city}</span>
+                    </div>
+                  </div>
+
+                  {/* From / To Parties (Mobile) */}
+                  <div className="text-xs text-slate-500 font-medium flex items-center gap-2 flex-wrap">
+                    <span>From: <strong className="text-slate-800 font-bold">{d.consignor_name}</strong></span>
+                    <span className="text-slate-300">|</span>
+                    <span>To: <strong className="text-slate-800 font-bold">{d.consignee_name}</strong></span>
+                  </div>
+
+                  {/* Created by & Created on side-by-side (Mobile) */}
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                        <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                        <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-100 my-2" />
+
+                  {/* Total Amount & Vehicle Image Row (Mobile) */}
+                  <div className="flex items-center justify-between relative min-h-[70px]">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">TOTAL AMOUNT</span>
+                      <span className={`font-mono font-extrabold text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                        ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+
+                    <div className="w-44 h-24 relative pointer-events-none mix-blend-multiply flex items-center justify-end">
+                      <img
+                        src={vehicleImage}
+                        alt={d.transport_mode || 'Road'}
+                        className="w-full h-full object-contain object-right"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Timeline Box (Mobile) */}
+                  <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-3">
+                    <div className="flex items-center gap-1 w-full text-[9px] font-semibold">
+                      {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
+                        const stepLower = stepName.toLowerCase();
+                        const currentLower = (d.delivery_status || 'Booked').toLowerCase();
+
+                        let isPassed = false;
+                        let isCurrent = false;
+
+                        if (currentLower.includes('deliver')) {
+                          isPassed = true;
+                          if (stepLower.includes('deliver')) isCurrent = true;
+                        } else if (currentLower.includes('out')) {
+                          if (idx <= 3) isPassed = true;
+                          if (stepLower.includes('out')) isCurrent = true;
+                        } else if (currentLower.includes('transit')) {
+                          if (idx <= 2) isPassed = true;
+                          if (stepLower.includes('transit')) isCurrent = true;
+                        } else if (currentLower.includes('dispatch')) {
+                          if (idx <= 1) isPassed = true;
+                          if (stepLower.includes('dispatch')) isCurrent = true;
+                        } else {
+                          if (idx === 0) {
+                            isPassed = true;
+                            isCurrent = true;
+                          }
+                        }
+
+                        return (
+                          <div key={stepName} className="flex flex-col items-center flex-1 min-w-0 relative">
+                            <div className="flex items-center w-full">
+                              {idx > 0 ? (
+                                <div className={`flex-1 h-0.5 ${isPassed ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                              ) : (
+                                <div className="flex-1 opacity-0" />
+                              )}
+
+                              <div
+                                className={`w-3 h-3 rounded-full flex items-center justify-center shrink-0 ${
+                                  isCurrent
+                                    ? 'bg-slate-900 ring-2 ring-slate-200'
+                                    : isPassed
+                                    ? 'bg-slate-800'
+                                    : 'bg-slate-200'
+                                }`}
+                              >
+                                {(isPassed || isCurrent) && <div className="w-1 h-1 bg-white rounded-full" />}
+                              </div>
+
+                              {idx < arr.length - 1 ? (
+                                <div className={`flex-1 h-0.5 ${isPassed && !isCurrent ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                              ) : (
+                                <div className="flex-1 opacity-0" />
+                              )}
+                            </div>
+
+                            <span className={`mt-1.5 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                              {stepName}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Stacked Full-Width Buttons with Chevrons (Mobile) */}
+                  <div className="space-y-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                    {!isVoided ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecordPaymentDocket(d)}
+                        className="w-full py-3 px-4 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 flex items-center justify-between cursor-pointer shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Wallet className="w-4 h-4 text-slate-700" />
+                          <span>Update Pay</span>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </button>
+                    ) : (
+                      <div className="w-full py-3 px-4 text-xs text-slate-400 font-medium bg-slate-50 rounded-xl text-center">
+                        Voided
+                      </div>
+                    )}
+
+                    {!isVoided && (
+                      <button
+                        type="button"
+                        onClick={() => setUpdateTrackingDocket(d)}
+                        className="w-full py-3 px-4 text-xs font-bold rounded-xl border border-slate-200/80 bg-slate-50/50 hover:bg-slate-100 text-slate-900 flex items-center justify-between cursor-pointer shadow-2xs"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Truck className="w-4 h-4 text-slate-800" />
+                          <span>Update Status</span>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* DESKTOP VIEW (Visible on md:flex / medium & large screens) */}
+                <div className="hidden md:flex flex-col justify-between space-y-6">
+                  {/* Vehicle image clipped outside right border — larger size, mix-blend-multiply removes white background! */}
+                  <div className="absolute -right-6 top-10 w-64 md:w-80 lg:w-[380px] h-36 md:h-44 pointer-events-none opacity-85 flex items-center justify-end z-0 mix-blend-multiply">
+                    <img
+                      src={vehicleImage}
+                      alt={d.transport_mode || 'Road'}
+                      className="w-full h-full object-contain object-right"
+                    />
+                  </div>
+
+                  {/* TOP ROW: Checkbox + LR Number + Payment Badge --- FAR RIGHT (RIGHT ABOVE TRUCK): Total Amount */}
+                  <div className="relative z-10 flex items-start justify-between gap-4 pr-16 md:pr-44">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className={`font-mono font-extrabold text-lg sm:text-xl tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                        LR #{d.docket_no}
+                      </span>
+
+                      {/* Payment Badge Pill */}
+                      <Badge
+                        variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
+                        className="text-[11px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
+                      >
+                        {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                      </Badge>
+
+                      {d.physical_docket_no && (
+                        <span className="text-xs font-mono text-slate-400">
+                          (Paper: {d.physical_docket_no})
+                        </span>
+                      )}
+                    </div>
+
+                    {/* TOTAL AMOUNT — ALIGNED TO FAR TOP RIGHT, DIRECTLY ABOVE TRUCK */}
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Amount</span>
+                      <span className={`font-mono font-extrabold text-2xl sm:text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                        ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* MIDDLE ROW: Route & Parties */}
+                  <div className="relative z-10 flex flex-col justify-start space-y-1 max-w-lg">
+                    <div className="flex items-center gap-3 text-base sm:text-lg font-extrabold text-slate-900">
+                      <span>{d.from_city}</span>
+                      <span className="text-slate-400 font-normal">→</span>
+                      <span>{d.to_city}</span>
+                    </div>
+                    <div className="text-xs text-slate-500 font-medium flex items-center gap-2 flex-wrap">
+                      <span>From: <strong className="text-slate-800 font-bold">{d.consignor_name}</strong></span>
+                      <span className="text-slate-300 font-light">|</span>
+                      <span>To: <strong className="text-slate-800 font-bold">{d.consignee_name}</strong></span>
+                    </div>
+                  </div>
+
+                  {/* BOTTOM ROW (MORE GAP FROM TRUCK): Created By & Created On + STATUS LINE IN SAME ROW (Left & Center) + Action Buttons (Right) */}
+                  <div className="relative z-10 flex flex-wrap items-center justify-between gap-6 pt-4 border-t border-slate-100 mt-6">
+                    {/* Left & Center: Created By / On AND Status Line in SAME row */}
+                    <div className="flex items-center gap-6 flex-wrap flex-1">
+                      {/* Block 1: Created by */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                          <User className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                          <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
+                        </div>
+                      </div>
+
+                      {/* Block 2: Created on */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <div className="w-8 h-8 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-center text-slate-500">
+                          <Calendar className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                          <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                        </div>
+                      </div>
+
+                      {/* Status Line in SAME Row! */}
+                      <div className="flex-1 max-w-sm ml-2">
+                        <div className="flex items-center gap-1 w-full text-[10px] font-semibold">
+                          {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
+                            const stepLower = stepName.toLowerCase();
+                            const currentLower = (d.delivery_status || 'Booked').toLowerCase();
+
+                            let isPassed = false;
+                            let isCurrent = false;
+
+                            if (currentLower.includes('deliver')) {
+                              isPassed = true;
+                              if (stepLower.includes('deliver')) isCurrent = true;
+                            } else if (currentLower.includes('out')) {
+                              if (idx <= 3) isPassed = true;
+                              if (stepLower.includes('out')) isCurrent = true;
+                            } else if (currentLower.includes('transit')) {
+                              if (idx <= 2) isPassed = true;
+                              if (stepLower.includes('transit')) isCurrent = true;
+                            } else if (currentLower.includes('dispatch')) {
+                              if (idx <= 1) isPassed = true;
+                              if (stepLower.includes('dispatch')) isCurrent = true;
+                            } else {
+                              if (idx === 0) {
+                                isPassed = true;
+                                isCurrent = true;
+                              }
+                            }
+
+                            return (
+                              <div key={stepName} className="flex flex-col items-center flex-1 min-w-0 relative">
+                                <div className="flex items-center w-full">
+                                  {idx > 0 ? (
+                                    <div className={`flex-1 h-0.5 ${isPassed ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                  ) : (
+                                    <div className="flex-1 opacity-0" />
+                                  )}
+
+                                  <div
+                                    className={`w-3 h-3 rounded-full flex items-center justify-center shrink-0 ${
+                                      isCurrent
+                                        ? 'bg-slate-900 ring-4 ring-slate-100'
+                                        : isPassed
+                                        ? 'bg-slate-800'
+                                        : 'bg-slate-200'
+                                    }`}
+                                  >
+                                    {(isPassed || isCurrent) && <div className="w-1 h-1 bg-white rounded-full" />}
+                                  </div>
+
+                                  {idx < arr.length - 1 ? (
+                                    <div className={`flex-1 h-0.5 ${isPassed && !isCurrent ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                                  ) : (
+                                    <div className="flex-1 opacity-0" />
+                                  )}
+                                </div>
+
+                                <span className={`mt-1 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                                  {stepName}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Action Buttons */}
+                    <div
+                      className="flex items-center gap-3 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {!isVoided ? (
+                        <button
+                          type="button"
+                          onClick={() => setRecordPaymentDocket(d)}
+                          className="h-9 px-4 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 flex items-center gap-2 cursor-pointer shadow-2xs"
+                        >
+                          <Wallet className="w-4 h-4 text-slate-700" />
+                          <span>Update Pay</span>
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">Voided</span>
+                      )}
+
+                      {!isVoided && (
+                        <button
+                          type="button"
+                          onClick={() => setUpdateTrackingDocket(d)}
+                          className="h-9 px-4 text-xs font-bold rounded-xl border border-blue-200/60 bg-blue-50/40 hover:bg-blue-50 text-[#0A2030] flex items-center gap-2 cursor-pointer shadow-2xs"
+                        >
+                          <Truck className="w-4 h-4 text-[#0A2030]" />
+                          <span>Update Status</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-xs text-left">
@@ -608,6 +1054,10 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
                   <option value="UPS">UPS Logistics</option>
                   <option value="Aramex">Aramex</option>
                   <option value="Blue Dart">Blue Dart</option>
+                  <option value="DTDC">DTDC Express</option>
+                  <option value="Trackon">Trackon Courier</option>
+                  <option value="Delhivery">Delhivery</option>
+                  <option value="Ekart">Ekart Logistics</option>
                   <option value="Self Network">Self Network</option>
                 </select>
               </div>
@@ -835,6 +1285,36 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
           </div>
         </div>
       )}
+      {/* Record Payment Modal */}
+      {recordPaymentDocket && (
+        <RecordPaymentModal
+          docket={recordPaymentDocket}
+          isAdmin={isAdmin}
+          onClose={() => {
+            setRecordPaymentDocket(null);
+            fetchDockets();
+          }}
+        />
+      )}
+
+      {/* Tracking Timeline Modal */}
+      {updateTrackingDocket && (
+        <TrackingTimelineModal
+          docket={updateTrackingDocket}
+          onClose={() => {
+            setUpdateTrackingDocket(null);
+            fetchDockets();
+          }}
+        />
+      )}
+
+      {/* Slide-over Drawer for LR Details */}
+      <ShipmentDetailView
+        docket={selectedDocket}
+        isOpen={!!selectedDocket}
+        onBack={() => setSelectedDocket(null)}
+        onVoidSuccess={() => fetchDockets()}
+      />
     </div>
   );
 }

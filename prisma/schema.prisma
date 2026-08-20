@@ -142,6 +142,9 @@ model CargoDocket {
   ewayBillNo       String?  @map("eway_bill_no")
 
   freightAmount        Decimal @default(0.00) @map("freight_amount") @db.Decimal(10, 2)
+  fuelCharge           Decimal @default(0.00) @map("fuel_charge") @db.Decimal(10, 2)
+  clearingCharge       Decimal @default(0.00) @map("clearing_charge") @db.Decimal(10, 2)
+  airServiceCharge     Decimal @default(0.00) @map("air_service_charge") @db.Decimal(10, 2)
   riskCharge           Decimal @default(0.00) @map("risk_charge") @db.Decimal(10, 2)
   handlingCharge       Decimal @default(0.00) @map("handling_charge") @db.Decimal(10, 2)
   docketCharge         Decimal @default(0.00) @map("docket_charge") @db.Decimal(10, 2)

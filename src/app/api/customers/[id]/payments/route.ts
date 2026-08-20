@@ -32,7 +32,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: 'Customer not found.' }, { status: 404 });
     }
 
-    // Find all credit LRs for this customer ordered by booking_date ASC (oldest first)
+    const targetMode = body.targetMode || 'all'; // 'all' | 'credit' | 'to_pay'
+
+    // Find all outstanding unpaid LRs (Credit and/or To Pay) for this customer ordered by booking_date ASC (oldest first)
+    const modeFilter =
+      targetMode === 'credit'
+        ? ['Credit']
+        : targetMode === 'to_pay'
+        ? ['To Pay']
+        : ['Credit', 'To Pay'];
+
     const dockets = await prisma.$queryRaw<any[]>`
       WITH paid AS (
         SELECT docket_id, SUM(amount) AS amount
@@ -43,20 +52,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       SELECT
         cd.id,
         cd.docket_no,
+        cd.payment_mode,
         cd.grand_total::float8 AS grand_total,
         COALESCE(paid.amount, 0)::float8 AS total_paid,
         GREATEST(cd.grand_total - COALESCE(paid.amount, 0), 0)::float8 AS outstanding_amount
       FROM "cargo_dockets" cd
       LEFT JOIN paid ON paid.docket_id = cd.id
       WHERE cd.status = 'issued'
-        AND cd.payment_mode = 'Credit'
+        AND cd.payment_mode = ANY(${modeFilter})
         AND (cd.customer_code = ${customer.code} OR LOWER(cd.consignor_name) = LOWER(${customer.name}))
         AND (cd.grand_total - COALESCE(paid.amount, 0)) > 0.01
       ORDER BY cd.booking_date ASC, cd.created_at ASC
     `;
 
     if (dockets.length === 0) {
-      return NextResponse.json({ error: 'No outstanding credit LRs found for this customer.' }, { status: 400 });
+      return NextResponse.json({ error: 'No outstanding unpaid LRs (Credit or To Pay) found for this customer.' }, { status: 400 });
     }
 
     let remainingToAllocate = amount;

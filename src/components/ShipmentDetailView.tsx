@@ -25,6 +25,7 @@ import {
   PlusCircle,
   Pencil,
   Ban,
+  X,
 } from 'lucide-react';
 
 interface TrackingEvent {
@@ -69,6 +70,9 @@ const FIELD_LABELS: Record<string, string> = {
   goods_description: 'Goods Description',
   eway_bill_no: 'E-Way Bill No.',
   freight_amount: 'Freight Charges',
+  fuel_charge: 'Fuel Charges',
+  clearing_charge: 'Clearing Charges',
+  air_service_charge: 'Air Service Charges',
   risk_charge: 'Risk Charges',
   handling_charge: 'Handling Charges',
   docket_charge: 'Docket Charges',
@@ -78,29 +82,22 @@ const FIELD_LABELS: Record<string, string> = {
   payment_mode: 'Payment Mode',
   expected_mode: 'Expected Payment Mode',
   customer_code: 'Customer',
-  courier_partner: 'Courier / Network',
-  tracking_no: 'Tracking No.',
-  physical_docket_no: 'Physical LR / Vehicle No.',
-  void_reason: 'Void Reason',
+  delivery_status: 'Delivery Status',
 };
 
-/** Rupee amounts on an invoice always show both paise digits. */
-function formatAmount(value: number): string {
-  return `₹${value.toLocaleString('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
+function formatAmount(val: number): string {
+  return `₹${val.toLocaleString('en-IN')}`;
 }
 
 interface ShipmentDetailViewProps {
-  docket: CargoDocket;
+  docket: CargoDocket | null;
+  isOpen?: boolean;
   onBack: () => void;
   onVoidSuccess?: () => void;
-  /** Admin-only correction flow — parent opens the LR wizard pre-filled. */
   onEdit?: () => void;
 }
 
-export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEdit }: ShipmentDetailViewProps) {
+export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVoidSuccess, onEdit }: ShipmentDetailViewProps) {
   const [showVoidModal, setShowVoidModal] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [voiding, setVoiding] = useState(false);
@@ -114,10 +111,10 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
   const [auditLoading, setAuditLoading] = useState(true);
 
   const { data: session } = useSession();
-  // Voiding/editing are admin-only server-side; hide the controls so staff never hit a 403.
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
 
   const fetchEvents = () => {
+    if (!docket) return;
     setEventsLoading(true);
     fetch(`/api/dockets/${docket.id}/tracking-events`)
       .then((res) => (res.ok ? res.json() : { events: [] }))
@@ -127,6 +124,7 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
   };
 
   const fetchAuditLog = () => {
+    if (!docket) return;
     setAuditLoading(true);
     fetch(`/api/dockets/${docket.id}/audit-log`)
       .then((res) => (res.ok ? res.json() : { entries: [] }))
@@ -136,32 +134,32 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
   };
 
   useEffect(() => {
-    fetchEvents();
-    fetchAuditLog();
+    if (docket?.id) {
+      fetchEvents();
+      fetchAuditLog();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docket.id]);
+  }, [docket?.id]);
+
+  if (!isOpen || !docket) return null;
 
   const isVoided = docket.status === 'voided';
   const freight = Number(docket.freight_amount || 0);
+  const fuel = Number(docket.fuel_charge || 0);
+  const clearing = Number(docket.clearing_charge || 0);
+  const airService = Number(docket.air_service_charge || 0);
   const handling = Number(docket.handling_charge || 0);
   const risk = Number(docket.risk_charge || 0);
   const docketChg = Number(docket.docket_charge || 0);
   const pickup = Number(docket.pickup_delivery_charge || 0);
   const other = Number(docket.other_charge || 0);
 
-  // Totals are frozen at write time and corrected for historical rows by the
-  // backfill migration, so this view displays them rather than recalculating —
-  // an invoice must never show a different figure than the one on record.
   const subtotal = Number(docket.subtotal || 0);
   const gstPercentage = Number(docket.gst_percentage || 18);
   const gstAmount = Number(docket.gst_amount || 0);
   const grandTotal = Number(docket.grand_total || 0);
   const amountPaid = docket.amount_paid ?? (docket.payment_mode === 'Paid' ? grandTotal : 0);
   const amountDue = docket.amount_due ?? Math.max(grandTotal - amountPaid, 0);
-
-  const handlePrint = () => {
-    window.print();
-  };
 
   const handleDownloadPDF = () => {
     generateInvoicePDF(docket);
@@ -195,321 +193,315 @@ export default function ShipmentDetailView({ docket, onBack, onVoidSuccess, onEd
   };
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto font-sans text-slate-900">
-      {/* Top Navigation & Action Bar (Screenshot Match) */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white border border-slate-200/80 p-4 rounded-xl shadow-2xs">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={onBack} aria-label="Go back to shipments">
-            <ChevronLeft className="w-5 h-5 text-slate-700" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-bold text-slate-900 tracking-tight">{docket.docket_no}</h1>
-              <Badge
-                variant={isVoided ? 'destructive' : docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
-                className="font-mono text-xs uppercase"
+    <div className="fixed inset-0 z-50 overflow-hidden font-sans text-slate-900">
+      {/* Backdrop overlay */}
+      <div
+        className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity animate-fade-in"
+        onClick={onBack}
+      />
+
+      {/* Tall Right Slide-over Drawer Panel */}
+      <div className="fixed inset-y-0 right-0 max-w-full flex pl-6 z-50">
+        <div className="w-screen max-w-lg bg-white shadow-2xl flex flex-col border-l border-slate-200 animate-in slide-in-from-right duration-300">
+          {/* Header Box (Screenshot 2 Match) */}
+          <div className="p-5 border-b border-slate-200/80 bg-slate-50/70 space-y-3 shrink-0">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                LR Invoice to {docket.consignee_name || docket.consignor_name}
+              </span>
+              <button
+                onClick={onBack}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-200/60 transition-colors cursor-pointer"
+                aria-label="Close"
               >
-                {isVoided ? 'Voided' : docket.payment_mode}
-              </Badge>
-              {!isVoided && (
-                <Badge variant={deliveryStatusBadgeVariant(docket.delivery_status)} className="text-xs">
-                  {docket.delivery_status || 'Booked'}
-                </Badge>
-              )}
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
-              Booked {docket.booking_date} · {docket.consignor_name}
-              {docket.created_by_name && (
-                <>
-                  {' '}
-                  · Created by <span className="font-semibold text-slate-700">{docket.created_by_name}</span>
-                  {docket.created_at && ` on ${formatCreatedAt(docket.created_at)}`}
-                </>
-              )}
-            </p>
-          </div>
-        </div>
 
-        {/* Action Buttons Top Right */}
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handlePrint} className="gap-1.5 text-xs">
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print</span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleDownloadPDF} className="gap-1.5 text-xs">
-            <Download className="w-3.5 h-3.5" />
-            <span>Download</span>
-          </Button>
-          {!isVoided && isAdmin && onEdit && (
-            <Button variant="outline" size="sm" onClick={onEdit} className="gap-1.5 text-xs">
-              <Pencil className="w-3.5 h-3.5" />
-              <span>Edit LR</span>
-            </Button>
-          )}
-          {!isVoided && isAdmin && (
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowVoidModal(true)}
-              className="gap-1.5 text-xs bg-red-600 hover:bg-red-700"
-            >
-              <Ban className="w-3.5 h-3.5" />
-              <span>Void LR</span>
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Main Grid: 2 Columns Left, 1 Column Right (Screenshot Match) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column (2 Cols) */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Card 1: Shipment Details */}
-          <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-6 space-y-4">
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">Shipment Details</h2>
-
-            <div className="grid grid-cols-2 gap-y-4 text-xs">
+            <div className="flex items-center justify-between gap-3">
               <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Consignor</span>
-                <span className="font-bold text-slate-900">{docket.consignor_name}</span>
-                {docket.consignor_phone && <span className="block text-slate-500">{docket.consignor_phone}</span>}
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Consignee</span>
-                <span className="font-bold text-slate-900">{docket.consignee_name}</span>
-                {docket.consignee_phone && <span className="block text-slate-500">{docket.consignee_phone}</span>}
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Origin</span>
-                <span className="font-semibold text-slate-800">{docket.from_city}</span>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Destination</span>
-                <span className="font-semibold text-slate-800">{docket.to_city}</span>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Weight</span>
-                <span className="font-bold text-slate-900 font-mono">{docket.charged_weight_kg} kg</span>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Packages</span>
-                <span className="font-bold text-slate-900 font-mono">{docket.package_count} packages</span>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Physical LR / Vehicle No.</span>
-                <span className="font-bold text-slate-900 font-mono">
-                  {docket.physical_docket_no || docket.tracking_no || 'Self Vehicle'}
-                </span>
-              </div>
-
-              <div>
-                <span className="text-[11px] font-medium text-slate-400 block">Courier / Network</span>
-                <span className="font-bold text-slate-900">{docket.courier_partner || 'Self Network'}</span>
-              </div>
-            </div>
-          </Card>
-
-          {/* Card 2: Payment Breakdown */}
-          <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-6 space-y-3">
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">Payment Breakdown</h2>
-
-            {/* Every charge line is listed, then subtotal and GST, so the figures
-                shown add up to the total on the invoice. */}
-            <div className="space-y-2 text-xs divide-y divide-slate-100">
-              {[
-                { label: 'Freight Charges', value: freight, alwaysShow: true },
-                { label: 'Loading / Handling Charges', value: handling, alwaysShow: false },
-                { label: 'Risk / Insurance Charges', value: risk, alwaysShow: false },
-                { label: 'Docket Charges', value: docketChg, alwaysShow: false },
-                { label: 'Pickup & Delivery Charges', value: pickup, alwaysShow: false },
-                { label: 'Other Charges', value: other, alwaysShow: false },
-              ]
-                .filter((line) => line.alwaysShow || line.value > 0)
-                .map((line) => (
-                  <div key={line.label} className="flex justify-between text-slate-600 pt-1">
-                    <span>{line.label}</span>
-                    <span className="font-mono">{formatAmount(line.value)}</span>
-                  </div>
-                ))}
-
-              <div className="flex justify-between text-slate-700 font-semibold pt-1.5">
-                <span>Taxable Subtotal</span>
-                <span className="font-mono">{formatAmount(subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-slate-600 pt-1.5">
-                <span>GST ({gstPercentage}%)</span>
-                <span className="font-mono">{formatAmount(gstAmount)}</span>
-              </div>
-
-              <div className="flex justify-between font-bold text-slate-900 text-sm pt-2">
-                <span>Total Amount</span>
-                <span className="font-mono text-[#2563EB]">{formatAmount(grandTotal)}</span>
-              </div>
-              <div className="flex justify-between items-center pt-2">
-                <span className="text-slate-500 font-medium">Payment Status</span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xl font-extrabold text-slate-900 font-mono tracking-tight">
+                    #{docket.docket_no}
+                  </h2>
                   <Badge
-                    variant={docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
-                    className="font-mono text-xs"
+                    variant={isVoided ? 'destructive' : docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
+                    className="font-mono text-xs uppercase"
                   >
-                    {docket.payment_mode}
+                    {isVoided ? 'Voided' : docket.payment_mode}
                   </Badge>
-                  {docket.payment_mode !== 'Paid' && docket.expected_mode && (
-                    <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
-                      expects {docket.expected_mode}
-                    </span>
+                  {!isVoided && (
+                    <Badge variant={deliveryStatusBadgeVariant(docket.delivery_status)} className="text-xs">
+                      {docket.delivery_status || 'Booked'}
+                    </Badge>
                   )}
+                </div>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  Booked {docket.booking_date} · {docket.from_city} → {docket.to_city}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <div className="text-2xl font-extrabold text-[#0A2030] font-mono">
+                  ₹{grandTotal.toLocaleString('en-IN')}
+                </div>
+                <div className="text-[11px] text-slate-400 font-mono">
+                  Due: ₹{amountDue.toLocaleString('en-IN')}
                 </div>
               </div>
             </div>
-          </Card>
 
-          {/* Card 2b: Payments — ledger summary + record action */}
-          {!isVoided && (
-            <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-6 space-y-3">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h2 className="text-sm font-bold text-slate-900">Payments</h2>
+            {/* Quick Actions Row */}
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              {!isVoided && (
+                <Button
+                  size="sm"
+                  onClick={() => setShowTrackingModal(true)}
+                  className="h-8 text-xs font-bold gap-1.5 bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas"
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>Update Status</span>
+                </Button>
+              )}
+
+              {!isVoided && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setShowPaymentModal(true)}
-                  className="gap-1.5 text-xs"
+                  className="h-8 text-xs font-semibold gap-1.5 text-slate-700 border-slate-200 hover:bg-slate-100"
                 >
-                  <Wallet className="w-3.5 h-3.5" />
-                  <span>{amountDue > 0 ? 'Record Payment' : 'View History'}</span>
+                  <Wallet className="w-3.5 h-3.5 text-[#0A2030]" />
+                  <span>Update Pay</span>
                 </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-                  <div className="text-[10px] text-slate-500 font-medium">Grand Total</div>
-                  <div className="text-sm font-bold text-slate-900 font-mono">{formatAmount(grandTotal)}</div>
-                </div>
-                <div className="p-2.5 rounded-lg bg-green-50 border border-green-200">
-                  <div className="text-[10px] text-green-700 font-medium">Paid</div>
-                  <div className="text-sm font-bold text-green-700 font-mono">{formatAmount(amountPaid)}</div>
-                </div>
-                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
-                  <div className="text-[10px] text-amber-700 font-medium">Due</div>
-                  <div className="text-sm font-bold text-amber-700 font-mono">{formatAmount(amountDue)}</div>
-                </div>
-              </div>
-            </Card>
-          )}
+              )}
 
-        </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadPDF}
+                className="h-8 text-xs font-semibold gap-1.5 text-slate-700 border-slate-200 hover:bg-slate-100"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-600" />
+                <span>PDF</span>
+              </Button>
 
-        {/* Right Column (1 Col: Tracking Timeline & Activity Log) */}
-        <div className="space-y-6">
-          {/* Card 4: Tracking Timeline — driven by real checkpoints, not a
-              fixed mock-up; updates live as staff/admin log delivery status. */}
-          <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-              <h2 className="text-sm font-bold text-slate-900">Tracking Timeline</h2>
-              {!isVoided && (
+              {!isVoided && isAdmin && onEdit && (
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setShowTrackingModal(true)}
-                  className="gap-1.5 text-[11px] h-7 px-2.5"
+                  onClick={onEdit}
+                  className="h-8 text-xs font-semibold gap-1.5 text-slate-700 border-slate-200 hover:bg-slate-100"
                 >
-                  <PlusCircle className="w-3 h-3" />
-                  <span>Update Status</span>
+                  <Pencil className="w-3.5 h-3.5" />
+                  <span>Edit</span>
+                </Button>
+              )}
+
+              {!isVoided && isAdmin && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowVoidModal(true)}
+                  className="h-8 text-xs font-bold gap-1.5 bg-red-600 hover:bg-red-700 ml-auto"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Void</span>
                 </Button>
               )}
             </div>
+          </div>
 
-            {eventsLoading ? (
-              <div className="text-xs text-slate-400 font-mono py-6 text-center">Loading timeline...</div>
-            ) : events.length === 0 ? (
-              <div className="text-xs text-slate-400 py-6 text-center">
-                No checkpoints logged yet — status shown is just "Booked".
+          {/* Drawer Scrollable Content — One Single Continuous Sheet */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6 divide-y divide-slate-100">
+            {/* Section 1: Shipment Logistics Details */}
+            <div className="space-y-3 pt-2">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                Shipment Information
+              </h3>
+              <div className="grid grid-cols-2 gap-y-3.5 gap-x-4 text-xs">
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Consignor</span>
+                  <span className="font-bold text-slate-900">{docket.consignor_name}</span>
+                  {docket.consignor_phone && <span className="block text-slate-500 text-[11px]">{docket.consignor_phone}</span>}
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Consignee</span>
+                  <span className="font-bold text-slate-900">{docket.consignee_name}</span>
+                  {docket.consignee_phone && <span className="block text-slate-500 text-[11px]">{docket.consignee_phone}</span>}
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Origin → Destination</span>
+                  <span className="font-bold text-slate-800">{docket.from_city} → {docket.to_city}</span>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Mode / Vehicle</span>
+                  <span className="font-bold text-slate-900">{docket.transport_mode || 'Road'}</span>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Charged Weight</span>
+                  <span className="font-bold text-slate-900 font-mono">{docket.charged_weight_kg} kg</span>
+                </div>
+
+                <div>
+                  <span className="text-[11px] text-slate-400 font-medium block">Packages</span>
+                  <span className="font-bold text-slate-900 font-mono">{docket.package_count} pkgs</span>
+                </div>
+
+                {docket.physical_docket_no && (
+                  <div>
+                    <span className="text-[11px] text-slate-400 font-medium block">Paper LR / Vehicle No.</span>
+                    <span className="font-bold text-slate-900 font-mono">{docket.physical_docket_no}</span>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="relative pl-6 space-y-5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-blue-200">
-                {[...events].reverse().map((ev, i, arr) => (
-                  <div key={ev.id} className="relative">
-                    <div
-                      className={`absolute -left-6 top-0.5 w-5 h-5 rounded-full flex items-center justify-center ${
-                        i === arr.length - 1
-                          ? 'bg-[#2563EB] text-white'
-                          : 'bg-[#E8F7EF] text-[#1F8A4C]'
-                      }`}
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
+            </div>
+
+            {/* Section 2: Financial & Charges Breakdown */}
+            <div className="pt-5 space-y-3">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                Payment &amp; Tariff Breakdown
+              </h3>
+              <div className="space-y-2 text-xs">
+                {[
+                  { label: 'Freight Charges', value: freight, alwaysShow: true },
+                  { label: 'Fuel Charges', value: fuel, alwaysShow: false },
+                  { label: 'Clearing Charges', value: clearing, alwaysShow: false },
+                  { label: 'Air Service Charges', value: airService, alwaysShow: false },
+                  { label: 'Loading / Handling Charges', value: handling, alwaysShow: false },
+                  { label: 'Risk / Insurance Charges', value: risk, alwaysShow: false },
+                  { label: 'Docket Charges', value: docketChg, alwaysShow: false },
+                  { label: 'Pickup & Delivery Charges', value: pickup, alwaysShow: false },
+                  { label: 'Other Charges', value: other, alwaysShow: false },
+                ]
+                  .filter((line) => line.alwaysShow || line.value > 0)
+                  .map((line) => (
+                    <div key={line.label} className="flex justify-between text-slate-600">
+                      <span>{line.label}</span>
+                      <span className="font-mono">{formatAmount(line.value)}</span>
                     </div>
-                    <div className="space-y-0.5">
-                      <span className="text-xs font-bold text-slate-900 block">{ev.status}</span>
-                      {ev.location && (
-                        <span className="text-[11px] text-slate-500 flex items-center gap-1">
-                          <MapPin className="w-3 h-3" /> {ev.location}
+                  ))}
+
+                <div className="flex justify-between text-slate-700 font-semibold pt-1 border-t border-slate-100">
+                  <span>Taxable Subtotal</span>
+                  <span className="font-mono">{formatAmount(subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600">
+                  <span>GST ({gstPercentage}%)</span>
+                  <span className="font-mono">{formatAmount(gstAmount)}</span>
+                </div>
+
+                <div className="flex justify-between font-extrabold text-slate-900 text-sm pt-2 border-t border-slate-200">
+                  <span>Grand Total</span>
+                  <span className="font-mono text-[#0A2030]">{formatAmount(grandTotal)}</span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 pt-2 text-center">
+                  <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
+                    <div className="text-[10px] text-slate-400 font-medium">Grand Total</div>
+                    <div className="text-xs font-bold text-slate-900 font-mono">{formatAmount(grandTotal)}</div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100">
+                    <div className="text-[10px] text-emerald-700 font-medium">Paid</div>
+                    <div className="text-xs font-bold text-emerald-700 font-mono">{formatAmount(amountPaid)}</div>
+                  </div>
+                  <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
+                    <div className="text-[10px] text-amber-700 font-medium">Due</div>
+                    <div className="text-xs font-bold text-amber-700 font-mono">{formatAmount(amountDue)}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Tracking Events Timeline */}
+            <div className="pt-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
+                  Tracking History
+                </h3>
+                {!isVoided && (
+                  <button
+                    onClick={() => setShowTrackingModal(true)}
+                    className="text-xs font-bold text-[#0A2030] hover:underline cursor-pointer"
+                  >
+                    + Add Checkpoint
+                  </button>
+                )}
+              </div>
+
+              {eventsLoading ? (
+                <div className="text-xs text-slate-400 font-mono py-4 text-center">Loading timeline...</div>
+              ) : events.length === 0 ? (
+                <div className="text-xs text-slate-400 py-3">
+                  No checkpoints logged yet — status is Booked.
+                </div>
+              ) : (
+                <div className="relative pl-5 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                  {[...events].reverse().map((ev, i, arr) => (
+                    <div key={ev.id} className="relative">
+                      <div
+                        className={`absolute -left-5 top-0.5 w-4 h-4 rounded-full flex items-center justify-center ${
+                          i === arr.length - 1
+                            ? 'bg-[#0A2030] text-white'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
+                      >
+                        <CheckCircle2 className="w-3 h-3" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-xs font-bold text-slate-900 block">{ev.status}</span>
+                        {ev.location && (
+                          <span className="text-[11px] text-slate-500 flex items-center gap-1">
+                            <MapPin className="w-3 h-3" /> {ev.location}
+                          </span>
+                        )}
+                        {ev.description && <span className="text-[11px] text-slate-600 block">{ev.description}</span>}
+                        <span className="text-[10px] text-slate-400 font-mono block">
+                          {new Date(ev.event_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                          {' · '}
+                          {ev.created_by_name}
                         </span>
-                      )}
-                      {ev.description && <span className="text-[11px] text-slate-500 block">{ev.description}</span>}
-                      <span className="text-[10px] text-slate-400 font-mono block">
-                        {new Date(ev.event_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                        {' · '}
-                        {ev.created_by_name}
-                      </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+                  ))}
+                </div>
+              )}
+            </div>
 
-          {/* Card 5: Activity Log — creation + every admin correction/void. */}
-          <Card className="border border-slate-200/80 shadow-2xs rounded-xl bg-white p-5 space-y-4">
-            <h2 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2 flex items-center gap-1.5">
-              <History className="w-3.5 h-3.5 text-slate-400" />
-              Activity Log
-            </h2>
+            {/* Section 4: Audit & Activity Log */}
+            <div className="pt-5 space-y-3">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5 text-slate-400" />
+                <span>Audit &amp; Activity Stream</span>
+              </h3>
 
-            {auditLoading ? (
-              <div className="text-xs text-slate-400 font-mono py-6 text-center">Loading activity...</div>
-            ) : auditEntries.length === 0 ? (
-              <div className="text-xs text-slate-400 py-6 text-center">No activity recorded yet.</div>
-            ) : (
-              <div className="space-y-3 max-h-96 overflow-y-auto">
-                {auditEntries.map((entry) => (
-                  <div key={entry.id} className="border border-slate-100 rounded-lg p-2.5 space-y-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-bold text-slate-900 flex items-center gap-1">
-                        {entry.action === 'created' && <PlusCircle className="w-3 h-3 text-emerald-600" />}
-                        {entry.action === 'edited' && <Pencil className="w-3 h-3 text-blue-600" />}
-                        {entry.action === 'voided' && <Ban className="w-3 h-3 text-red-600" />}
-                        {entry.action === 'created'
-                          ? 'LR created'
-                          : entry.action === 'edited'
-                          ? 'LR edited'
-                          : 'LR voided'}
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                      </span>
+              {auditLoading ? (
+                <div className="text-xs text-slate-400 font-mono py-4 text-center">Loading audit log...</div>
+              ) : auditEntries.length === 0 ? (
+                <div className="text-xs text-slate-400 py-3">No audit activity recorded yet.</div>
+              ) : (
+                <div className="space-y-2.5">
+                  {auditEntries.map((entry) => (
+                    <div key={entry.id} className="text-xs space-y-0.5 py-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-slate-800 flex items-center gap-1">
+                          {entry.action === 'created' ? 'LR Created' : entry.action === 'edited' ? 'LR Edited' : 'LR Voided'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500">by {entry.performed_by_name}</div>
                     </div>
-                    <div className="text-[10px] text-slate-500">by {entry.performed_by_name}</div>
-                    {entry.changes.length > 0 && (
-                      <ul className="text-[10px] text-slate-600 space-y-0.5 pt-1">
-                        {entry.changes.map((c, idx) => (
-                          <li key={idx}>
-                            <span className="font-semibold">{FIELD_LABELS[c.field] || c.field}:</span>{' '}
-                            <span className="line-through text-slate-400">{String(c.from ?? '—')}</span>{' '}
-                            → <span className="text-slate-800">{String(c.to ?? '—')}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

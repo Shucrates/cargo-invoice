@@ -22,6 +22,8 @@ import {
   Building2,
   PanelLeftClose,
   PanelLeftOpen,
+  Menu,
+  X,
 } from 'lucide-react';
 
 export type NavTab =
@@ -47,6 +49,7 @@ interface AppShellProps {
 
 export default function AppShell({ activeTab, onTabChange, children, navCounts }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { data: session } = useSession();
   const userName = session?.user?.name || 'Logistics Admin';
   const userEmail = session?.user?.email || 'admin@rudracargo.com';
@@ -310,8 +313,8 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
-        {/* Top Header Navigation Bar (72px height) */}
-        <header className="h-[72px] bg-white border-b border-[#EEF1F4] px-6 flex items-center justify-between gap-4 shrink-0 sticky top-0 z-30 shadow-2xs">
+        {/* Desktop Header Navigation Bar (Hidden on Mobile) */}
+        <header className="hidden md:flex h-[72px] bg-white border-b border-[#EEF1F4] px-6 items-center justify-between gap-4 shrink-0 sticky top-0 z-30 shadow-2xs">
           {/* Left: Breadcrumb Root location indicator */}
           <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-400 font-normal">{breadcrumb.section}</span>
@@ -378,7 +381,6 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
               {/* Account Dropdown Menu Box */}
               {accountMenuOpen && (
                 <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* Account Header */}
                   <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] font-bold text-sm flex items-center justify-center font-mono border border-blue-100 shadow-2xs">
@@ -396,7 +398,6 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     </div>
                   </div>
 
-                  {/* Navigation Shortcuts */}
                   <div className="p-2 space-y-0.5">
                     <button
                       onClick={() => navigateTab('shipments')}
@@ -448,7 +449,6 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     )}
                   </div>
 
-                  {/* Sign Out */}
                   <div className="p-2 border-t border-slate-100 bg-slate-50/50">
                     <button
                       onClick={handleSignOut}
@@ -464,22 +464,215 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
           </div>
         </header>
 
-        {/* Mobile Header Bar */}
-        <header className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#2563EB] text-white rounded-xl flex items-center justify-center shadow-saas">
-              <Box className="w-4 h-4" />
+        {/* Mobile Clean Header Navigation Bar (Visible only on mobile) */}
+        <header className="flex md:hidden h-14 bg-white border-b border-slate-200 px-4 items-center justify-between sticky top-0 z-40 shadow-2xs gap-3">
+          {/* Hamburger Drawer Toggle & Brand Logo */}
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-700 hover:bg-slate-50 cursor-pointer"
+              aria-label="Open mobile menu"
+            >
+              <Menu className="w-4.5 h-4.5" />
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-white border border-slate-200 rounded-lg flex items-center justify-center overflow-hidden p-0.5 shrink-0 shadow-2xs">
+                <img src="/rudra-logo.png" alt="Logo" className="w-full h-full object-contain" />
+              </div>
+              <span className="font-extrabold text-sm text-slate-900 tracking-tight">Rudra Cargo</span>
             </div>
-            <span className="font-bold text-sm text-slate-900">Rudra Cargo</span>
           </div>
-          <button
-            onClick={() => onTabChange('new_lr')}
-            className="h-9 px-3 bg-[#2563EB] text-white font-medium text-xs rounded-xl flex items-center gap-1 shadow-saas"
-          >
-            <Plus className="w-4 h-4" />
-            <span>New LR</span>
-          </button>
+
+          {/* Right Mobile Actions */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => onTabChange('new_lr')}
+              className="h-8 px-3 bg-[#0A2030] hover:bg-[#071520] text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-2xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New LR</span>
+            </button>
+
+            {/* Mobile User Profile Avatar Menu */}
+            <div className="relative">
+              <button
+                onClick={() => setAccountMenuOpen(!accountMenuOpen)}
+                className="w-8 h-8 rounded-xl bg-[#0A2030]/10 text-[#0A2030] font-mono font-bold text-xs flex items-center justify-center border border-slate-200 cursor-pointer"
+                aria-label="Mobile User Account Menu"
+              >
+                {userInitials}
+              </button>
+
+              {accountMenuOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden">
+                  <div className="p-3 border-b border-slate-100 bg-slate-50">
+                    <div className="text-xs font-bold text-slate-900 truncate">{userName}</div>
+                    <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
+                  </div>
+                  <div className="p-2 space-y-1">
+                    <button
+                      onClick={() => navigateTab('shipments')}
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-xl"
+                    >
+                      Shipments
+                    </button>
+                    <button
+                      onClick={() => navigateTab('billing')}
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-xl"
+                    >
+                      Billing
+                    </button>
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full text-left px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
+
+        {/* Mobile Sliding Navigation Drawer */}
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex md:hidden">
+            <div className="w-72 bg-white h-full p-5 flex flex-col justify-between overflow-y-auto animate-in slide-in-from-left duration-200 shadow-2xl">
+              <div className="space-y-6">
+                {/* Header in Mobile Drawer */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 bg-white border border-slate-200 rounded-xl flex items-center justify-center overflow-hidden p-0.5 shadow-2xs">
+                      <img src="/rudra-logo.png" alt="Logo" className="w-full h-full object-contain" />
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-sm text-slate-900 block leading-none">Rudra Cargo</span>
+                      <span className="text-[10px] text-slate-400 font-medium">Navigation</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="w-8 h-8 rounded-xl border border-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Mobile Drawer Links */}
+                <div className="space-y-5">
+                  {/* OVERVIEW */}
+                  <div className="space-y-1">
+                    <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                      OVERVIEW
+                    </div>
+                    {mainNavItems.map((item) => {
+                      const Icon = item.icon;
+                      const isActive = activeTab === item.id;
+                      const count = navCounts?.[item.id];
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => {
+                            onTabChange(item.id);
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium cursor-pointer ${
+                            isActive
+                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-bold shadow-2xs'
+                              : 'text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0A2030]' : 'text-slate-400'}`} />
+                          <span className="flex-1 text-left">{item.label}</span>
+                          {!!count && (
+                            <span className="text-[10px] font-mono text-slate-400">{count}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* FINANCE */}
+                  <div className="space-y-1">
+                    <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                      FINANCE & REPORTS
+                    </div>
+                    {financeNavItems
+                      .filter((item) => !item.adminOnly || isAdmin)
+                      .map((item) => {
+                        const Icon = item.icon;
+                        const isActive = activeTab === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            onClick={() => {
+                              onTabChange(item.id);
+                              setMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium cursor-pointer ${
+                              isActive
+                                ? 'bg-[#0A2030]/10 text-[#0A2030] font-bold shadow-2xs'
+                                : 'text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0A2030]' : 'text-slate-400'}`} />
+                            <span className="flex-1 text-left">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+
+                  {/* SYSTEM */}
+                  {isAdmin && (
+                    <div className="pt-3 border-t border-slate-100 space-y-1">
+                      <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                        SYSTEM
+                      </div>
+                      <button
+                        onClick={() => {
+                          onTabChange('staff');
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium cursor-pointer ${
+                          activeTab === 'staff' ? 'bg-[#0A2030]/10 text-[#0A2030] font-bold' : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <ShieldCheck className="w-4 h-4 text-slate-400" />
+                        <span>Staff Management</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          onTabChange('settings');
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium cursor-pointer ${
+                          activeTab === 'settings' ? 'bg-[#0A2030]/10 text-[#0A2030] font-bold' : 'text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Settings className="w-4 h-4 text-slate-400" />
+                        <span>Company Settings</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Sign out button at bottom of drawer */}
+              <div className="pt-4 border-t border-slate-100">
+                <button
+                  onClick={handleSignOut}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4 text-rose-500" />
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </div>
+            {/* Click backdrop to close drawer */}
+            <div className="flex-1" onClick={() => setMobileMenuOpen(false)} />
+          </div>
+        )}
 
         {/* Dynamic Section Content */}
         <main className="flex-1 p-6 md:p-8 space-y-6 max-w-7xl w-full mx-auto">{children}</main>

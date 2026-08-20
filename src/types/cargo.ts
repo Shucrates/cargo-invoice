@@ -49,6 +49,9 @@ export type CargoDocket = {
   eway_bill_no?: string;
   
   freight_amount: number;
+  fuel_charge?: number;
+  clearing_charge?: number;
+  air_service_charge?: number;
   risk_charge: number;
   handling_charge: number;
   docket_charge: number;

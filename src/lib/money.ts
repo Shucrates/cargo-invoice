@@ -11,6 +11,9 @@
 /** Individual chargeable lines on a docket, in rupees as entered by the user. */
 export interface DocketCharges {
   freight_amount?: unknown;
+  fuel_charge?: unknown;
+  clearing_charge?: unknown;
+  air_service_charge?: unknown;
   risk_charge?: unknown;
   handling_charge?: unknown;
   docket_charge?: unknown;
@@ -67,7 +70,8 @@ export function formatPaise(paise: number): string {
  * form call this, so a quote shown to the customer and the row written to the
  * database can never disagree.
  *
- * If transport_mode is 'Air', an additional 35% service charge is added to the subtotal.
+ * Charges include Freight, Fuel, Clearing, optional manual Air Service Charge,
+ * Risk, Handling, Docket, Pickup/Delivery, and Other charges.
  * GST is rounded half-up to the nearest paise on the subtotal as a whole.
  */
 export function computeDocketTotals(
@@ -75,18 +79,23 @@ export function computeDocketTotals(
   gstPercentage: unknown,
   transportMode?: unknown
 ): DocketTotals {
+  const mode = transportMode ?? charges.transport_mode;
+  const isAir = mode === 'Air';
+  const airServiceChargeVal = isAir ? (charges.air_service_charge || 0) : (charges.air_service_charge || 0);
+
   const subtotalPaise =
     toPaise(charges.freight_amount) +
+    toPaise(charges.fuel_charge) +
+    toPaise(charges.clearing_charge) +
+    toPaise(airServiceChargeVal) +
     toPaise(charges.risk_charge) +
     toPaise(charges.handling_charge) +
     toPaise(charges.docket_charge) +
     toPaise(charges.pickup_delivery_charge) +
     toPaise(charges.other_charge);
 
-  const mode = transportMode ?? charges.transport_mode;
-  const isAir = mode === 'Air';
-  const serviceChargeRate = isAir ? 35 : 0;
-  const serviceChargePaise = isAir ? Math.round((subtotalPaise * 35) / 100) : 0;
+  const serviceChargePaise = toPaise(airServiceChargeVal);
+  const serviceChargeRate = 0;
 
   const rate = Number(gstPercentage);
   const gstRate = Number.isFinite(rate) && rate >= 0 && rate <= 100 ? rate : 18;
@@ -98,7 +107,7 @@ export function computeDocketTotals(
     serviceChargePaise,
     serviceChargeRate,
     gstPaise,
-    grandTotalPaise: subtotalPaise + serviceChargePaise + gstPaise,
+    grandTotalPaise: subtotalPaise + gstPaise,
   };
 }
 
