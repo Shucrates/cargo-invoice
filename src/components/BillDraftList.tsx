@@ -88,7 +88,7 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
               <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                 <button
                   onClick={() => onEdit(draft)}
-                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-[#2563EB] bg-blue-50 hover:bg-blue-100 transition-all cursor-pointer"
+                  className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-[#0A2030] bg-[#0A2030]/10 hover:bg-[#0A2030]/15 transition-all cursor-pointer"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
                   Resume

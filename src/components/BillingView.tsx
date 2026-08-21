@@ -24,6 +24,8 @@ import {
   ArrowRight,
   Save,
   X,
+  FileSpreadsheet,
+  Clock,
 } from 'lucide-react';
 import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 import { Card } from '@/components/ui/card';
@@ -34,6 +36,7 @@ import { Badge } from '@/components/ui/badge';
 import { CargoDocket, Customer, Bill, BillDraft, BillCustomLineItem } from '@/types/cargo';
 import { CompanySettings, DEFAULT_COMPANY_SETTINGS, getCompanySettings } from '@/lib/companyConfig';
 import { generateBillPDF, BillLineDocket } from '@/lib/pdfGenerator';
+import { downloadCSV } from '@/lib/exportUtils';
 import { formatCreatedAt } from '@/lib/formatDate';
 import BillDraftList from '@/components/BillDraftList';
 import type { QuotationSheetDTO } from '@/components/QuotationView';
@@ -41,6 +44,89 @@ import type { QuotationSheetDTO } from '@/components/QuotationView';
 interface BillingViewProps {
   dockets: CargoDocket[];
   customers: Customer[];
+}
+
+export type BillDatePreset =
+  | 'all'
+  | 'this_month'
+  | 'last_month'
+  | 'quarter'
+  | '6months'
+  | 'year'
+  | 'custom';
+
+function getBillPresetDates(preset: BillDatePreset): { start: string; end: string; label: string } {
+  const now = new Date();
+  const todayISO = now.toISOString().split('T')[0];
+  const y = now.getFullYear();
+  const m = now.getMonth();
+
+  if (preset === 'this_month') {
+    const start = new Date(Date.UTC(y, m, 1)).toISOString().split('T')[0];
+    const end = new Date(Date.UTC(y, m + 1, 0)).toISOString().split('T')[0];
+    const label = now.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return { start, end, label: `This Month (${label})` };
+  }
+
+  if (preset === 'last_month') {
+    const start = new Date(Date.UTC(y, m - 1, 1)).toISOString().split('T')[0];
+    const end = new Date(Date.UTC(y, m, 0)).toISOString().split('T')[0];
+    const lastMonthDate = new Date(Date.UTC(y, m - 1, 1));
+    const label = lastMonthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+    return { start, end, label: `Last Month (${label})` };
+  }
+
+  if (preset === 'quarter') {
+    const past90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return { start: past90.toISOString().split('T')[0], end: todayISO, label: 'Last 3 Months (Quarter)' };
+  }
+
+  if (preset === '6months') {
+    const past180 = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+    return { start: past180.toISOString().split('T')[0], end: todayISO, label: 'Last 6 Months' };
+  }
+
+  if (preset === 'year') {
+    const past365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+    return { start: past365.toISOString().split('T')[0], end: todayISO, label: 'Last 1 Year' };
+  }
+
+  if (preset === 'all') {
+    return { start: '', end: '', label: 'All Time' };
+  }
+
+  return { start: '', end: '', label: 'Custom Range' };
+}
+
+function getBillPaymentInfo(bill: Bill, dockets: CargoDocket[]) {
+  const grandTotal = Number(bill.grand_total || 0);
+  let received = 0;
+
+  if (bill.docket_ids && bill.docket_ids.length > 0) {
+    received = bill.docket_ids.reduce((sum, id) => {
+      const d = dockets.find((item) => item.id === id || item.docket_no === id);
+      if (!d) return sum;
+      const paid = Number(d.amount_paid ?? (d.payment_mode === 'Paid' ? d.grand_total : 0)) || 0;
+      return sum + paid;
+    }, 0);
+  }
+
+  const finalReceived = Math.min(grandTotal, Math.max(0, received));
+  const pending = Math.max(0, grandTotal - finalReceived);
+
+  let status: 'paid' | 'partial' | 'pending' = 'pending';
+  if (pending <= 0 && grandTotal > 0) {
+    status = 'paid';
+  } else if (finalReceived > 0) {
+    status = 'partial';
+  }
+
+  return {
+    grandTotal,
+    received: finalReceived,
+    pending,
+    status,
+  };
 }
 
 /** Imperative handle so a parent can check for unsaved changes and trigger a
@@ -88,6 +174,10 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const [bills, setBills] = useState<Bill[]>([]);
   const [loadingBills, setLoadingBills] = useState(true);
   const [billSearch, setBillSearch] = useState('');
+  const [datePreset, setDatePreset] = useState<BillDatePreset>('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<'all' | 'paid' | 'partial' | 'pending'>('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedDockets, setExpandedDockets] = useState<BillLineDocket[]>([]);
   const [expandLoading, setExpandLoading] = useState(false);
@@ -105,12 +195,28 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const [notes, setNotes] = useState<string>('');
 
   // Customer State
+  const [customerMode, setCustomerMode] = useState<'select' | 'new'>('select');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [customerName, setCustomerName] = useState<string>('');
   const [customerGstin, setCustomerGstin] = useState<string>('');
   const [customerAddress, setCustomerAddress] = useState<string>('');
   const [customerPhone, setCustomerPhone] = useState<string>('');
   const [customerEmail, setCustomerEmail] = useState<string>('');
+
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch.trim()) return customers;
+    const q = customerSearch.toLowerCase();
+    return customers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.city && c.city.toLowerCase().includes(q)) ||
+        (c.gstin && c.gstin.toLowerCase().includes(q)) ||
+        (c.phone && c.phone.includes(q)) ||
+        (c.address && c.address.toLowerCase().includes(q))
+    );
+  }, [customers, customerSearch]);
 
   // Line Items State
   const [selectedDocketIds, setSelectedDocketIds] = useState<string[]>([]);
@@ -171,35 +277,59 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     item: BillCustomLineItem
   ): { hint: string; computedAmount?: number; canAddRate?: { sheetId: string; destination: string; mode: string } } | null => {
     const destination = (item.to_city || '').trim();
+    const origin = (item.from_city || settings.defaultOriginCity || 'Mumbai').trim();
     if (!destination) return null;
 
     const sheetType: 'ROAD_RAIL' | 'AIR' = item.transport_mode === 'Air' ? 'AIR' : 'ROAD_RAIL';
-    const originCity = (item.from_city || settings.defaultOriginCity || 'Mumbai').trim();
-    const sheet = pickQuotationSheet(sheetType, originCity);
-    if (!sheet) {
-      return { hint: `No quotation sheet found for origin city "${originCity}".` };
-    }
-
     const wantMode = item.transport_mode === 'Air' ? 'BY AIR' : item.transport_mode === 'Train' ? 'BY RAIL' : 'BY ROAD';
-    const match = (sheet.rates || []).find(
+
+    // 1. Try forward lookup: sheet for origin city -> destination
+    let sheet = pickQuotationSheet(sheetType, origin);
+    let match = sheet?.rates?.find(
       (r) => r.destination.trim().toUpperCase() === destination.toUpperCase() && r.mode === wantMode
     );
+    let isReturn = false;
 
+    // 2. Try return lookup: if no forward rate found, or if destination matches base origin
     if (!match) {
+      const returnSheet = pickQuotationSheet(sheetType, destination) || pickQuotationSheet(sheetType, settings.defaultOriginCity || 'Mumbai');
+      if (returnSheet) {
+        const returnMatch = returnSheet.rates?.find(
+          (r) => r.destination.trim().toUpperCase() === origin.toUpperCase() && r.mode === wantMode
+        );
+        if (returnMatch) {
+          sheet = returnSheet;
+          match = returnMatch;
+          isReturn = true;
+        }
+      }
+    }
+
+    if (!sheet || !match) {
       return {
-        hint: `No value mentioned in quotation sheet "${sheet.name}" for ${destination}.`,
-        canAddRate: { sheetId: sheet.id, destination, mode: wantMode },
+        hint: `No value mentioned in quotation sheet "${sheet?.name || 'Default'}" for ${destination}.`,
+        canAddRate: sheet ? { sheetId: sheet.id, destination, mode: wantMode } : undefined,
       };
     }
 
+    const isRoadOrRail = item.transport_mode === 'Road' || item.transport_mode === 'Train' || !item.transport_mode;
+    const extraPerKg = (isReturn && isRoadOrRail) ? 2 : 0;
+    const effectiveRatePerKg = match.ratePerKg + extraPerKg;
+
     const billableKg = Number(item.charged_weight_kg) || 0;
     if (billableKg <= 0) {
-      return { hint: `₹${match.ratePerKg}/kg available from "${sheet.name}" — enter weight to auto-price.` };
+      return {
+        hint: isReturn && extraPerKg > 0
+          ? `₹${effectiveRatePerKg}/kg (₹${match.ratePerKg} base + ₹2 return) available from "${sheet.name}" — enter weight to auto-price.`
+          : `₹${effectiveRatePerKg}/kg available from "${sheet.name}" — enter weight to auto-price.`,
+      };
     }
 
-    const computed = Math.round(match.ratePerKg * billableKg);
+    const computed = Math.round(effectiveRatePerKg * billableKg);
     return {
-      hint: `Auto-priced from "${sheet.name}": ₹${match.ratePerKg}/kg × ${billableKg}kg = ₹${computed}`,
+      hint: isReturn && extraPerKg > 0
+        ? `Auto-priced (Return Journey +₹2/kg) from "${sheet.name}": ₹${effectiveRatePerKg}/kg (₹${match.ratePerKg} + ₹2) × ${billableKg}kg = ₹${computed}`
+        : `Auto-priced from "${sheet.name}": ₹${effectiveRatePerKg}/kg × ${billableKg}kg = ₹${computed}`,
       computedAmount: computed,
     };
   };
@@ -442,6 +572,9 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     setCustomerAddress(blank.customer_address);
     setCustomerPhone(blank.customer_phone);
     setCustomerEmail(blank.customer_email);
+    setCustomerMode('select');
+    setCustomerDropdownOpen(false);
+    setCustomerSearch('');
     setSelectedDocketIds(blank.docket_ids);
     setCustomItems(blank.items);
     setGstPercentage(blank.gst_percentage);
@@ -492,6 +625,9 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     setCustomerAddress(loaded.customer_address);
     setCustomerPhone(loaded.customer_phone);
     setCustomerEmail(loaded.customer_email);
+    setCustomerMode('select');
+    setCustomerDropdownOpen(false);
+    setCustomerSearch('');
     setSelectedDocketIds(loaded.docket_ids);
     setCustomItems(loaded.items);
     setGstPercentage(loaded.gst_percentage);
@@ -696,6 +832,9 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
         charged_weight_kg: Number(d.charged_weight_kg) || 0,
         grand_total: Number(d.grand_total) || 0,
         transport_mode: d.transport_mode,
+        particulars: d.goods_description || 'RMG',
+        expected_mode: d.expected_mode,
+        payment_mode: d.payment_mode,
       })),
       ...customItems.map((item) => ({
         docket_no: item.docket_no,
@@ -750,6 +889,167 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     }
   };
 
+  const [downloadingCsvId, setDownloadingCsvId] = useState<string | null>(null);
+
+  const presetDates = useMemo(() => getBillPresetDates(datePreset), [datePreset]);
+  const effectiveStartDate = datePreset === 'custom' ? customStartDate : presetDates.start;
+  const effectiveEndDate = datePreset === 'custom' ? customEndDate : presetDates.end;
+
+  const filteredBills = useMemo(() => {
+    return bills.filter((b) => {
+      // Date filter
+      if (effectiveStartDate && b.invoice_date < effectiveStartDate) return false;
+      if (effectiveEndDate && b.invoice_date > effectiveEndDate) return false;
+
+      // Payment status filter
+      if (paymentStatusFilter !== 'all') {
+        const pay = getBillPaymentInfo(b, dockets);
+        if (pay.status !== paymentStatusFilter) return false;
+      }
+
+      // Search filter
+      if (!billSearch) return true;
+      const q = billSearch.toLowerCase();
+      return (
+        b.bill_no.toLowerCase().includes(q) ||
+        b.customer_name.toLowerCase().includes(q) ||
+        b.invoice_date.includes(q) ||
+        (b.customer_gstin && b.customer_gstin.toLowerCase().includes(q))
+      );
+    });
+  }, [bills, effectiveStartDate, effectiveEndDate, paymentStatusFilter, billSearch, dockets]);
+
+  const totalBilledRevenue = useMemo(
+    () => filteredBills.reduce((sum, b) => sum + Number(b.grand_total || 0), 0),
+    [filteredBills]
+  );
+  const totalPaymentReceived = useMemo(
+    () => filteredBills.reduce((sum, b) => sum + getBillPaymentInfo(b, dockets).received, 0),
+    [filteredBills, dockets]
+  );
+  const totalPaymentPending = useMemo(
+    () => filteredBills.reduce((sum, b) => sum + getBillPaymentInfo(b, dockets).pending, 0),
+    [filteredBills, dockets]
+  );
+  const totalGstCollected = useMemo(
+    () => filteredBills.reduce((sum, b) => sum + Number(b.gst_amount || 0), 0),
+    [filteredBills]
+  );
+
+  const handleExportBillsCSV = () => {
+    if (filteredBills.length === 0) return;
+    const headers = [
+      'Bill No',
+      'Invoice Date',
+      'Customer Name',
+      'Customer GSTIN',
+      'Customer Address',
+      'Customer Phone',
+      'Customer Email',
+      'Category',
+      'Doc Type',
+      'Reverse Charge (RCM)',
+      'Line Items / LRs Count',
+      'Taxable Subtotal (₹)',
+      'Discount (₹)',
+      'GST Percentage (%)',
+      'GST Amount (₹)',
+      'Round Off (₹)',
+      'Grand Total (₹)',
+      'Payment Received (₹)',
+      'Payment Pending (₹)',
+      'Payment Status',
+      'Issued By',
+      'Created At',
+      'Payment Notes',
+    ];
+
+    const rows = filteredBills.map((b) => {
+      const pay = getBillPaymentInfo(b, dockets);
+      return [
+        b.bill_no,
+        b.invoice_date,
+        b.customer_name,
+        b.customer_gstin || '',
+        b.customer_address || '',
+        b.customer_phone || '',
+        b.customer_email || '',
+        b.category,
+        b.doc_type,
+        b.reverse_charge ? 'YES' : 'NO',
+        (b.docket_ids?.length || 0) + (b.items?.length || 0),
+        Number(b.subtotal || 0).toFixed(2),
+        Number(b.discount || 0).toFixed(2),
+        b.gst_percentage ?? 18,
+        Number(b.gst_amount || 0).toFixed(2),
+        Number(b.round_off || 0).toFixed(2),
+        pay.grandTotal.toFixed(2),
+        pay.received.toFixed(2),
+        pay.pending.toFixed(2),
+        pay.status.toUpperCase(),
+        b.created_by_name || 'Staff',
+        b.created_at ? formatCreatedAt(b.created_at) : '',
+        b.notes || '',
+      ];
+    });
+
+    const filterTag =
+      datePreset === 'all'
+        ? 'all_time'
+        : datePreset === 'custom'
+        ? `${customStartDate || 'start'}_to_${customEndDate || 'end'}`
+        : `${datePreset}_${effectiveStartDate}_to_${effectiveEndDate}`;
+
+    const filename = `Tax_Invoices_${filterTag}.csv`;
+    downloadCSV(headers, rows, filename);
+  };
+
+  const handleDownloadHistoryBillCSV = async (bill: Bill) => {
+    setDownloadingCsvId(bill.id);
+    try {
+      const res = await fetch(`/api/billing/${bill.id}`);
+      if (res.ok) {
+        const detail = await res.json();
+        const dockets: BillLineDocket[] = detail.dockets ?? [];
+
+        const headers = [
+          'Sr No',
+          'Booking Date',
+          'LR / Docket No',
+          'Particulars / Consignor',
+          'From City',
+          'To City',
+          'Transport Mode',
+          'Invoice No',
+          'Package Count',
+          'Charged Weight (kg)',
+          'Line Amount (₹)',
+        ];
+
+        const rows = dockets.map((d, i) => [
+          i + 1,
+          d.booking_date || '',
+          d.docket_no || '',
+          d.consignor_name || d.particulars || '',
+          d.from_city || '',
+          d.to_city || '',
+          d.transport_mode || 'Road',
+          d.invoice_no || '',
+          d.package_count || 1,
+          d.charged_weight_kg || 0,
+          Number(d.grand_total || 0).toFixed(2),
+        ]);
+
+        const filename = `Tax_Invoice_${bill.bill_no.replace(/[^a-z0-9]+/gi, '_')}_Items.csv`;
+        downloadCSV(headers, rows, filename);
+      }
+    } catch (err) {
+      console.error('Failed to download bill CSV:', err);
+    } finally {
+      setDownloadingCsvId(null);
+    }
+  };
+
   const handleDeleteBill = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -767,25 +1067,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     }
   };
 
-  const filteredBills = bills.filter((b) => {
-    if (!billSearch) return true;
-    const q = billSearch.toLowerCase();
-    return (
-      b.bill_no.toLowerCase().includes(q) ||
-      b.customer_name.toLowerCase().includes(q) ||
-      b.invoice_date.includes(q)
-    );
-  });
 
-  const totalBilledRevenue = bills.reduce((sum, b) => sum + Number(b.grand_total || 0), 0);
-  const totalGstCollected = bills.reduce((sum, b) => sum + Number(b.gst_amount || 0), 0);
-
-  const billSteps = [
-    { number: 1, label: 'Customer' },
-    { number: 2, label: 'Invoice Details' },
-    { number: 3, label: 'Line Items' },
-    { number: 4, label: 'Financials & Issue' },
-  ];
 
   const validateBillStep = (step: number) => {
     if (step === 1) {
@@ -819,20 +1101,25 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     const displayInvoiceDate = invoiceDate || new Date().toISOString().split('T')[0];
 
     const displayLineItems = [
-      ...selectedDockets.map((d, idx) => ({
-        sr: idx + 1,
-        date: d.booking_date,
-        particulars: d.goods_description || 'RMG',
-        origin: d.from_city || '-',
-        destination: d.to_city || '-',
-        mode: d.transport_mode || 'Road',
-        lrNo: d.docket_no,
-        invoiceNo: d.invoice_no || '-',
-        pcs: d.package_count || 1,
-        weight: Number(d.charged_weight_kg || d.actual_weight_kg || 0),
-        rate: Number(d.charged_weight_kg || 0) > 0 ? (Number(d.grand_total) / Number(d.charged_weight_kg)).toFixed(0) : '-',
-        amount: Number(d.subtotal || d.grand_total || 0),
-      })),
+      ...selectedDockets.map((d, idx) => {
+        const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash' || (d.payment_mode === 'Paid' && (d as any).payment_method === 'Cash');
+        const baseParticulars = d.goods_description || 'RMG';
+        return {
+          sr: idx + 1,
+          date: d.booking_date,
+          particulars: isCash ? `${baseParticulars} (Cash Expected)` : baseParticulars,
+          isCashExpected: isCash,
+          origin: d.from_city || '-',
+          destination: d.to_city || '-',
+          mode: d.transport_mode || 'Road',
+          lrNo: d.docket_no,
+          invoiceNo: d.invoice_no || '-',
+          pcs: d.package_count || 1,
+          weight: Number(d.charged_weight_kg || d.actual_weight_kg || 0),
+          rate: Number(d.charged_weight_kg || 0) > 0 ? (Number(d.grand_total) / Number(d.charged_weight_kg)).toFixed(0) : '-',
+          amount: Number(d.subtotal || d.grand_total || 0),
+        };
+      }),
       ...customItems.map((item, idx) => ({
         sr: selectedDockets.length + idx + 1,
         date: item.booking_date || displayInvoiceDate,
@@ -1056,536 +1343,453 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     );
   };
 
-  return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Top Header & Navigation Switcher */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tax Billing & Invoices</h1>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Create custom & consolidated GST tax invoices, manage drafts, and review all issued billing history.
-          </p>
-        </div>
+  const renderSubTabSwitcher = () => (
+    <div className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-saas shrink-0 self-start sm:self-auto">
+      <button
+        onClick={() => attemptSubTabChange('history')}
+        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
+          (subTab as BillingSubTab) === 'history'
+            ? 'bg-[#0A2030] text-white shadow-saas'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+        }`}
+      >
+        <History className="w-4 h-4" />
+        <span>All Bills</span>
+      </button>
 
-        <div className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-saas">
-          <button
-            onClick={() => attemptSubTabChange('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
-              subTab === 'history'
-                ? 'bg-[#2563EB] text-white shadow-saas'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>All Bills</span>
-          </button>
+      <button
+        onClick={() => attemptSubTabChange('drafts')}
+        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
+          (subTab as BillingSubTab) === 'drafts'
+            ? 'bg-[#0A2030] text-white shadow-saas'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+        }`}
+      >
+        <Archive className="w-4 h-4" />
+        <span>Drafts</span>
+      </button>
+    </div>
+  );
 
-          <button
-            onClick={() => attemptSubTabChange('new')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
-              subTab === 'new'
-                ? 'bg-[#2563EB] text-white shadow-saas'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <Plus className="w-4 h-4" />
-            <span>New Bill</span>
-          </button>
-
-          <button
-            onClick={() => attemptSubTabChange('drafts')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
-              subTab === 'drafts'
-                ? 'bg-[#2563EB] text-white shadow-saas'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-            }`}
-          >
-            <Archive className="w-4 h-4" />
-            <span>Drafts</span>
-          </button>
-        </div>
-      </div>
-
-      {/* ========================================================= */}
-      {/* 1. DRAFTS SUBTAB */}
-      {/* ========================================================= */}
-      {subTab === 'drafts' && <BillDraftList onEdit={handleLoadDraft} />}
-
-      {/* ========================================================= */}
-      {/* 2. HISTORY / ALL BILLS SUBTAB (DEFAULT LANDING) */}
-      {/* ========================================================= */}
-      {subTab === 'history' && (
-        <div className="space-y-6">
-          {/* Quick Metrics Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Card className="p-4 shadow-saas">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Invoices Issued</div>
-              <div className="text-2xl font-bold text-slate-900 mt-1 font-sans tracking-tight">{bills.length}</div>
-              <div className="text-[11px] text-slate-500 mt-1">Recorded in system</div>
-            </Card>
-            <Card className="p-4 shadow-saas">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Total Billed Revenue</div>
-              <div className="text-2xl font-bold text-slate-900 mt-1 font-mono tracking-tight">₹{totalBilledRevenue.toLocaleString('en-IN')}</div>
-              <div className="text-[11px] text-slate-500 mt-1">Gross invoice sum</div>
-            </Card>
-            <Card className="p-4 shadow-saas">
-              <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Output GST Total</div>
-              <div className="text-2xl font-bold text-[#2563EB] mt-1 font-mono tracking-tight">₹{totalGstCollected.toLocaleString('en-IN')}</div>
-              <div className="text-[11px] text-slate-500 mt-1">Tax audit balance</div>
-            </Card>
-          </div>
-
-          {/* Search & Action Bar */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={billSearch}
-                onChange={(e) => setBillSearch(e.target.value)}
-                placeholder="Search by Bill No, Customer Name, or Date..."
-                className="pl-9 text-xs"
-              />
+  // =========================================================
+  // FULL-SCREEN NEW BILL / EDIT DRAFT CREATION VIEW (Matches CargoDocketForm)
+  // =========================================================
+  if (subTab === 'new') {
+    if (issuedBill) {
+      return (
+        <div className="fixed inset-0 z-50 bg-[#F8FAFC] flex flex-col">
+          {/* Header bar */}
+          <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2 text-emerald-700 font-bold text-sm">
+              <Check className="w-4 h-4" />
+              <span>Tax Invoice Issued Successfully</span>
             </div>
-            <Button
-              onClick={() => attemptSubTabChange('new')}
-              size="md"
-              className="gap-2 shadow-saas"
+            <button
+              onClick={() => {
+                resetForm();
+                attemptSubTabChange('history');
+              }}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700 cursor-pointer"
+              aria-label="Close"
             >
-              <Plus className="w-4 h-4" />
-              <span>Create New Bill</span>
-            </Button>
+              <X className="w-5 h-5" />
+            </button>
           </div>
 
-          {/* Bills Table Card */}
-          {loadingBills ? (
-            <div className="text-center py-16 text-xs text-slate-400 font-mono">Loading bills database...</div>
-          ) : filteredBills.length === 0 ? (
-            <Card className="p-12 text-center shadow-saas">
-              <Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-              <h3 className="text-sm font-bold text-slate-800">No bills found</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                {billSearch ? 'Try clearing your search query.' : 'Create your first Tax Invoice by clicking "New Bill".'}
-              </p>
-              {!billSearch && (
-                <Button
-                  onClick={() => attemptSubTabChange('new')}
-                  size="sm"
-                  className="mt-4 gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Create Bill Now</span>
-                </Button>
-              )}
-            </Card>
-          ) : (
-            <Card className="border border-slate-200/80 shadow-saas p-0 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-500 font-semibold tracking-wider text-[11px]">
-                    <tr>
-                      <th className="px-5 py-4">BILL NO.</th>
-                      <th className="px-5 py-4">DATE</th>
-                      <th className="px-5 py-4">CUSTOMER</th>
-                      <th className="px-5 py-4">CATEGORY</th>
-                      <th className="px-5 py-4">ITEMS / LRs</th>
-                      <th className="px-5 py-4">ISSUED BY</th>
-                      <th className="px-5 py-4 text-right">TOTAL AMOUNT</th>
-                      <th className="px-5 py-4 text-right">ACTIONS</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredBills.map((b) => {
-                      const isExpanded = expandedId === b.id;
-                      const itemCount = (b.docket_ids?.length || 0) + (b.items?.length || 0);
+          {/* Two-column layout (50% / 50% split) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 flex-1 min-h-0">
+            {/* LEFT: Success Card & Actions */}
+            <div className="flex-1 overflow-y-auto px-8 md:px-12 lg:px-16 py-10 flex flex-col justify-between bg-white border-r border-slate-200">
+              <div className="max-w-xl mx-auto w-full space-y-6">
+                <div>
+                  <span className="text-xs font-bold text-emerald-700 tracking-wider uppercase bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                    Issued & Recorded
+                  </span>
+                  <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-2 font-heading">
+                    Tax Invoice {issuedBill.bill_no}
+                  </h1>
+                  <p className="text-sm text-slate-500 mt-1 font-normal">
+                    Billed to <span className="font-semibold text-slate-800">{issuedBill.customer_name}</span> for ₹{Number(issuedBill.grand_total).toLocaleString('en-IN')}.
+                  </p>
+                </div>
 
-                      return (
-                        <Fragment key={b.id}>
-                          <tr className="hover:bg-[#F8FAFC] transition-saas cursor-pointer" onClick={() => handleToggleExpandHistory(b)}>
-                            <td className="px-5 py-4 font-mono font-bold text-[#2563EB]">{b.bill_no}</td>
-                            <td className="px-5 py-4 text-slate-600">{b.invoice_date}</td>
-                            <td className="px-5 py-4 font-semibold text-slate-900">{b.customer_name}</td>
-                            <td className="px-5 py-4">
-                              <Badge variant="outline" className="text-[10px] font-mono">
-                                {b.category} / {b.doc_type}
-                              </Badge>
-                            </td>
-                            <td className="px-5 py-4 font-mono text-slate-600">{itemCount} items</td>
-                            <td className="px-5 py-4 text-slate-500" title={b.created_by_email}>
-                              <div>{b.created_by_name || 'Staff'}</div>
-                              {b.created_at && (
-                                <div className="text-[10px] text-slate-400 font-mono">{formatCreatedAt(b.created_at)}</div>
-                              )}
-                            </td>
-                            <td className="px-5 py-4 text-right font-mono font-bold text-slate-900 text-sm">
-                              ₹{Number(b.grand_total).toLocaleString('en-IN')}
-                            </td>
-                            <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-1">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleToggleExpandHistory(b)}
-                                  title="View invoice details"
-                                >
-                                  {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-600" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDownloadHistoryBill(b)}
-                                  disabled={downloadingId === b.id}
-                                  title="Download PDF"
-                                >
-                                  {downloadingId === b.id ? <Loader2 className="w-4 h-4 animate-spin text-[#2563EB]" /> : <Download className="w-4 h-4 text-[#2563EB]" />}
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => setDeleteTarget(b)}
-                                  title="Delete bill"
-                                >
-                                  <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
+                {/* Main Summary Card */}
+                <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-saas space-y-3.5">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div>
+                      <span className="text-xs text-slate-400 font-medium block">Party / Customer</span>
+                      <span className="text-lg font-bold text-slate-900 tracking-tight mt-0.5 block">
+                        {issuedBill.customer_name}
+                      </span>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-xs font-semibold px-3 py-1 bg-slate-100 text-slate-700 rounded-full">
+                        {issuedBill.invoice_date}
+                      </span>
+                      <span className="text-[11px] font-semibold text-[#0A2030] bg-slate-100 px-2.5 py-0.5 rounded-full">
+                        {issuedBill.category} · {issuedBill.doc_type}
+                      </span>
+                    </div>
+                  </div>
 
-                          {/* Expanded Details Sub-row */}
-                          {isExpanded && (
-                            <tr className="bg-slate-50/80">
-                              <td colSpan={8} className="px-6 py-4">
-                                {expandLoading ? (
-                                  <div className="text-xs text-slate-400 py-2 flex items-center gap-2">
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    <span>Loading line item details...</span>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-3">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-xl border border-slate-200">
-                                      <div>
-                                        <div className="text-[10px] font-semibold text-slate-400 uppercase">Customer Billing Details</div>
-                                        <div className="font-bold text-slate-900 mt-0.5">{b.customer_name}</div>
-                                        <div className="text-slate-600 font-mono text-[11px]">{b.customer_gstin ? `GSTIN: ${b.customer_gstin}` : 'Unregistered / B2C'}</div>
-                                        <div className="text-slate-500 text-[11px]">{b.customer_address || 'No address specified'}</div>
-                                      </div>
-                                      <div className="text-right space-y-0.5 font-mono">
-                                        <div className="text-slate-600">Subtotal: ₹{Number(b.subtotal).toLocaleString('en-IN')}</div>
-                                        <div className="text-slate-600">GST ({b.gst_percentage ?? 18}%): ₹{Number(b.gst_amount).toLocaleString('en-IN')}</div>
-                                        {b.discount > 0 && <div className="text-emerald-600">Discount: -₹{Number(b.discount).toLocaleString('en-IN')}</div>}
-                                        <div className="text-slate-600">Round Off: ₹{Number(b.round_off).toFixed(2)}</div>
-                                        <div className="text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
-                                          Grand Total: ₹{Number(b.grand_total).toLocaleString('en-IN')}
-                                        </div>
-                                      </div>
-                                    </div>
+                  {/* Financial Breakdown */}
+                  <div className="space-y-1.5 text-xs text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Taxable Subtotal</span>
+                      <span>₹{Number(issuedBill.subtotal).toLocaleString('en-IN')}</span>
+                    </div>
+                    {Number(issuedBill.discount) > 0 && (
+                      <div className="flex justify-between text-emerald-600">
+                        <span>Discount</span>
+                        <span>- ₹{Number(issuedBill.discount).toLocaleString('en-IN')}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span>Output GST ({issuedBill.gst_percentage ?? 18}%)</span>
+                      <span>₹{Number(issuedBill.gst_amount).toLocaleString('en-IN')}</span>
+                    </div>
+                    {Number(issuedBill.round_off) !== 0 && (
+                      <div className="flex justify-between">
+                        <span>Round Off</span>
+                        <span>₹{Number(issuedBill.round_off).toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
+                      <span>Grand Total</span>
+                      <span className="font-mono text-base text-[#0A2030] font-extrabold">₹{Number(issuedBill.grand_total).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
 
-                                    {/* Line Items List */}
-                                    <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-                                      <table className="w-full text-left text-[11px]">
-                                        <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                                          <tr>
-                                            <th className="px-3 py-2">#</th>
-                                            <th className="px-3 py-2">Date</th>
-                                            <th className="px-3 py-2">LR / Ref</th>
-                                            <th className="px-3 py-2">Particulars</th>
-                                            <th className="px-3 py-2">Route</th>
-                                            <th className="px-3 py-2">Pcs</th>
-                                            <th className="px-3 py-2">Weight</th>
-                                            <th className="px-3 py-2 text-right">Amount</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-100">
-                                          {expandedDockets.map((d, i) => (
-                                            <tr key={i}>
-                                              <td className="px-3 py-2 text-slate-400 font-mono">{i + 1}</td>
-                                              <td className="px-3 py-2 font-mono text-slate-600">{d.booking_date}</td>
-                                              <td className="px-3 py-2 font-mono font-bold text-[#2563EB]">{d.docket_no}</td>
-                                              <td className="px-3 py-2 text-slate-800">{d.consignor_name}</td>
-                                              <td className="px-3 py-2 text-slate-600">{d.from_city && d.to_city ? `${d.from_city} → ${d.to_city}` : '—'}</td>
-                                              <td className="px-3 py-2 font-mono">{d.package_count}</td>
-                                              <td className="px-3 py-2 font-mono">{d.charged_weight_kg} kg</td>
-                                              <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
-                                                ₹{Number(d.grand_total).toLocaleString('en-IN')}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
+                  {/* Primary Download Actions */}
+                  <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <button
+                      onClick={handleDownloadIssuedBill}
+                      className="w-full h-11 bg-[#0A2030] hover:bg-[#071520] text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-saas cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download PDF</span>
+                    </button>
+                    <button
+                      onClick={() => handleDownloadHistoryBillCSV(issuedBill)}
+                      className="w-full h-11 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer"
+                    >
+                      <FileSpreadsheet className="w-4 h-4 text-[#0A2030]" />
+                      <span>Download CSV</span>
+                    </button>
+                  </div>
+                </div>
 
-          {/* Delete Bill Modal */}
-          {deleteTarget && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-              <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl">
-                <h3 className="text-base font-bold text-red-600 mb-2">Delete Bill</h3>
-                <p className="text-xs text-slate-600 mb-4 leading-relaxed">
-                  Are you sure you want to delete bill <strong className="text-slate-900 font-mono">{deleteTarget.bill_no}</strong> for <strong className="text-slate-900">{deleteTarget.customer_name}</strong>? This action cannot be undone, and its referenced shipments will become available to bill again.
-                </p>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleDeleteBill}
-                    disabled={deleting}
-                    className="gap-2"
+                {/* Bottom Actions */}
+                <div className="pt-2 flex items-center gap-3">
+                  <button
+                    onClick={resetForm}
+                    className="flex-1 h-10 px-4 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer text-center"
                   >
-                    {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    <span>Delete Bill</span>
-                  </Button>
+                    Create another Bill
+                  </button>
+                  <button
+                    onClick={() => {
+                      resetForm();
+                      attemptSubTabChange('history');
+                    }}
+                    className="flex-1 h-10 px-4 bg-[#0A2030] hover:bg-[#071520] text-white font-bold text-xs rounded-xl transition-colors shadow-sm cursor-pointer text-center"
+                  >
+                    Return to Bills
+                  </button>
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* ========================================================= */}
-      {/* 3. NEW BILL CREATOR (2-COLUMN SPLIT WITH LIVE A4 PREVIEW) */}
-      {/* ========================================================= */}
-      {subTab === 'new' && (
-        <div className="space-y-6">
-          {/* Top Bar with Back Button & Action Controls */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => attemptSubTabChange('history')}
-                className="gap-1.5 text-xs text-slate-600"
-              >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Bills</span>
-              </Button>
-              <div>
-                <h2 className="text-lg font-bold text-slate-900">
-                  {editingDraftId ? 'Edit Draft Tax Invoice' : 'Create New Tax Invoice'}
-                </h2>
-                <p className="text-xs text-slate-400">Fill details manually or select from issued shipments</p>
+            {/* RIGHT: Live Bill Preview */}
+            <div className="hidden lg:flex items-center justify-center bg-[#F1F5F9] overflow-hidden relative p-8 overflow-y-auto">
+              <div className="w-full max-w-2xl flex items-center justify-center">
+                {renderBillDocumentPreview()}
               </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSaveDraft}
-                disabled={savingDraft || (!customerName && customItems.length === 0 && selectedDocketIds.length === 0)}
-                className="gap-2 text-xs"
-              >
-                {savingDraft ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-4 h-4 text-slate-500" />}
-                <span>{editingDraftId ? 'Update Draft' : 'Save Draft'}</span>
-              </Button>
-
-              <Button
-                size="sm"
-                onClick={handleIssueBill}
-                disabled={issuing || (selectedDocketIds.length === 0 && customItems.length === 0)}
-                className="bg-[#0A2030] hover:bg-[#071520] text-white text-xs font-bold gap-1.5 shadow-saas"
-              >
-                {issuing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                <span>Issue Tax Invoice</span>
-              </Button>
             </div>
           </div>
+        </div>
+      );
+    }
 
-          {/* Success Banner */}
-          {issuedBill && (
-            <Card className="p-6 border border-emerald-200 bg-emerald-50/70 rounded-2xl space-y-4 shadow-saas">
-              <div className="flex items-center gap-2 text-emerald-800">
-                <Check className="w-5 h-5" />
-                <h3 className="text-sm font-bold">Tax Invoice {issuedBill.bill_no} Issued Successfully!</h3>
-              </div>
-              <p className="text-xs text-emerald-700">
-                Billed to <strong>{issuedBill.customer_name}</strong> for ₹{Number(issuedBill.grand_total).toLocaleString('en-IN')}. It is now recorded in billing history.
-              </p>
-              <div className="flex items-center gap-2">
-                <Button onClick={handleDownloadIssuedBill} size="sm" className="gap-2 shadow-saas bg-[#0A2030] hover:bg-[#071520]">
-                  <Download className="w-4 h-4" />
-                  <span>Download PDF</span>
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => window.print()} className="gap-2">
-                  <Printer className="w-4 h-4" />
-                  <span>Print</span>
-                </Button>
-                <Button variant="ghost" size="sm" onClick={resetForm} className="text-xs text-slate-600">
-                  Start Another Bill
-                </Button>
-              </div>
-            </Card>
-          )}
+    return (
+      <div className="fixed inset-0 z-50 bg-[#F8FAFC] flex flex-col">
+        {/* Header bar */}
+        <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shrink-0">
+          <h1 className="text-base font-bold text-slate-900 font-heading">
+            {editingDraftId ? 'Edit Tax Invoice' : 'New Tax Invoice'}
+          </h1>
 
-          {/* Error Banner */}
-          {issueError && (
-            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-medium flex items-center gap-2">
-              <span>⚠️</span>
-              <span>{issueError}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-3">
+            {/* Draft button */}
+            <button
+              onClick={handleSaveDraft}
+              disabled={savingDraft || (!customerName && customItems.length === 0 && selectedDocketIds.length === 0)}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40 transition-colors cursor-pointer"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{savingDraft ? 'Saving...' : 'Save draft'}</span>
+            </button>
 
-          {/* 2-COLUMN SPLIT CONTAINER */}
-          {!issuedBill && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-slate-50/50 p-4 rounded-2xl border border-slate-200/80">
-              {/* LEFT COLUMN: Scrollable Form Controls */}
-              <div className="space-y-5 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                {/* Step Progress Pills */}
-                <div className="flex items-center gap-2 pb-2 border-b border-slate-100 overflow-x-auto">
-                  {billSteps.map((step) => {
-                    const isCurrent = billStep === step.number;
-                    const isDone = billStep > step.number;
-                    return (
-                      <button
-                        key={step.number}
-                        type="button"
-                        onClick={() => {
-                          if (step.number < billStep) setBillStep(step.number);
-                        }}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                          isCurrent
-                            ? 'bg-[#0A2030] text-white shadow-xs'
-                            : isDone
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-400 border border-slate-200/60'
-                        }`}
-                      >
-                        {isDone ? <Check className="w-3.5 h-3.5" /> : <span>Step {step.number}</span>}
-                        <span>{step.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+            {/* Close / exit */}
+            <button
+              onClick={() => attemptSubTabChange('history')}
+              className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700 cursor-pointer"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Two-column layout (50% / 50% split) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 flex-1 min-h-0">
+          {/* LEFT: Step form (50% screen) */}
+          <div className="flex flex-col bg-white border-r border-slate-200 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-8 md:px-12 lg:px-16 py-10">
+              <div className="max-w-xl mx-auto w-full space-y-6">
 
                 {/* Step 1: Customer Details */}
                 {billStep === 1 && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
-                      <span>Customer / Billed To</span>
-                    </h3>
-
-                    <div className="space-y-3">
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700">Choose Saved Customer</label>
-                        <select
-                          value={selectedCustomerId}
-                          onChange={(e) => handleCustomerSelect(e.target.value)}
-                          className="mt-1 w-full text-xs h-9 px-3 border border-slate-200 rounded-lg bg-white font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20"
-                        >
-                          <option value="">-- Or type details manually below --</option>
-                          {customers.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name} {c.city ? `(${c.city})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700">
-                          Party / Customer Name <span className="text-red-500">*</span>
-                        </label>
-                        <Input
-                          value={customerName}
-                          onChange={(e) => setCustomerName(e.target.value)}
-                          placeholder="e.g. Acme Corporation Pvt Ltd"
-                          className="mt-1 text-xs font-semibold"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="text-xs font-semibold text-slate-700">GSTIN</label>
-                          <Input
-                            value={customerGstin}
-                            onChange={(e) => setCustomerGstin(e.target.value.toUpperCase())}
-                            placeholder="27ABCDE1234F1Z5"
-                            className="mt-1 text-xs font-mono uppercase"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-slate-700">Phone</label>
-                          <Input
-                            value={customerPhone}
-                            onChange={(e) => setCustomerPhone(e.target.value)}
-                            placeholder="98XXXXXXXX"
-                            className="mt-1 text-xs"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700">Address</label>
-                        <Input
-                          value={customerAddress}
-                          onChange={(e) => setCustomerAddress(e.target.value)}
-                          placeholder="Full billing address, city, state, pin"
-                          className="mt-1 text-xs"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-semibold text-slate-700">Email</label>
-                        <Input
-                          value={customerEmail}
-                          onChange={(e) => setCustomerEmail(e.target.value)}
-                          placeholder="accounts@customer.com"
-                          className="mt-1 text-xs"
-                        />
-                      </div>
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Who is being billed?</h2>
+                      <p className="text-sm text-slate-500 mt-1 font-normal">Select an existing customer or enter new billing details</p>
                     </div>
+
+                    {customerMode === 'select' ? (
+                      <div className="space-y-4 pt-2">
+                        <div className="relative">
+                          <label className="block text-sm font-semibold text-slate-700 mb-2">Customer</label>
+
+                          {/* Dropdown trigger */}
+                          <button
+                            type="button"
+                            onClick={() => setCustomerDropdownOpen(!customerDropdownOpen)}
+                            className={`w-full h-12 px-4 bg-white border rounded-xl text-left flex items-center justify-between transition-all cursor-pointer ${
+                              customerDropdownOpen
+                                ? 'border-[#0A2030] ring-2 ring-[#0A2030]/10 shadow-sm'
+                                : 'border-slate-200 hover:border-slate-300 shadow-2xs'
+                            }`}
+                          >
+                            <span className={customerName ? 'text-sm font-medium text-slate-900' : 'text-sm text-slate-400'}>
+                              {customerName || 'Select a customer'}
+                            </span>
+                            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${customerDropdownOpen ? 'rotate-180 text-slate-700' : ''}`} />
+                          </button>
+
+                          {/* Dropdown menu */}
+                          {customerDropdownOpen && (
+                            <>
+                              <div className="fixed inset-0 z-10" onClick={() => setCustomerDropdownOpen(false)} />
+                              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-200 rounded-xl shadow-xl z-20 overflow-hidden">
+                                {/* + Add new option */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCustomerDropdownOpen(false);
+                                    setCustomerMode('new');
+                                  }}
+                                  className="w-full px-4 py-3.5 text-left text-sm font-bold text-[#0A2030] hover:bg-slate-50 flex items-center gap-2 border-b border-slate-100 transition-colors cursor-pointer"
+                                >
+                                  <span className="text-base font-bold leading-none">+</span>
+                                  Add new customer
+                                </button>
+
+                                {/* Search box if there are customers */}
+                                {customers.length > 3 && (
+                                  <div className="p-2 border-b border-slate-100 bg-slate-50/60">
+                                    <input
+                                      type="text"
+                                      placeholder="Search customers..."
+                                      value={customerSearch}
+                                      onChange={(e) => setCustomerSearch(e.target.value)}
+                                      className="w-full h-8 px-3 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-slate-400"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Section label */}
+                                <div className="px-4 py-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/60 border-b border-slate-100">
+                                  Customers
+                                </div>
+
+                                {/* List of customers */}
+                                <div className="max-h-64 overflow-y-auto divide-y divide-slate-100">
+                                  {filteredCustomers.length === 0 ? (
+                                    <div className="p-6 text-center text-xs text-slate-400">No customers found</div>
+                                  ) : (
+                                    filteredCustomers.map((c) => (
+                                      <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => {
+                                          handleCustomerSelect(c.id);
+                                          setCustomerDropdownOpen(false);
+                                        }}
+                                        className={`w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors flex items-center justify-between cursor-pointer ${
+                                          customerName === c.name ? 'bg-slate-100 text-[#0A2030]' : 'text-slate-800'
+                                        }`}
+                                      >
+                                        <div className="min-w-0 pr-2">
+                                          <div className={`text-sm font-semibold truncate ${customerName === c.name ? 'text-[#0A2030]' : 'text-slate-900'}`}>{c.name}</div>
+                                          <div className="text-xs text-slate-400 truncate mt-0.5">
+                                            {[c.city || c.address, c.email].filter(Boolean).join(' · ') || c.phone || c.code || ''}
+                                          </div>
+                                        </div>
+                                        {customerName === c.name && <Check className="w-4 h-4 text-[#0A2030] shrink-0" />}
+                                      </button>
+                                    ))
+                                  )}
+                                </div>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Selected customer summary card */}
+                        {customerName && (
+                          <div className="p-4 bg-slate-50 border border-slate-200/80 rounded-xl space-y-1.5 text-xs text-slate-600">
+                            <div className="flex justify-between items-center text-slate-900 font-bold text-sm">
+                              <span>{customerName}</span>
+                              <button
+                                type="button"
+                                onClick={() => setCustomerMode('new')}
+                                className="text-xs font-semibold text-[#0A2030] hover:underline cursor-pointer"
+                              >
+                                Edit details
+                              </button>
+                            </div>
+                            {customerAddress && <div>{customerAddress}</div>}
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-slate-500">
+                              {customerGstin && <span>GSTIN: <strong className="text-slate-700 font-mono">{customerGstin}</strong></span>}
+                              {customerPhone && <span>Ph: <strong className="text-slate-700">{customerPhone}</strong></span>}
+                              {customerEmail && <span>Email: <strong className="text-slate-700">{customerEmail}</strong></span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* Add new / Edit customer form */
+                      <div className="space-y-5 pt-2">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                          <h3 className="text-lg font-bold text-slate-900 font-heading">
+                            {customerName ? 'Edit customer details' : 'Add new customer'}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setCustomerMode('select')}
+                            className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
+                          >
+                            ← Back to select
+                          </button>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                              Name of Business / Customer <span className="text-red-500">*</span>
+                            </label>
+                            <Input
+                              value={customerName}
+                              onChange={(e) => setCustomerName(e.target.value)}
+                              placeholder="e.g. Godrej Agrovet Ltd"
+                              className="h-10 text-xs font-semibold"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
+                            <Input
+                              value={customerAddress}
+                              onChange={(e) => setCustomerAddress(e.target.value)}
+                              placeholder="Full billing address, city, state, pin"
+                              className="h-10 text-xs"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
+                              <Input
+                                value={customerGstin}
+                                onChange={(e) => setCustomerGstin(e.target.value.toUpperCase())}
+                                placeholder="27AAAA..."
+                                className="h-10 text-xs font-mono uppercase"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
+                              <Input
+                                value={customerPhone}
+                                onChange={(e) => setCustomerPhone(e.target.value)}
+                                placeholder="+91 98765 43210"
+                                className="h-10 text-xs"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email (for sending invoice)</label>
+                            <Input
+                              value={customerEmail}
+                              onChange={(e) => setCustomerEmail(e.target.value)}
+                              placeholder="accounts@customer.com"
+                              className="h-10 text-xs"
+                            />
+                          </div>
+
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={() => setCustomerMode('select')}
+                              className="px-5 h-10 bg-[#0A2030] text-white text-xs font-bold rounded-xl hover:bg-[#071520] transition-colors cursor-pointer"
+                            >
+                              Save & Apply Customer
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Step 2: Invoice Metadata */}
                 {billStep === 2 && (
-                  <div className="space-y-4">
-                    <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
-                      <span>Invoice Metadata</span>
-                    </h3>
+                  <div className="space-y-6">
+                    <div>
+                      <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Invoice details</h2>
+                      <p className="text-sm text-slate-500 mt-1 font-normal">Invoice number, dates, category and document type</p>
+                    </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <div>
-                        <label className="text-xs font-semibold text-slate-700">Bill / Invoice Number</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Bill / Invoice Number</label>
                         <Input
                           value={billNo}
                           onChange={(e) => setBillNo(e.target.value)}
                           placeholder="Auto-generated (or type custom)"
-                          className="mt-1 text-xs font-mono"
+                          className="h-10 text-xs font-mono"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Leave blank to auto-generate sequentially.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">Leave blank to auto-generate sequentially.</p>
                       </div>
 
                       <div>
-                        <label className="text-xs font-semibold text-slate-700">Invoice Date</label>
+                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Invoice Date</label>
                         <Input
                           type="date"
                           value={invoiceDate}
                           onChange={(e) => setInvoiceDate(e.target.value)}
-                          className="mt-1 text-xs"
+                          className="h-10 text-xs"
                         />
                       </div>
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs font-semibold text-slate-700">Category</label>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Category</label>
                           <select
                             value={category}
                             onChange={(e) => setCategory(e.target.value)}
-                            className="mt-1 w-full text-xs h-9 px-3 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20"
+                            className="w-full text-xs h-10 px-3 border border-slate-200 rounded-xl bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20 cursor-pointer shadow-2xs"
                           >
                             <option value="B2B">B2B (Registered)</option>
                             <option value="B2C">B2C (Unregistered)</option>
@@ -1595,11 +1799,11 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         </div>
 
                         <div>
-                          <label className="text-xs font-semibold text-slate-700">Doc Type</label>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Doc Type</label>
                           <select
                             value={docType}
                             onChange={(e) => setDocType(e.target.value)}
-                            className="mt-1 w-full text-xs h-9 px-3 border border-slate-200 rounded-lg bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20"
+                            className="w-full text-xs h-10 px-3 border border-slate-200 rounded-xl bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20 cursor-pointer shadow-2xs"
                           >
                             <option value="INV">Tax Invoice (INV)</option>
                             <option value="BOS">Bill of Supply (BOS)</option>
@@ -1608,16 +1812,16 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-xs">
+                      <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
                         <div>
-                          <div className="font-semibold text-slate-800">Reverse Charge (RCM)</div>
-                          <div className="text-[10px] text-slate-500">Tax payable by recipient</div>
+                          <div className="font-semibold text-slate-900">Reverse Charge (RCM)</div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">Tax payable by recipient under reverse charge mechanism</div>
                         </div>
                         <input
                           type="checkbox"
                           checked={reverseCharge}
                           onChange={(e) => setReverseCharge(e.target.checked)}
-                          className="w-4 h-4 text-[#0A2030] rounded"
+                          className="w-4 h-4 text-[#0A2030] rounded cursor-pointer"
                         />
                       </div>
                     </div>
@@ -1626,11 +1830,11 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                 {/* Step 3: Line Items & Shipments */}
                 {billStep === 3 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <h3 className="text-sm font-bold text-slate-900">Line Items & Shipments</h3>
-                        <p className="text-xs text-slate-400">Select unbilled LRs or add custom entries</p>
+                        <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Line items & shipments</h2>
+                        <p className="text-sm text-slate-500 mt-1 font-normal">Attach unbilled LR dockets or add custom freight entries</p>
                       </div>
 
                       <Button
@@ -1638,7 +1842,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         variant="outline"
                         size="sm"
                         onClick={handleAddCustomItem}
-                        className="gap-1.5 text-xs text-[#0A2030] border-slate-200 hover:bg-slate-50"
+                        className="gap-1.5 text-xs text-[#0A2030] border-slate-200 hover:bg-slate-50 cursor-pointer shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Custom Item</span>
@@ -1673,9 +1877,11 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                           </button>
                         </div>
 
-                        <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50/50">
+                        <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl divide-y divide-slate-100 bg-slate-50/50">
                           {availableDockets.map((d) => {
                             const isSelected = selectedDocketIds.includes(d.id);
+                            const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash' || (d.payment_mode === 'Paid' && (d as any).payment_method === 'Cash');
+
                             return (
                               <div
                                 key={d.id}
@@ -1698,22 +1904,33 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                               >
                                 <div className="flex items-center gap-2.5">
                                   <div
-                                    className={`w-4 h-4 rounded border flex items-center justify-center ${
+                                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${
                                       isSelected ? 'bg-[#0A2030] border-[#0A2030] text-white' : 'border-slate-300 bg-white'
                                     }`}
                                   >
                                     {isSelected && <Check className="w-3 h-3" />}
                                   </div>
                                   <div>
-                                    <span className="font-mono font-bold text-[#0A2030]">{d.docket_no}</span>
-                                    <span className="text-slate-500 text-[11px] ml-2 font-mono">({d.booking_date})</span>
-                                    <div className="text-[11px] text-slate-600 font-medium">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-mono font-bold text-[#0A2030]">{d.docket_no}</span>
+                                      <span className="text-slate-500 text-[11px] font-mono">({d.booking_date})</span>
+                                      {isCash ? (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+                                          Cash
+                                        </span>
+                                      ) : d.expected_mode ? (
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                                          {d.expected_mode}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <div className="text-[11px] text-slate-600 font-medium mt-0.5">
                                       {d.from_city} → {d.to_city} ({d.articles_count || d.package_count} pcs) · {d.consignor_name}
                                     </div>
                                   </div>
                                 </div>
-                                <div className="font-mono font-bold text-slate-900">
-                                  ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                                <div className="font-mono font-bold text-slate-900 text-right shrink-0">
+                                  <div>₹{Number(d.grand_total).toLocaleString('en-IN')}</div>
                                 </div>
                               </div>
                             );
@@ -1729,21 +1946,21 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                       </div>
 
                       {customItems.map((item, idx) => (
-                        <div key={item.id || idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
-                          <div className="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-200 pb-1">
+                        <div key={item.id || idx} className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2.5">
+                          <div className="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-200 pb-1.5">
                             <span>Item #{idx + 1}</span>
                             <Button
                               type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => handleRemoveCustomItem(idx)}
-                              className="h-6 w-6 p-0 hover:bg-red-50 text-red-500"
+                              className="h-6 w-6 p-0 hover:bg-red-50 text-red-500 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-2 gap-2.5">
                             <div>
                               <label className="text-[10px] font-semibold text-slate-500">Particulars</label>
                               <Input
@@ -1769,188 +1986,672 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                   </div>
                 )}
 
-              {/* Step 4: Financials */}
-              {billStep === 4 && (
-                <Card className="p-5 space-y-4 shadow-saas">
-                  <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-2">
-                    <span>Financials & Tax Breakdown</span>
-                  </h3>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Step 4: Financials & Tax */}
+                {billStep === 4 && (
+                  <div className="space-y-6">
                     <div>
-                      <label className="text-xs font-semibold text-slate-700">Subtotal (₹)</label>
-                      <Input
-                        type="number"
-                        value={manualSubtotal !== '' ? manualSubtotal : subtotal}
-                        onChange={(e) => setManualSubtotal(e.target.value)}
-                        placeholder={String(calculatedSubtotal)}
-                        className="mt-1 text-xs font-mono font-bold text-slate-900"
-                      />
-                      <p className="text-[10px] text-slate-400 mt-0.5">Sum of items: ₹{calculatedSubtotal.toLocaleString('en-IN')}</p>
+                      <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Financials & tax</h2>
+                      <p className="text-sm text-slate-500 mt-1 font-normal">Taxable subtotal, discounts, GST rate and net total</p>
                     </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700">Discount (₹)</label>
-                      <Input
-                        type="number"
-                        value={discount}
-                        onChange={(e) => setDiscount(Number(e.target.value))}
-                        className="mt-1 text-xs font-mono text-emerald-600 font-bold"
-                      />
-                    </div>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Subtotal (₹)</label>
+                          <Input
+                            type="number"
+                            value={manualSubtotal !== '' ? manualSubtotal : subtotal}
+                            onChange={(e) => setManualSubtotal(e.target.value)}
+                            placeholder={String(calculatedSubtotal)}
+                            className="h-10 text-xs font-mono font-bold text-slate-900"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">Sum of items: ₹{calculatedSubtotal.toLocaleString('en-IN')}</p>
+                        </div>
 
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700">GST Rate (%)</label>
-                      <select
-                        value={gstPercentage}
-                        onChange={(e) => {
-                          setGstPercentage(Number(e.target.value));
-                          setManualGstAmount('');
-                        }}
-                        className="mt-1 w-full text-xs h-9 px-3 border border-slate-200 rounded-lg bg-white font-mono font-semibold text-[#2563EB] focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="18">18% (Standard Goods / Freight)</option>
-                        <option value="12">12%</option>
-                        <option value="5">5% (GTA with ITC option)</option>
-                        <option value="0">0% (Nil / Exempt)</option>
-                        <option value="28">28%</option>
-                      </select>
-                    </div>
-                  </div>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Discount (₹)</label>
+                          <Input
+                            type="number"
+                            value={discount}
+                            onChange={(e) => setDiscount(Number(e.target.value))}
+                            className="h-10 text-xs font-mono text-emerald-600 font-bold"
+                          />
+                        </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700">GST Amount (₹)</label>
-                      <Input
-                        type="number"
-                        value={manualGstAmount !== '' ? manualGstAmount : gstAmount}
-                        onChange={(e) => setManualGstAmount(e.target.value)}
-                        className="mt-1 text-xs font-mono font-bold text-[#2563EB]"
-                      />
-                      <p className="text-[10px] text-slate-400 mt-0.5">Calculated: ₹{calculatedGst.toLocaleString('en-IN')}</p>
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-semibold text-slate-700">Notes / Payment Terms</label>
-                      <Input
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="e.g. Payment due within 15 days"
-                        className="mt-1 text-xs"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Summary Box */}
-                  <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-xl space-y-2 text-xs font-sans">
-                    <div className="flex justify-between text-slate-600">
-                      <span>Taxable Subtotal:</span>
-                      <span className="font-mono font-bold text-slate-900">₹{subtotal.toLocaleString('en-IN')}</span>
-                    </div>
-                    {discount > 0 && (
-                      <div className="flex justify-between text-emerald-600 font-medium">
-                        <span>Discount:</span>
-                        <span className="font-mono font-bold">- ₹{discount.toLocaleString('en-IN')}</span>
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">GST Rate (%)</label>
+                          <select
+                            value={gstPercentage}
+                            onChange={(e) => {
+                              setGstPercentage(Number(e.target.value));
+                              setManualGstAmount('');
+                            }}
+                            className="w-full text-xs h-10 px-3 border border-slate-200 rounded-xl bg-white font-mono font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20 cursor-pointer shadow-2xs"
+                          >
+                            <option value="18">18% (Standard Goods / Freight)</option>
+                            <option value="12">12%</option>
+                            <option value="5">5% (GTA with ITC option)</option>
+                            <option value="0">0% (Nil / Exempt)</option>
+                            <option value="28">28%</option>
+                          </select>
+                        </div>
                       </div>
-                    )}
-                    <div className="flex justify-between text-slate-600">
-                      <span>Output GST ({gstPercentage}%):</span>
-                      <span className="font-mono font-bold text-[#2563EB]">₹{gstAmount.toLocaleString('en-IN')}</span>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">GST Amount (₹)</label>
+                          <Input
+                            type="number"
+                            value={manualGstAmount !== '' ? manualGstAmount : gstAmount}
+                            onChange={(e) => setManualGstAmount(e.target.value)}
+                            className="h-10 text-xs font-mono font-bold text-slate-900"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">Calculated: ₹{calculatedGst.toLocaleString('en-IN')}</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Notes / Payment Terms</label>
+                          <Input
+                            value={notes}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder="e.g. Payment due within 15 days"
+                            className="h-10 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Summary Box */}
+                      <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-2xl space-y-2 text-xs font-sans">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Taxable Subtotal:</span>
+                          <span className="font-mono font-bold text-slate-900">₹{subtotal.toLocaleString('en-IN')}</span>
+                        </div>
+                        {discount > 0 && (
+                          <div className="flex justify-between text-emerald-600 font-medium">
+                            <span>Discount:</span>
+                            <span className="font-mono font-bold">- ₹{discount.toLocaleString('en-IN')}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-slate-600">
+                          <span>Output GST ({gstPercentage}%):</span>
+                          <span className="font-mono font-bold text-slate-900">₹{gstAmount.toLocaleString('en-IN')}</span>
+                        </div>
+                        {Number(roundOff) !== 0 && (
+                          <div className="flex justify-between text-slate-600">
+                            <span>Round Off:</span>
+                            <span className="font-mono font-bold text-slate-900">₹{roundOff.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-2.5">
+                          <span>Net Invoice Grand Total:</span>
+                          <span className="font-mono text-[#0A2030] text-lg font-extrabold">₹{grandTotal.toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 italic pt-1 font-mono">{amountInWords}</div>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-slate-600">
-                      <span>Round Off:</span>
-                      <span className="font-mono font-bold text-slate-900">₹{roundOff.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-2.5">
-                      <span>Net Invoice Grand Total:</span>
-                      <span className="font-mono text-[#2563EB] text-lg font-extrabold">₹{grandTotal.toLocaleString('en-IN')}</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500 italic pt-1 font-mono">{amountInWords}</div>
                   </div>
-                </Card>
-              )}
-
-              {/* Form Step Navigation Footer */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBillPrev}
-                  disabled={billStep === 1}
-                  className="gap-1.5 text-xs"
-                >
-                  ← Back
-                </Button>
-
-                {billStep < 4 ? (
-                  <Button
-                    size="sm"
-                    onClick={handleBillNext}
-                    className="bg-[#0A2030] hover:bg-[#071520] text-white text-xs font-bold gap-1.5"
-                  >
-                    <span>Continue</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={handleIssueBill}
-                    disabled={issuing || (selectedDocketIds.length === 0 && customItems.length === 0)}
-                    className="bg-[#0A2030] hover:bg-[#071520] text-white text-xs font-bold gap-1.5 shadow-saas"
-                  >
-                    {issuing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-4 h-4" />}
-                    <span>Issue Tax Invoice</span>
-                  </Button>
                 )}
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Live Interactive A4 Tax Invoice Document Preview */}
-            <div className="hidden lg:flex items-center justify-center bg-[#F1F5F9] rounded-2xl border border-slate-200/80 p-6 overflow-hidden relative min-h-[500px]">
-              <div className="w-full max-w-2xl flex items-center justify-center">
-                {renderBillDocumentPreview()}
+            {/* Nav footer */}
+            <div className="px-8 md:px-12 lg:px-16 py-5 border-t border-slate-100 bg-white shrink-0">
+              <div className="max-w-xl mx-auto w-full space-y-3">
+                {issueError && (
+                  <div className="p-3 rounded-xl text-xs font-semibold flex items-center gap-2 bg-red-50 text-red-600 border border-red-100 animate-in fade-in duration-150">
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-current" />
+                    <span>{issueError}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={handleBillPrev}
+                    disabled={billStep === 1}
+                    className="flex items-center gap-1.5 px-5 h-10 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    ← Back
+                  </button>
+
+                  {billStep < 4 ? (
+                    <button
+                      type="button"
+                      onClick={handleBillNext}
+                      className="flex items-center gap-2 px-7 h-10 rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white text-sm font-bold transition-colors shadow-sm cursor-pointer"
+                    >
+                      Next <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleIssueBill}
+                      disabled={issuing || (selectedDocketIds.length === 0 && customItems.length === 0)}
+                      className="flex items-center gap-2 px-7 h-10 rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer shadow-sm"
+                    >
+                      {issuing ? 'Issuing...' : 'Issue Tax Invoice'}
+                      {!issuing && <ArrowRight className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: Live Bill Sheet Preview (50% screen) */}
+          <div className="hidden lg:flex items-center justify-center bg-[#F1F5F9] overflow-hidden relative p-8 overflow-y-auto">
+            <div className="w-full max-w-2xl flex items-center justify-center">
+              {renderBillDocumentPreview()}
+            </div>
+          </div>
+        </div>
+
+        {/* Unsaved changes confirmation dialog if any */}
+        {pendingSubTab && (
+          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl">
+              <h3 className="text-base font-bold text-slate-900 mb-2">Unsaved changes</h3>
+              <p className="text-xs text-slate-600 mb-4">
+                {"This bill hasn't been issued yet. Save it as a draft to finish later, or discard your changes."}
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => resolvePendingSubTab('cancel')}
+                  className="px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-600 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => resolvePendingSubTab('discard')}
+                  className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-sm font-semibold cursor-pointer"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => resolvePendingSubTab('save')}
+                  disabled={leaveSaving}
+                  className="px-4 py-2 bg-[#0A2030] hover:bg-[#071520] text-white rounded-xl text-sm font-bold disabled:opacity-50 cursor-pointer"
+                >
+                  {leaveSaving ? 'Saving...' : 'Save as Draft'}
+                </button>
               </div>
             </div>
           </div>
         )}
       </div>
-    )}
+    );
+  }
 
+  // =========================================================
+  // OVERVIEW: HISTORY & DRAFTS LIST VIEW
+  // =========================================================
+  return (
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Top Header & Action Buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Tax Billing & Invoices</h1>
+          <p className="text-xs text-slate-500 font-medium mt-0.5">
+            Create custom & consolidated GST tax invoices, manage drafts, and review all issued billing history.
+          </p>
+        </div>
 
-      {/* Unsaved-changes guard when navigating away from a dirty New Bill form */}
-      {pendingSubTab && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full border border-slate-300 shadow-xl">
-            <h3 className="text-base font-bold text-slate-900 mb-2">Unsaved changes</h3>
-            <p className="text-xs text-slate-600 mb-4">
-              {"This bill hasn't been issued yet. Save it as a draft to finish later, or discard your changes."}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => resolvePendingSubTab('cancel')}
-                className="px-4 py-2 border border-slate-300 rounded text-sm font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => resolvePendingSubTab('discard')}
-                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded text-sm font-semibold"
-              >
-                Discard
-              </button>
-              <button
-                onClick={() => resolvePendingSubTab('save')}
-                disabled={leaveSaving}
-                className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 text-white rounded text-sm font-bold disabled:opacity-50"
-              >
-                {leaveSaving ? 'Saving...' : 'Save as Draft'}
-              </button>
+        <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
+          {/* Export CSV Button (Visible ONLY on All Bills / history) */}
+          {subTab === 'history' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportBillsCSV}
+              disabled={filteredBills.length === 0}
+              className="h-10 px-3.5 rounded-xl border-slate-200/90 text-xs font-semibold text-slate-700 hover:bg-slate-50 gap-1.5 shadow-saas cursor-pointer"
+              title={`Export ${filteredBills.length} filtered invoices to Excel / CSV spreadsheet`}
+            >
+              <FileSpreadsheet className="w-4 h-4 text-[#0A2030]" />
+              <span>Export CSV</span>
+            </Button>
+          )}
+
+          {/* Primary Action: New Bill Button */}
+          <button
+            onClick={() => attemptSubTabChange('new')}
+            className="flex items-center gap-1.5 h-10 px-4 text-xs font-semibold rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas transition-saas cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Bill</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        {/* Quick Metrics Bar (Persistent for both All Bills and Drafts) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Total Invoices */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Invoices</p>
+                <h3 className="text-2xl font-bold text-slate-900 font-mono mt-1.5 tracking-tight">
+                  {subTab === 'history' ? filteredBills.length : bills.length}
+                </h3>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center">
+                <FileText className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              {subTab === 'history' && datePreset !== 'all' ? 'In selected period' : 'Recorded in system'}
+            </div>
+          </div>
+
+          {/* Card 2: Billed Revenue */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Billed Revenue</p>
+                <h3 className="text-2xl font-bold text-slate-900 font-mono mt-1.5 tracking-tight">
+                  ₹{totalBilledRevenue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              Gross invoice sum
+            </div>
+          </div>
+
+          {/* Card 3: Payment Received */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Payment Received</p>
+                <h3 className="text-2xl font-bold text-[#1F8A4C] font-mono mt-1.5 tracking-tight">
+                  ₹{totalPaymentReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-[#E8F7EF] text-[#1F8A4C] flex items-center justify-center">
+                <Check className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              Collected funds
+            </div>
+          </div>
+
+          {/* Card 4: Payment Pending */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Payment Pending</p>
+                <h3 className="text-2xl font-bold text-[#D14343] font-mono mt-1.5 tracking-tight">
+                  ₹{totalPaymentPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-[#FEE2E2] text-[#D14343] flex items-center justify-center">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              Outstanding balance
             </div>
           </div>
         </div>
-      )}
+
+        {/* Search Bar, Date Range Filters & Toolbar Row */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2 flex-1">
+            {/* Search Bar */}
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                value={billSearch}
+                onChange={(e) => setBillSearch(e.target.value)}
+                placeholder="Search by Bill No, Customer, or Date..."
+                className="w-full h-10 pl-9.5 pr-4 rounded-xl border border-slate-200 bg-white text-xs text-slate-900 placeholder:text-slate-400 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10 focus:border-[#0A2030] transition-colors"
+              />
+            </div>
+
+            {/* Date & Payment Filter Controls (Visible ONLY on All Bills / history) */}
+            {subTab === 'history' && (
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Date Preset Filter */}
+                <select
+                  value={datePreset}
+                  onChange={(e) => setDatePreset(e.target.value as BillDatePreset)}
+                  className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-2xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10 focus:border-[#0A2030] transition-colors"
+                >
+                  <option value="all">All Time</option>
+                  <option value="this_month">This Month</option>
+                  <option value="last_month">Last Month</option>
+                  <option value="quarter">Last 3 Months (Quarter)</option>
+                  <option value="6months">Last 6 Months</option>
+                  <option value="year">Last 1 Year</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+
+                {/* Payment Status Filter */}
+                <select
+                  value={paymentStatusFilter}
+                  onChange={(e) => setPaymentStatusFilter(e.target.value as any)}
+                  className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-700 shadow-2xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10 focus:border-[#0A2030] transition-colors"
+                >
+                  <option value="all">All Payment Statuses</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partial Payment</option>
+                  <option value="pending">Pending Payment</option>
+                </select>
+
+                {datePreset === 'custom' && (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date"
+                      value={customStartDate}
+                      onChange={(e) => setCustomStartDate(e.target.value)}
+                      className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-mono text-slate-700 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10 focus:border-[#0A2030] transition-colors"
+                    />
+                    <span className="text-xs text-slate-400 font-medium">to</span>
+                    <input
+                      type="date"
+                      value={customEndDate}
+                      onChange={(e) => setCustomEndDate(e.target.value)}
+                      className="h-10 px-3 rounded-xl border border-slate-200 bg-white text-xs font-mono text-slate-700 shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10 focus:border-[#0A2030] transition-colors"
+                    />
+                  </div>
+                )}
+
+                {(datePreset !== 'all' || paymentStatusFilter !== 'all' || billSearch) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDatePreset('all');
+                      setPaymentStatusFilter('all');
+                      setBillSearch('');
+                      setCustomStartDate('');
+                      setCustomEndDate('');
+                    }}
+                    className="h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-colors cursor-pointer"
+                    title="Reset all filters"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {renderSubTabSwitcher()}
+        </div>
+
+        {/* DRAFTS VIEW */}
+        {subTab === 'drafts' && <BillDraftList onEdit={handleLoadDraft} />}
+
+        {/* HISTORY / ALL BILLS VIEW */}
+        {subTab === 'history' && (
+          <>
+            {/* Bills Table Card */}
+            {loadingBills ? (
+              <div className="text-center py-16 text-xs text-slate-400 font-mono">Loading bills database...</div>
+            ) : filteredBills.length === 0 ? (
+              <Card className="p-12 text-center shadow-saas">
+                <Receipt className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <h3 className="text-sm font-bold text-slate-800">No bills found</h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  {billSearch || datePreset !== 'all'
+                    ? 'Try clearing or resetting your active search/date filters.'
+                    : 'Create your first Tax Invoice by clicking "New Bill".'}
+                </p>
+                {!billSearch && datePreset === 'all' && (
+                  <Button
+                    onClick={() => attemptSubTabChange('new')}
+                    size="sm"
+                    className="mt-4 gap-2 bg-[#0A2030] hover:bg-[#071520] text-white"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Create Bill Now</span>
+                  </Button>
+                )}
+              </Card>
+            ) : (
+              <Card className="border border-slate-200/80 shadow-saas p-0 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-500 font-semibold tracking-wider text-[11px]">
+                      <tr>
+                        <th className="px-4 py-4">BILL NO.</th>
+                        <th className="px-4 py-4">DATE</th>
+                        <th className="px-4 py-4">CUSTOMER</th>
+                        <th className="px-4 py-4">ITEMS</th>
+                        <th className="px-4 py-4 text-right">TOTAL AMOUNT</th>
+                        <th className="px-4 py-4 text-right">RECEIVED</th>
+                        <th className="px-4 py-4 text-right">PENDING</th>
+                        <th className="px-4 py-4 text-center">STATUS</th>
+                        <th className="px-4 py-4 text-right">ACTIONS</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredBills.map((b) => {
+                        const pay = getBillPaymentInfo(b, dockets);
+                        const isExpanded = expandedId === b.id;
+                        const itemCount = (b.docket_ids?.length || 0) + (b.items?.length || 0);
+
+                        return (
+                          <Fragment key={b.id}>
+                            <tr className="hover:bg-[#F8FAFC] transition-saas cursor-pointer" onClick={() => handleToggleExpandHistory(b)}>
+                              <td className="px-4 py-4 font-mono font-bold text-[#0A2030]">{b.bill_no}</td>
+                              <td className="px-4 py-4 text-slate-600">{b.invoice_date}</td>
+                              <td className="px-4 py-4">
+                                <div className="font-semibold text-slate-900">{b.customer_name}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  {b.category} · {b.doc_type}
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 font-mono text-slate-600">{itemCount} items</td>
+                              <td className="px-4 py-4 text-right font-mono font-bold text-slate-900 text-sm">
+                                ₹{Number(b.grand_total).toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-4 py-4 text-right font-mono font-semibold text-emerald-600">
+                                ₹{pay.received.toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-4 py-4 text-right font-mono font-semibold">
+                                {pay.pending > 0 ? (
+                                  <span className="text-rose-600">₹{pay.pending.toLocaleString('en-IN')}</span>
+                                ) : (
+                                  <span className="text-slate-400 font-normal">₹0</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-4 text-center">
+                                {pay.status === 'paid' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs">
+                                    Paid
+                                  </span>
+                                ) : pay.status === 'partial' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                                    Partial
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-900 border border-rose-300 shadow-2xs">
+                                    Pending
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleToggleExpandHistory(b)}
+                                    title="View invoice details"
+                                  >
+                                    {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-600" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDownloadHistoryBill(b)}
+                                    disabled={downloadingId === b.id}
+                                    title="Download PDF"
+                                  >
+                                    {downloadingId === b.id ? <Loader2 className="w-4 h-4 animate-spin text-[#0A2030]" /> : <Download className="w-4 h-4 text-[#0A2030]" />}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleDownloadHistoryBillCSV(b)}
+                                    disabled={downloadingCsvId === b.id}
+                                    title="Download line items CSV"
+                                  >
+                                    {downloadingCsvId === b.id ? (
+                                      <Loader2 className="w-4 h-4 animate-spin text-[#0A2030]" />
+                                    ) : (
+                                      <FileSpreadsheet className="w-4 h-4 text-slate-500 hover:text-[#0A2030]" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setDeleteTarget(b)}
+                                    title="Delete bill"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+
+                            {/* Expanded Details Sub-row */}
+                            {isExpanded && (
+                              <tr className="bg-slate-50/80">
+                                <td colSpan={9} className="px-6 py-4">
+                                  {expandLoading ? (
+                                    <div className="text-xs text-slate-400 py-2 flex items-center gap-2">
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Loading line item details...</span>
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-xl border border-slate-200">
+                                        <div>
+                                          <div className="text-[10px] font-semibold text-slate-400 uppercase">Customer Billing Details</div>
+                                          <div className="font-bold text-slate-900 mt-0.5">{b.customer_name}</div>
+                                          <div className="text-slate-600 font-mono text-[11px]">{b.customer_gstin ? `GSTIN: ${b.customer_gstin}` : 'Unregistered / B2C'}</div>
+                                          <div className="text-slate-500 text-[11px]">{b.customer_address || 'No address specified'}</div>
+                                        </div>
+                                        <div className="text-right space-y-0.5 font-mono">
+                                          <div className="text-slate-600">Subtotal: ₹{Number(b.subtotal).toLocaleString('en-IN')}</div>
+                                          <div className="text-slate-600">GST ({b.gst_percentage ?? 18}%): ₹{Number(b.gst_amount).toLocaleString('en-IN')}</div>
+                                          {b.discount > 0 && <div className="text-emerald-600">Discount: -₹{Number(b.discount).toLocaleString('en-IN')}</div>}
+                                          <div className="text-slate-600">Round Off: ₹{Number(b.round_off).toFixed(2)}</div>
+                                          <div className="text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
+                                            Grand Total: ₹{Number(b.grand_total).toLocaleString('en-IN')}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      {/* Line Items List */}
+                                      <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
+                                        <div className="flex items-center justify-between px-3 py-2 bg-slate-50/80 border-b border-slate-200">
+                                          <span className="text-[11px] font-bold text-slate-700">Line Items Breakdown ({expandedDockets.length})</span>
+                                          <button
+                                            onClick={() => handleDownloadHistoryBillCSV(b)}
+                                            disabled={downloadingCsvId === b.id}
+                                            className="text-[11px] font-semibold text-[#0A2030] hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                          >
+                                            <FileSpreadsheet className="w-3 h-3 text-[#0A2030]" />
+                                            <span>Download CSV</span>
+                                          </button>
+                                        </div>
+                                        <table className="w-full text-left text-[11px]">
+                                          <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                                            <tr>
+                                              <th className="px-3 py-2">#</th>
+                                              <th className="px-3 py-2">Date</th>
+                                              <th className="px-3 py-2">LR / Ref</th>
+                                              <th className="px-3 py-2">Particulars</th>
+                                              <th className="px-3 py-2">Route</th>
+                                              <th className="px-3 py-2">Pcs</th>
+                                              <th className="px-3 py-2">Weight</th>
+                                              <th className="px-3 py-2 text-right">Amount</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-100">
+                                            {expandedDockets.map((d, i) => {
+                                              const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash' || (d.payment_mode === 'Paid' && (d as any).payment_method === 'Cash');
+                                              return (
+                                                <tr key={i}>
+                                                  <td className="px-3 py-2 text-slate-400 font-mono">{i + 1}</td>
+                                                  <td className="px-3 py-2 font-mono text-slate-600">{d.booking_date}</td>
+                                                  <td className="px-3 py-2 font-mono font-bold text-[#0A2030]">{d.docket_no}</td>
+                                                  <td className="px-3 py-2 text-slate-800">
+                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                      <span>{d.consignor_name}</span>
+                                                      {isCash && (
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+                                                          Cash
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  </td>
+                                                  <td className="px-3 py-2 text-slate-600">{d.from_city && d.to_city ? `${d.from_city} → ${d.to_city}` : '—'}</td>
+                                                  <td className="px-3 py-2 font-mono">{d.package_count}</td>
+                                                  <td className="px-3 py-2 font-mono">{d.charged_weight_kg} kg</td>
+                                                  <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
+                                                    ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                                                  </td>
+                                                </tr>
+                                              );
+                                            })}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
+
+            {/* Delete Bill Modal */}
+            {deleteTarget && (
+              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+                <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl">
+                  <h3 className="text-base font-bold text-red-600 mb-2">Delete Bill</h3>
+                  <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                    Are you sure you want to delete bill <strong className="text-slate-900 font-mono">{deleteTarget.bill_no}</strong> for <strong className="text-slate-900">{deleteTarget.customer_name}</strong>? This action cannot be undone, and its referenced shipments will become available to bill again.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setDeleteTarget(null)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleDeleteBill}
+                      disabled={deleting}
+                      className="gap-2"
+                    >
+                      {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      <span>Delete Bill</span>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 });
 
 export default BillingView;
+

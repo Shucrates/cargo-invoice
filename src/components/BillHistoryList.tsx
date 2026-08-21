@@ -1,9 +1,10 @@
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
-import { Receipt, Download, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Receipt, Download, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Bill } from '@/types/cargo';
 import { generateBillPDF, BillLineDocket } from '@/lib/pdfGenerator';
+import { downloadCSV } from '@/lib/exportUtils';
 import { formatCreatedAt } from '@/lib/formatDate';
 
 export default function BillHistoryList() {
@@ -13,6 +14,7 @@ export default function BillHistoryList() {
   const [expandedDockets, setExpandedDockets] = useState<BillLineDocket[]>([]);
   const [expandLoading, setExpandLoading] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingCsvId, setDownloadingCsvId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -74,6 +76,49 @@ export default function BillHistoryList() {
     }
   };
 
+  const handleDownloadCSV = async (bill: Bill) => {
+    setDownloadingCsvId(bill.id);
+    try {
+      const detail = await fetchDetail(bill.id);
+      const dockets: BillLineDocket[] = detail.dockets ?? [];
+
+      const headers = [
+        'Sr No',
+        'Booking Date',
+        'LR / Docket No',
+        'Particulars / Consignor',
+        'From City',
+        'To City',
+        'Transport Mode',
+        'Invoice No',
+        'Package Count',
+        'Charged Weight (kg)',
+        'Line Amount (₹)',
+      ];
+
+      const rows = dockets.map((d, i) => [
+        i + 1,
+        d.booking_date || '',
+        d.docket_no || '',
+        d.consignor_name || d.particulars || '',
+        d.from_city || '',
+        d.to_city || '',
+        d.transport_mode || 'Road',
+        d.invoice_no || '',
+        d.package_count || 1,
+        d.charged_weight_kg || 0,
+        Number(d.grand_total || 0).toFixed(2),
+      ]);
+
+      const filename = `Tax_Invoice_${bill.bill_no.replace(/[^a-z0-9]+/gi, '_')}_Items.csv`;
+      downloadCSV(headers, rows, filename);
+    } catch (err) {
+      console.error('Failed to download bill CSV:', err);
+    } finally {
+      setDownloadingCsvId(null);
+    }
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -123,7 +168,7 @@ export default function BillHistoryList() {
             {bills.map((b) => (
               <Fragment key={b.id}>
                 <tr className="hover:bg-slate-50/80">
-                  <td className="px-4 py-3 font-mono font-bold text-blue-700">{b.bill_no}</td>
+                  <td className="px-4 py-3 font-mono font-bold text-[#0A2030]">{b.bill_no}</td>
                   <td className="px-4 py-3 text-slate-500">{b.invoice_date}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900">{b.customer_name}</td>
                   <td className="px-4 py-3 font-mono text-slate-600">{b.docket_ids.length}</td>
@@ -148,10 +193,18 @@ export default function BillHistoryList() {
                       <button
                         onClick={() => handleDownload(b)}
                         disabled={downloadingId === b.id}
-                        className="p-1.5 rounded-lg text-[#2563EB] hover:bg-blue-50 cursor-pointer disabled:opacity-50"
+                        className="p-1.5 rounded-lg text-[#0A2030] hover:bg-slate-100 cursor-pointer disabled:opacity-50"
                         title="Download PDF"
                       >
                         <Download className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDownloadCSV(b)}
+                        disabled={downloadingCsvId === b.id}
+                        className="p-1.5 rounded-lg text-slate-600 hover:text-[#0A2030] hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                        title="Download CSV"
+                      >
+                        {downloadingCsvId === b.id ? <Loader2 className="w-4 h-4 animate-spin text-[#0A2030]" /> : <FileSpreadsheet className="w-4 h-4" />}
                       </button>
                       <button
                         onClick={() => setDeleteTarget(b)}
@@ -170,14 +223,26 @@ export default function BillHistoryList() {
                         <div className="text-xs text-slate-400 py-2">Loading line items...</div>
                       ) : (
                         <div className="space-y-1">
-                          {expandedDockets.map((d) => (
-                            <div key={d.docket_no} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0">
-                              <span className="font-mono font-semibold text-blue-700">{d.docket_no}</span>
-                              <span className="text-slate-500">{d.consignor_name}</span>
-                              <span className="text-slate-500">{d.from_city} → {d.to_city}</span>
-                              <span className="font-mono text-slate-700">₹{Number(d.grand_total).toLocaleString('en-IN')}</span>
-                            </div>
-                          ))}
+                          {expandedDockets.map((d) => {
+                            const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash' || (d.payment_mode === 'Paid' && (d as any).payment_method === 'Cash');
+                            return (
+                              <div key={d.docket_no} className="flex items-center justify-between text-[11px] py-1 border-b border-slate-100 last:border-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-semibold text-[#0A2030]">{d.docket_no}</span>
+                                  <span className="text-slate-500">{d.consignor_name}</span>
+                                  {isCash && (
+                                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+                                      Cash
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span className="text-slate-500">{d.from_city} → {d.to_city}</span>
+                                  <span className="font-mono text-slate-700 font-bold">₹{Number(d.grand_total).toLocaleString('en-IN')}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
                           <div className="flex justify-between text-[11px] pt-2 text-slate-600 font-semibold">
                             <span>Sub Amount: ₹{Number(b.subtotal).toLocaleString('en-IN')}</span>
                             <span>GST: ₹{Number(b.gst_amount).toLocaleString('en-IN')}</span>

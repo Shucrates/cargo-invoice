@@ -31,7 +31,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Download
+  Download,
+  Wallet
 } from 'lucide-react';
 import { PAYMENT_METHODS } from '@/lib/paymentMethod';
 import { downloadCSV } from '@/lib/exportUtils';
@@ -585,44 +586,102 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
             <div className="py-16 text-center text-xs text-slate-400 font-mono">Loading complete customer financial ledger...</div>
           ) : customerDetail ? (
             <div className="space-y-6">
-              {/* Financial KPI Dashboard Bar (Monochromatic Subtle Style) */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                    <span>Total Outstanding</span>
-                    <Clock className="w-4 h-4 text-slate-400" />
+              {/* Financial KPI Dashboard Bar (Executive Style matching Main Dashboard) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Card 1: Cash Collected & Expected / Pending */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      <span>Cash Collected</span>
+                      <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center font-bold">
+                        <Wallet className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                      {formatCurrency(customerDetail.totalPaid)}
+                    </div>
                   </div>
-                  <div className={`text-2xl font-bold font-heading ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
-                    {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-medium">
-                    Credit: {formatCurrency(customerDetail.outstandingCredit)} • To Pay: {formatCurrency(customerDetail.outstandingToPay)}
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-0.5">
+                    <div className="text-xs font-medium text-slate-500">
+                      Settled & cleared receipts
+                    </div>
+                    <div className="text-[11px] font-medium text-slate-500">
+                      Expected / Pending:{' '}
+                      <span className="font-semibold text-amber-600 font-mono">
+                        {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                    <span>Total Billed</span>
-                    <TrendingUp className="w-4 h-4 text-slate-400" />
+                {/* Card 2: Total Outstanding Due */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      <span>Total Outstanding</span>
+                      <div className={`w-8 h-8 rounded-lg ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'bg-red-50 text-[#D14343]' : 'bg-slate-100 text-slate-500'} flex items-center justify-center font-bold`}>
+                        <AlertCircle className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className={`text-2xl sm:text-3xl font-bold font-sans tracking-tight ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
+                      {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                    </div>
                   </div>
-                  <div className="text-2xl font-bold text-slate-900 font-heading">
-                    {formatCurrency(customerDetail.totalBilled)}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-medium">
-                    Across {customerDetail.totalLRCount || 0} issued LRs
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-0.5">
+                    <div className="text-[11px] text-slate-500 font-medium truncate">
+                      Credit: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.outstandingCredit)}</span>
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-medium truncate">
+                      To Pay: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.outstandingToPay)}</span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="bg-slate-50/70 border border-slate-200/80 rounded-2xl p-4 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-                    <span>Total Collected</span>
-                    <CheckCircle2 className="w-4 h-4 text-slate-400" />
+                {/* Card 3: Total Billed Revenue */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      <span>Total Billed</span>
+                      <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                        <TrendingUp className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                      {formatCurrency(customerDetail.totalBilled)}
+                    </div>
                   </div>
-                  <div className="text-2xl font-bold text-slate-900 font-heading">
-                    {formatCurrency(customerDetail.totalPaid)}
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-0.5">
+                    <div className="text-xs font-medium text-slate-500">
+                      Total LRs: {customerDetail.totalLRCount || customerDetail.dockets?.length || 0}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-medium">
+                      Lifetime billed volume
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-400 font-medium">
-                    Cleared & settled payments
+                </div>
+
+                {/* Card 4: Settlement Rate */}
+                <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      <span>Settlement Rate</span>
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+                        <CheckCircle2 className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                      {(customerDetail.totalBilled && customerDetail.totalBilled > 0)
+                        ? `${Math.min(100, ((customerDetail.totalPaid || 0) / customerDetail.totalBilled) * 100).toFixed(1)}%`
+                        : '100%'}
+                    </div>
+                  </div>
+                  <div className="mt-4 pt-3 border-t border-slate-100 space-y-0.5">
+                    <div className="text-xs font-medium text-slate-500">
+                      {customerDetail.dockets?.filter(d => (d.outstanding_amount || 0) <= 0).length || 0} Fully Paid LRs
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-medium">
+                      {customerDetail.dockets?.filter(d => (d.outstanding_amount || 0) > 0).length || 0} with pending balance
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1131,7 +1190,115 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
           </div>
         </CardHeader>
 
-        <CardContent className="space-y-5 p-0">
+        <CardContent className="space-y-6 p-0">
+          {/* Executive Customer Portfolio KPIs */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Total Portfolio Cash Collected with Expected/Pending below */}
+            <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-2xl p-5 shadow-2xs transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <span>Cash Collected</span>
+                  <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] flex items-center justify-center font-bold">
+                    <Wallet className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                  {formatCurrency(customers.reduce((sum, c) => sum + (c.totalPaid || 0), 0))}
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-0.5">
+                <div className="text-xs font-medium text-slate-500">
+                  Total settled payments
+                </div>
+                <div className="text-[11px] font-medium text-slate-500">
+                  Expected / Pending:{' '}
+                  <span className="font-semibold text-amber-600 font-mono">
+                    {formatCurrency(
+                      customers.reduce(
+                        (sum, c) => sum + ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || c.outstandingAmount || 0),
+                        0
+                      )
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Total Outstanding Receivables */}
+            <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-2xl p-5 shadow-2xs transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <span>Outstanding Receivables</span>
+                  <div className="w-8 h-8 rounded-lg bg-red-50 text-[#D14343] flex items-center justify-center font-bold">
+                    <AlertCircle className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold text-[#D14343] font-sans tracking-tight">
+                  {formatCurrency(
+                    customers.reduce(
+                      (sum, c) => sum + ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || c.outstandingAmount || 0),
+                      0
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-0.5">
+                <div className="text-xs font-medium text-slate-500">
+                  Across {customers.filter((c) => ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || (c.outstandingAmount || 0)) > 0).length} customer accounts
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium">
+                  Active pending balances
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Total Billed Revenue */}
+            <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-2xl p-5 shadow-2xs transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <span>Total Billed Volume</span>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                    <TrendingUp className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                  {formatCurrency(customers.reduce((sum, c) => sum + (c.totalBilled || 0), 0))}
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-0.5">
+                <div className="text-xs font-medium text-slate-500">
+                  All customer ledger revenue
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium">
+                  Gross billed LRs
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Total Customer Accounts */}
+            <div className="bg-[#F8FAFC] border border-slate-200/80 rounded-2xl p-5 shadow-2xs transition-saas hover:-translate-y-0.5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  <span>Customer Accounts</span>
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center font-bold">
+                    <Users className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                  {customers.length}
+                </div>
+              </div>
+              <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-0.5">
+                <div className="text-xs font-medium text-slate-500">
+                  {customers.filter((c) => (c.totalBilled || 0) > 0).length} transacting accounts
+                </div>
+                <div className="text-[11px] text-slate-400 font-medium">
+                  {customers.filter((c) => !c.totalBilled || c.totalBilled === 0).length} newly registered
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Search Input */}
           <div className="relative">
             <Input

@@ -57,6 +57,8 @@ function serializeDocketLine(d: CargoDocket) {
     charged_weight_kg: decimal(d.chargedWeightKg),
     subtotal: decimal(d.subtotal),
     grand_total: decimal(d.grandTotal),
+    payment_mode: d.paymentMode,
+    expected_mode: d.expectedMode,
   };
 }
 

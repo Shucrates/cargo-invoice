@@ -728,6 +728,8 @@ export interface BillLineDocket {
   transport_mode?: string;
   particulars?: string;
   other_charges?: string;
+  expected_mode?: string | null;
+  payment_mode?: string | null;
 }
 
 /** Renders a past consolidated GST tax invoice (Bill) as a downloadable PDF,
@@ -853,21 +855,27 @@ export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
   autoTable(doc, {
     startY: y,
     head: [['Sr', 'Date', 'Particulars', 'Origin', 'Destination', 'Mode', 'L.R.No', 'Invoice No', 'Pcs', 'Other Charges', 'Gross Wt (KG)', 'Rate/KG', 'Total Amount']],
-    body: dockets.map((d, idx) => [
-      idx + 1,
-      d.booking_date,
-      d.particulars || 'RMG',
-      (d.from_city || '-').toUpperCase(),
-      (d.to_city || '-').toUpperCase(),
-      (d.transport_mode || 'Road').toUpperCase(),
-      d.docket_no,
-      d.invoice_no || '-',
-      d.package_count,
-      d.other_charges || '-',
-      Number(d.charged_weight_kg || 0),
-      rateFor(Number(d.grand_total), Number(d.charged_weight_kg || 0)),
-      Number(d.grand_total).toFixed(2),
-    ]),
+    body: dockets.map((d, idx) => {
+      const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash';
+      const particularBase = d.particulars || 'RMG';
+      const particularDisplay = isCash ? `${particularBase} (Cash Expected)` : particularBase;
+
+      return [
+        idx + 1,
+        d.booking_date,
+        particularDisplay,
+        (d.from_city || '-').toUpperCase(),
+        (d.to_city || '-').toUpperCase(),
+        (d.transport_mode || 'Road').toUpperCase(),
+        d.docket_no,
+        d.invoice_no || '-',
+        d.package_count,
+        d.other_charges || '-',
+        Number(d.charged_weight_kg || 0),
+        rateFor(Number(d.grand_total), Number(d.charged_weight_kg || 0)),
+        Number(d.grand_total).toFixed(2),
+      ];
+    }),
     theme: 'grid',
     styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [71, 85, 105], lineColor: [100, 116, 139] },
     headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6.8 },

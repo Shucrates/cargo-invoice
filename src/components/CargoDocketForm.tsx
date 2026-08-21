@@ -153,40 +153,79 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   // Auto-price freight from the default quotation sheet: match toCity against
   // a rate row for this transport mode, bill for the actual charged weight,
   // and only ever overwrite freightAmount while it's still auto-priced (never
-  // clobber a manual edit). No match -> falls back to manual entry untouched.
+  // clobber a manual edit).
+  // Return Journey Logic:
+  // If destination is opposite of the origin (e.g. from Delhi to Mumbai where
+  // Mumbai is the base origin), look up the return route rate row.
+  // For Road or Rail, add an extra ₹2/kg to the rate. No changes for Air.
   useEffect(() => {
     const sheetType: 'ROAD_RAIL' | 'AIR' = transportMode === 'Air' ? 'AIR' : 'ROAD_RAIL';
-    const sheet = pickSheet(sheetType, fromCity || defaultOriginCity);
-    if (!sheet || !toCity.trim()) {
+    const destination = toCity.trim();
+    const origin = (fromCity || defaultOriginCity).trim();
+
+    if (!destination) {
       if (freightAutoPriced) setFreightHint('');
       return;
     }
 
     const wantMode = transportMode === 'Road' ? 'BY ROAD' : transportMode === 'Train' ? 'BY RAIL' : 'BY AIR';
-    const rates: QuotationRateItem[] = sheet.rates || [];
-    const match = rates.find(
-      (r) => r.destination.trim().toUpperCase() === toCity.trim().toUpperCase() && r.mode === wantMode
-    );
 
+    // 1. Try forward lookup: sheet for origin city -> destination
+    let sheet = pickSheet(sheetType, origin);
+    let match = sheet?.rates?.find(
+      (r) => r.destination.trim().toUpperCase() === destination.toUpperCase() && r.mode === wantMode
+    );
+    let isReturn = false;
+
+    // 2. Try return lookup: if no forward rate found, or if destination matches base origin
     if (!match) {
-      setFreightHint(`No value mentioned in quotation sheet "${sheet.name}" for ${toCity.trim()} — enter freight manually.`);
+      const returnSheet = pickSheet(sheetType, destination) || pickSheet(sheetType, defaultOriginCity);
+      if (returnSheet) {
+        const returnMatch = returnSheet.rates?.find(
+          (r) => r.destination.trim().toUpperCase() === origin.toUpperCase() && r.mode === wantMode
+        );
+        if (returnMatch) {
+          sheet = returnSheet;
+          match = returnMatch;
+          isReturn = true;
+        }
+      }
+    }
+
+    if (!sheet || !match) {
+      setFreightHint(`No value mentioned in quotation sheet "${sheet?.name || 'Default'}" for ${destination} — enter freight manually.`);
       return;
     }
+
+    const isRoadOrRail = transportMode === 'Road' || transportMode === 'Train';
+    const extraPerKg = (isReturn && isRoadOrRail) ? 2 : 0;
+    const effectiveRatePerKg = match.ratePerKg + extraPerKg;
 
     const billableKg = chargedWeightKg || 0;
     if (billableKg <= 0) {
-      setFreightHint(`₹${match.ratePerKg}/kg available from "${sheet.name}" — enter weight to auto-price.`);
+      if (isReturn && extraPerKg > 0) {
+        setFreightHint(`₹${effectiveRatePerKg}/kg (₹${match.ratePerKg} base + ₹2 return) available from "${sheet.name}" — enter weight to auto-price.`);
+      } else {
+        setFreightHint(`₹${effectiveRatePerKg}/kg available from "${sheet.name}" — enter weight to auto-price.`);
+      }
       return;
     }
 
-    const computed = Math.round(match.ratePerKg * billableKg);
+    const computed = Math.round(effectiveRatePerKg * billableKg);
     if (freightAutoPriced || freightAmount === 0) {
       setFreightAmount(computed);
       setFreightAutoPriced(true);
     }
-    setFreightHint(
-      `Auto-priced from "${sheet.name}": ₹${match.ratePerKg}/kg × ${billableKg}kg = ₹${computed}${freightAutoPriced || freightAmount === 0 ? '' : ' (edit to override)'}`
-    );
+
+    if (isReturn && extraPerKg > 0) {
+      setFreightHint(
+        `Auto-priced (Return Journey +₹2/kg) from "${sheet.name}": ₹${effectiveRatePerKg}/kg (₹${match.ratePerKg} + ₹2) × ${billableKg}kg = ₹${computed}${freightAutoPriced || freightAmount === 0 ? '' : ' (edit to override)'}`
+      );
+    } else {
+      setFreightHint(
+        `Auto-priced from "${sheet.name}": ₹${effectiveRatePerKg}/kg × ${billableKg}kg = ₹${computed}${freightAutoPriced || freightAmount === 0 ? '' : ' (edit to override)'}`
+      );
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toCity, fromCity, transportMode, chargedWeightKg, quotationSheets]);
 
