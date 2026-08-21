@@ -8,17 +8,28 @@ export default auth((req) => {
   const host = req.headers.get('host') || '';
   const url = req.nextUrl.clone();
 
-  // 1. Subdomain routing for tracking page (e.g. track.yourdomain.com or track.localhost:3000)
+  // 1. Determine host type
+  const isAdminSubdomain = host.startsWith('admin.') || host.startsWith('system.');
   const isTrackingSubdomain = host.startsWith('track.') || host.startsWith('tracking.');
-  if (isTrackingSubdomain) {
-    if (!url.pathname.startsWith('/tracking')) {
-      url.pathname = `/tracking${url.pathname === '/' ? '' : url.pathname}`;
+  const isCustomerFacing = !isAdminSubdomain || isTrackingSubdomain;
+
+  // 2. Customer-facing host (www.rudracargo.com, rudracargo.com, track.*)
+  if (isCustomerFacing && !host.includes('localhost')) {
+    if (url.pathname === '/') {
+      url.pathname = '/tracking';
       return NextResponse.rewrite(url);
     }
-    return;
   }
 
-  // 2. Auth protection for dashboard & login
+  // 3. Admin-facing host (admin.rudracargo.com)
+  if (isAdminSubdomain) {
+    if (url.pathname === '/') {
+      url.pathname = '/dashboard';
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // 4. Auth protection for dashboard & login
   const isLoggedIn = !!req.auth;
   const isOnDashboard = req.nextUrl.pathname.startsWith('/dashboard');
 
