@@ -72,42 +72,49 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     let remainingToAllocate = amount;
     let allocatedTotal = 0;
     const paymentDate = body.paidAt ? new Date(body.paidAt) : new Date();
+    if (isNaN(paymentDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid payment date.' }, { status: 400 });
+    }
     const enumMethod = toPaymentMethodEnum(method);
     const notesText = body.notes?.trim() || `Bulk payment received from ${customer.name}`;
 
     const createdPayments: any[] = [];
 
-    for (const d of dockets) {
-      if (remainingToAllocate <= 0.001) break;
+    // All-or-nothing: a failure partway through must not leave some LRs
+    // marked paid and others not.
+    await prisma.$transaction(async (tx) => {
+      for (const d of dockets) {
+        if (remainingToAllocate <= 0.001) break;
 
-      const allocateForThisLR = Math.min(remainingToAllocate, d.outstanding_amount);
-      if (allocateForThisLR <= 0) continue;
+        const allocateForThisLR = Math.min(remainingToAllocate, d.outstanding_amount);
+        if (allocateForThisLR <= 0) continue;
 
-      const [payment] = await prisma.$queryRaw<any[]>`
-        INSERT INTO "docket_payments" (
-          "id", "docket_id", "amount", "method", "paid_at", "notes", "recorded_by", "created_at", "voided"
-        ) VALUES (
-          gen_random_uuid()::text,
-          ${d.id},
-          ${allocateForThisLR}::decimal,
-          ${enumMethod}::"PaymentMethod",
-          ${paymentDate}::date,
-          ${notesText},
-          ${user.id},
-          NOW(),
-          false
-        )
-        RETURNING id, docket_id, amount::float8 as amount, method, paid_at;
-      `;
+        const [payment] = await tx.$queryRaw<any[]>`
+          INSERT INTO "docket_payments" (
+            "id", "docket_id", "amount", "method", "paid_at", "notes", "recorded_by", "created_at", "voided"
+          ) VALUES (
+            gen_random_uuid()::text,
+            ${d.id},
+            ${allocateForThisLR}::decimal,
+            ${enumMethod}::"PaymentMethod",
+            ${paymentDate}::date,
+            ${notesText},
+            ${user.id},
+            NOW(),
+            false
+          )
+          RETURNING id, docket_id, amount::float8 as amount, method, paid_at;
+        `;
 
-      createdPayments.push({
-        ...payment,
-        docketNo: d.docket_no,
-      });
+        createdPayments.push({
+          ...payment,
+          docketNo: d.docket_no,
+        });
 
-      remainingToAllocate -= allocateForThisLR;
-      allocatedTotal += allocateForThisLR;
-    }
+        remainingToAllocate -= allocateForThisLR;
+        allocatedTotal += allocateForThisLR;
+      }
+    });
 
     return NextResponse.json({
       success: true,
@@ -116,6 +123,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       payments: createdPayments,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to record payment:', error);
+    return NextResponse.json({ error: 'Failed to record payment' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -98,6 +99,8 @@ interface CustomerManagerProps {
 }
 
 export default function CustomerManager({ onSelectCustomer, isOpen = true, onClose }: CustomerManagerProps) {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
   const [customers, setCustomers] = useState<CustomerProfile[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -1658,16 +1661,18 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                                   <Pencil className="w-4 h-4 text-slate-700" />
                                   <span>Edit</span>
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
-                                  aria-label={`Delete ${c.name}`}
-                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-600" />
-                                  <span>Delete</span>
-                                </Button>
+                                {isAdmin && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
+                                    aria-label={`Delete ${c.name}`}
+                                    className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                    <span>Delete</span>
+                                  </Button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1793,16 +1798,18 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                           <Pencil className="w-3.5 h-3.5 text-slate-700" />
                           <span>Edit</span>
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
-                          aria-label={`Delete ${c.name}`}
-                          className="h-8 px-2.5 text-xs font-semibold gap-1 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                          <span>Delete</span>
-                        </Button>
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
+                            aria-label={`Delete ${c.name}`}
+                            className="h-8 px-2.5 text-xs font-semibold gap-1 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                            <span>Delete</span>
+                          </Button>
+                        )}
                       </div>
                     </div>
                   );

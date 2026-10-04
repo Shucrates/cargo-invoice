@@ -2,6 +2,7 @@ import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import { requireSecret } from '@/lib/env';
+import { rateLimit } from '@/lib/rateLimit';
 import bcrypt from 'bcryptjs';
 import { authConfig } from '@/auth.config';
 
@@ -19,8 +20,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         if (!credentials?.email || !credentials?.password) {
+          return null;
+        }
+
+        // Slow password guessing: 10 attempts per IP per 15 minutes. Per
+        // serverless instance only, so a speed bump rather than a hard cap.
+        if (request && !rateLimit(request, { limit: 10, windowMs: 15 * 60_000, namespace: 'login' }).ok) {
+          console.warn('[Auth] Login rate limit hit');
           return null;
         }
 

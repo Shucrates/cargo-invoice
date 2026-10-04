@@ -166,7 +166,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       payments,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to load customer:', error);
+    return NextResponse.json({ error: 'Failed to load customer' }, { status: 500 });
   }
 }
 
@@ -201,22 +202,28 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     return NextResponse.json(updated);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to update customer:', error);
+    return NextResponse.json({ error: 'Failed to update customer' }, { status: 500 });
   }
 }
 
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    const user = session?.user as { id?: string; role?: string } | undefined;
+    if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete customers.' }, { status: 403 });
     }
 
     const { id } = await params;
     await prisma.$executeRaw`DELETE FROM "customers" WHERE id = ${id}`;
 
     return NextResponse.json({ success: true, id });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('Failed to delete customer:', error);
+    return NextResponse.json({ error: 'Failed to delete customer' }, { status: 500 });
   }
 }

@@ -182,6 +182,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }, { status: 404 });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to load tracking:', error);
+    return NextResponse.json({ error: 'Failed to load tracking' }, { status: 500 });
   }
 }

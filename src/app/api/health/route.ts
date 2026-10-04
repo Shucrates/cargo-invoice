@@ -1,34 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+/** Public liveness probe. Reports only whether the database answers — never
+ * row contents or configuration, since this route is unauthenticated. */
 export async function GET() {
   try {
-    const userCount = await prisma.user.count();
-    const users = await prisma.user.findMany({ select: { email: true, role: true } });
-    return NextResponse.json({
-      status: 'ok',
-      database: 'connected',
-      userCount,
-      users,
-      env: {
-        hasAuthSecret: !!(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET),
-        hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
-        hasDatabaseUrl: !!process.env.DATABASE_URL,
-      },
-    });
-  } catch (error: any) {
-    return NextResponse.json(
-      {
-        status: 'error',
-        database: 'failed',
-        error: error?.message || String(error),
-        env: {
-          hasAuthSecret: !!(process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET),
-          hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
-          hasDatabaseUrl: !!process.env.DATABASE_URL,
-        },
-      },
-      { status: 500 }
-    );
+    await prisma.$queryRaw`SELECT 1`;
+    return NextResponse.json({ status: 'ok' }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return NextResponse.json({ status: 'error' }, { status: 503 });
   }
 }

@@ -52,7 +52,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { data: session } = useSession();
   const userName = session?.user?.name || 'Logistics Admin';
-  const userEmail = session?.user?.email || 'admin@rudracargo.com';
+  const userEmail = session?.user?.email || '';
   const userRole = (session?.user as any)?.role || 'staff';
   const isAdmin = userRole === 'admin';
 

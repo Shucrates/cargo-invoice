@@ -24,16 +24,38 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       return NextResponse.json({ error: 'A valid payment method (Cash, UPI, Bank Transfer, Cheque, Card, or Other) is required.' }, { status: 400 });
     }
 
+    const paymentDate = body.paidAt ? new Date(body.paidAt) : new Date();
+    if (isNaN(paymentDate.getTime())) {
+      return NextResponse.json({ error: 'Invalid payment date.' }, { status: 400 });
+    }
+
     const [docket] = await prisma.$queryRaw<any[]>`
-      SELECT id, docket_no, grand_total::float8 as grand_total FROM "cargo_dockets" WHERE id = ${id}
+      SELECT
+        cd.id,
+        cd.docket_no,
+        cd.status,
+        GREATEST(cd.grand_total - COALESCE((
+          SELECT SUM(amount) FROM "docket_payments" WHERE docket_id = cd.id AND NOT voided
+        ), 0), 0)::float8 AS outstanding
+      FROM "cargo_dockets" cd
+      WHERE cd.id = ${id}
     `;
 
     if (!docket) {
       return NextResponse.json({ error: 'LR not found.' }, { status: 404 });
     }
+    if (docket.status === 'voided') {
+      return NextResponse.json({ error: 'Cannot record a payment against a voided LR.' }, { status: 400 });
+    }
+    // Small tolerance for paise rounding between the client and stored totals.
+    if (amount > docket.outstanding + 0.01) {
+      return NextResponse.json(
+        { error: `Payment exceeds the outstanding amount of ₹${docket.outstanding.toFixed(2)}.` },
+        { status: 400 }
+      );
+    }
 
     const enumMethod = toPaymentMethodEnum(method);
-    const paymentDate = body.paidAt ? new Date(body.paidAt) : new Date();
 
     const [inserted] = await prisma.$queryRaw<any[]>`
       INSERT INTO "docket_payments" (
@@ -61,6 +83,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to record payment:', error);
+    return NextResponse.json({ error: 'Failed to record payment' }, { status: 500 });
   }
 }

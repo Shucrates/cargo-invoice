@@ -172,14 +172,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid invoice date.' }, { status: 400 });
     }
 
-    // Calculate or accept financial totals
+    // Subtotal and GST may be manually overridden in the form, so they are
+    // accepted from the client — but only within sane bounds. Grand total and
+    // round-off are always derived here so they cannot disagree with the parts.
     const subtotal = Number(body.subtotal) || 0;
     const discount = Number(body.discount) || 0;
     const gstPercentage = Number(body.gst_percentage ?? 18);
-    const gstAmount = Number(body.gst_amount) || Math.round((subtotal - discount) * (gstPercentage / 100));
+    const gstAmount =
+      body.gst_amount !== undefined && body.gst_amount !== ''
+        ? Number(body.gst_amount)
+        : Math.round((subtotal - discount) * (gstPercentage / 100));
+    if (
+      ![subtotal, discount, gstPercentage, gstAmount].every(Number.isFinite) ||
+      subtotal < 0 ||
+      discount < 0 ||
+      discount > subtotal ||
+      gstPercentage < 0 ||
+      gstPercentage > 28 ||
+      gstAmount < 0
+    ) {
+      return NextResponse.json({ error: 'Invalid bill amounts.' }, { status: 400 });
+    }
     const rawTotal = subtotal - discount + gstAmount;
-    const grandTotal = body.grand_total !== undefined ? Number(body.grand_total) : Math.round(rawTotal);
-    const roundOff = body.round_off !== undefined ? Number(body.round_off) : Number((grandTotal - rawTotal).toFixed(2));
+    const grandTotal = Math.round(rawTotal);
+    const roundOff = Number((grandTotal - rawTotal).toFixed(2));
 
     // Handle custom or generated bill number
     let billNo = (body.bill_no || '').trim();
@@ -249,6 +265,6 @@ export async function POST(req: Request) {
     return NextResponse.json(serializeBill(bill), { status: 201 });
   } catch (error: any) {
     console.error('Failed to issue bill:', error);
-    return NextResponse.json({ error: error?.message || 'Failed to issue bill.' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to issue bill.' }, { status: 500 });
   }
 }

@@ -28,6 +28,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
+import { useSession } from 'next-auth/react';
 import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -167,6 +168,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   { dockets, customers },
   ref
 ) {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
   const [subTab, setSubTab] = useState<BillingSubTab>('history');
   const [pendingSubTab, setPendingSubTab] = useState<BillingSubTab | null>(null);
   const [leaveSaving, setLeaveSaving] = useState(false);
@@ -2899,14 +2902,17 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                       <FileSpreadsheet className="w-4 h-4 text-slate-500 hover:text-[#0A2030]" />
                                     )}
                                   </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setDeleteTarget(b)}
-                                    title="Delete bill"
-                                  >
-                                    <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
-                                  </Button>
+                                  {isAdmin && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={() => setDeleteTarget(b)}
+                                      title="Delete bill"
+                                      aria-label={`Delete bill ${b.bill_no}`}
+                                    >
+                                      <Trash2 className="w-4 h-4 text-slate-400 hover:text-red-600" />
+                                    </Button>
+                                  )}
                                 </div>
                               </td>
                             </tr>

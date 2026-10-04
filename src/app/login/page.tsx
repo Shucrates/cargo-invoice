@@ -42,39 +42,6 @@ export default function LoginPage() {
     }
   };
 
-  const handleDemoLogin = async (role: 'admin' | 'staff') => {
-    setLoading(true);
-    setError(null);
-    const demoEmail = role === 'admin' ? 'admin@rudracargo.com' : 'test@rudracargo.com';
-    const demoPassword = 'password123';
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-
-    try {
-      const res = await signIn('credentials', {
-        email: demoEmail,
-        password: demoPassword,
-        redirect: false,
-        redirectTo: '/dashboard',
-      });
-
-      if (res?.error) {
-        setError(
-          res.error === 'CredentialsSignin'
-            ? 'Invalid demo credentials.'
-            : 'Authentication error. Please try again.'
-        );
-        setLoading(false);
-      } else {
-        router.push('/dashboard');
-        router.refresh();
-      }
-    } catch (err: any) {
-      setError('Demo login failed.');
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen w-full bg-white flex flex-col justify-between items-center px-4 py-12 font-sans selection:bg-[#0A2030] selection:text-white">
       {/* Top spacer to balance layout */}
@@ -144,25 +111,6 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign in'}
           </button>
 
-          {/* Temporary Demo Login Buttons */}
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('admin')}
-              disabled={loading}
-              className="h-12 bg-neutral-100 hover:bg-neutral-200/80 active:scale-[0.99] text-neutral-800 font-medium text-xs rounded-2xl transition-all duration-150 flex items-center justify-center cursor-pointer disabled:opacity-50"
-            >
-              Demo Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDemoLogin('staff')}
-              disabled={loading}
-              className="h-12 bg-neutral-100 hover:bg-neutral-200/80 active:scale-[0.99] text-neutral-800 font-medium text-xs rounded-2xl transition-all duration-150 flex items-center justify-center cursor-pointer disabled:opacity-50"
-            >
-              Demo Staff
-            </button>
-          </div>
         </form>
       </div>
       </div>

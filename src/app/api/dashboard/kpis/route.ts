@@ -51,6 +51,21 @@ function docketsCte() {
 `;
 }
 
+const ADMIN_ONLY_KPIS = [
+  'totalRevenue',
+  'totalSubtotal',
+  'totalGST',
+  'pendingCollection',
+  'paidCollection',
+  'cashExpectedThisMonth',
+  'missingExpectedModeCount',
+  'missingExpectedModeAmount',
+  'revenueThisMonth',
+  'revenueLastMonth',
+  'cashCollectedThisMonth',
+  'cashCollectedLastMonth',
+];
+
 export async function GET() {
   try {
     const session = await auth();
@@ -179,7 +194,13 @@ export async function GET() {
       FROM "customers"
     `);
 
-    return NextResponse.json({ ...totals, ...cash, ...customers });
+    const result: Record<string, number | null> = { ...totals, ...cash, ...customers };
+    // Company-wide money totals are admin-only; staff keep counts and their
+    // own cash figures.
+    if (user.role !== 'admin') {
+      for (const key of ADMIN_ONLY_KPIS) delete result[key];
+    }
+    return NextResponse.json(result);
   } catch (error: unknown) {
     console.error('KPI query failed:', error);
     return NextResponse.json({ error: 'Failed to load dashboard metrics' }, { status: 500 });

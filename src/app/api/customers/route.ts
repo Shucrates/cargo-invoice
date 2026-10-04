@@ -63,7 +63,8 @@ export async function GET(req: Request) {
 
     return NextResponse.json(customers);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to load customers:', error);
+    return NextResponse.json({ error: 'Failed to load customers' }, { status: 500 });
   }
 }
 
@@ -121,6 +122,7 @@ export async function POST(req: Request) {
     if (error.code === 'P2002' || error.message?.includes('unique constraint') || error.message?.includes('customers_code_key')) {
       return NextResponse.json({ error: 'A customer with this code already exists.' }, { status: 400 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Failed to create customer:', error);
+    return NextResponse.json({ error: 'Failed to create customer' }, { status: 500 });
   }
 }

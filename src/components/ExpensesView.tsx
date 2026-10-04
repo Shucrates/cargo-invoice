@@ -673,13 +673,16 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                               >
                                 <Download className="w-3.5 h-3.5 text-[#0A2030]" />
                               </button>
-                              <button
-                                onClick={() => setDeleteTarget(l)}
-                                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
-                                title="Delete ledger"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => setDeleteTarget(l)}
+                                  className="h-8 w-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
+                                  title="Delete ledger"
+                                  aria-label={`Delete ledger ${l.ledger_no}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -740,14 +743,17 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                                                 ₹{Number(e.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                                               </td>
                                               <td className="px-3.5 py-2.5 text-center">
+                                                {isAdmin && (
                                                 <button
                                                   onClick={() => handleDeleteEntry(l, e)}
                                                   disabled={deletingEntryId === e.id}
                                                   className="w-6 h-6 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 mx-auto"
                                                   title="Delete item"
+                                                  aria-label="Delete item"
                                                 >
                                                   <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
+                                                )}
                                               </td>
                                             </tr>
                                           ))

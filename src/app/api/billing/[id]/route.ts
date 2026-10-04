@@ -130,6 +130,9 @@ export async function DELETE(
     if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete bills.' }, { status: 403 });
+    }
 
     const { id } = await params;
     const bill = await loadOwnedBill(id);
