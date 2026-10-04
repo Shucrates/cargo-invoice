@@ -182,9 +182,8 @@ export async function PATCH(
       .map((key) => ({ field: key, from: before[key], to: after[key] }));
 
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        'ALTER TABLE "cargo_dockets" DISABLE TRIGGER "trg_prevent_docket_unauthorized_update"'
-      );
+      // Transaction-local flag honoured by trg_prevent_docket_unauthorized_update.
+      await tx.$executeRaw`SELECT set_config('app.allow_docket_edit', 'on', true)`;
 
       await tx.$executeRaw`
         UPDATE "cargo_dockets" SET
@@ -233,10 +232,6 @@ export async function PATCH(
           updated_at = NOW()
         WHERE id = ${id}
       `;
-
-      await tx.$executeRawUnsafe(
-        'ALTER TABLE "cargo_dockets" ENABLE TRIGGER "trg_prevent_docket_unauthorized_update"'
-      );
 
       // Switching a To-Pay/Credit LR to Paid with no ledger history yet mirrors
       // creation's behavior. If a ledger already exists (partial payments via

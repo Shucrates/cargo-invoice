@@ -4,34 +4,43 @@ import { prisma } from '@/lib/prisma';
 import { requireSecret, safeEqual } from '@/lib/env';
 
 /**
- * Full database export. Two callers are allowed:
- *   1. The Vercel cron job, which presents `Authorization: Bearer $CRON_SECRET`.
- *   2. A signed-in admin triggering a manual backup from the dashboard.
- * Everyone else gets a 401 — this endpoint returns every customer and user record.
+ * Two callers are allowed:
+ *   1. The Vercel cron job (`Authorization: Bearer $CRON_SECRET`), which runs
+ *      draft cleanup only. Its response body is discarded by Vercel, so building
+ *      a full export for it would be wasted work, not a backup.
+ *   2. A signed-in admin, who receives a full JSON export as a download.
+ * Everyone else gets a 401 — the export contains every customer and user record.
  */
-async function isAuthorized(req: Request): Promise<boolean> {
+async function getCaller(req: Request): Promise<'cron' | 'admin' | null> {
   const authHeader = req.headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const presented = authHeader.slice('Bearer '.length);
-    if (safeEqual(presented, requireSecret('CRON_SECRET'))) return true;
+    if (safeEqual(presented, requireSecret('CRON_SECRET'))) return 'cron';
   }
 
   const session = await auth();
-  return (session?.user as { role?: string } | undefined)?.role === 'admin';
+  return (session?.user as { role?: string } | undefined)?.role === 'admin' ? 'admin' : null;
 }
 
 export async function GET(req: Request) {
   try {
-    if (!(await isAuthorized(req))) {
+    const caller = await getCaller(req);
+    if (!caller) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Auto-clean expired drafts older than 30 days during scheduled maintenance
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    await Promise.all([
-      prisma.docketDraft.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo } } }),
-      prisma.billDraft.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo } } }),
-    ]);
+    if (caller === 'cron') {
+      // Scheduled maintenance: drop drafts untouched for 30 days.
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const [docketDrafts, billDrafts] = await Promise.all([
+        prisma.docketDraft.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo } } }),
+        prisma.billDraft.deleteMany({ where: { createdAt: { lt: thirtyDaysAgo } } }),
+      ]);
+      return NextResponse.json({
+        deletedDocketDrafts: docketDrafts.count,
+        deletedBillDrafts: billDrafts.count,
+      });
+    }
 
     const dockets = await prisma.cargoDocket.findMany();
     const customers = await prisma.customer.findMany();
