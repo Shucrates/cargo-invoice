@@ -3,7 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
-import { isPaymentMethodLabel, toPaymentMethodEnum } from '@/lib/paymentMethod';
+import { isPaymentMethodLabel, toPaymentMethodEnum, fromPaymentModeEnum } from '@/lib/paymentMethod';
 import { rateLimit } from '@/lib/rateLimit';
 import { verifyCsrf } from '@/lib/csrf';
 
@@ -130,7 +130,7 @@ export async function PATCH(
       pickup_delivery_charge: dec(existing.pickupDeliveryCharge),
       other_charge: dec(existing.otherCharge),
       gst_percentage: dec(existing.gstPercentage),
-      payment_mode: existing.paymentMode,
+      payment_mode: fromPaymentModeEnum(existing.paymentMode),
       customer_code: existing.customerCode,
       courier_partner: existing.courierPartner,
       tracking_no: existing.trackingNo,

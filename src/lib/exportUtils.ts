@@ -1,3 +1,4 @@
+import { notify } from '@/lib/notify';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { CargoDocket } from '@/types/cargo';
@@ -39,7 +40,7 @@ export function downloadCSV(headers: string[], rows: unknown[][], filename: stri
  */
 export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_dockets_export.csv') {
   if (!dockets || dockets.length === 0) {
-    alert('No docket records to export.');
+    notify('No docket records to export.', 'info');
     return;
   }
 
@@ -122,7 +123,7 @@ export function exportToCSV(dockets: CargoDocket[], filename: string = 'cargo_do
  */
 export function exportSummaryPDF(dockets: CargoDocket[], filterLabel: string = 'All Records') {
   if (!dockets || dockets.length === 0) {
-    alert('No docket records to generate PDF report.');
+    notify('No docket records to generate PDF report.', 'info');
     return;
   }
 

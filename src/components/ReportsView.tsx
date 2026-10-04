@@ -45,6 +45,8 @@ import { Badge } from '@/components/ui/badge';
 import { CargoDocket, Customer, ExpenseLedger, Bill } from '@/types/cargo';
 import { downloadCSV, exportSummaryPDF } from '@/lib/exportUtils';
 import { companyConfig } from '@/lib/companyConfig';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 export interface CashPayment {
   id: string;
@@ -642,7 +644,7 @@ export default function ReportsView({
   // Location Weight CSV Export
   const handleExportLocationWeightCSV = () => {
     if (locationData.items.length === 0) {
-      alert('No shipment records matching the selected filters for location analysis.');
+      notify('No shipment records matching the selected filters for location analysis.', 'info');
       return;
     }
 
@@ -803,7 +805,7 @@ export default function ReportsView({
   // Export LRs CSV
   const handleExportLRsCSV = () => {
     if (filteredDockets.length === 0) {
-      alert('No LR records matching the selected filters.');
+      notify('No LR records matching the selected filters.', 'info');
       return;
     }
     downloadCSV(
@@ -852,7 +854,7 @@ export default function ReportsView({
   // Export LRs PDF
   const handleExportLRsPDF = () => {
     if (filteredDockets.length === 0) {
-      alert('No LR records matching the selected filters.');
+      notify('No LR records matching the selected filters.', 'info');
       return;
     }
     const label =
@@ -865,7 +867,7 @@ export default function ReportsView({
   // Export Bills CSV
   const handleExportBillsCSV = () => {
     if (filteredBills.length === 0) {
-      alert('No bill records matching the selected filters.');
+      notify('No bill records matching the selected filters.', 'info');
       return;
     }
     downloadCSV(
@@ -911,7 +913,7 @@ export default function ReportsView({
   // Export Expenses CSV
   const handleExportExpensesCSV = () => {
     if (filteredExpenses.length === 0) {
-      alert('No expense records matching the selected filters.');
+      notify('No expense records matching the selected filters.', 'info');
       return;
     }
     downloadCSV(
@@ -944,7 +946,7 @@ export default function ReportsView({
   // Export Cash Log CSV
   const handleExportCashCSV = () => {
     if (filteredCashLog.length === 0) {
-      alert('No cash records matching the selected filters.');
+      notify('No cash records matching the selected filters.', 'info');
       return;
     }
     downloadCSV(
@@ -1457,7 +1459,7 @@ export default function ReportsView({
                     <strong className="text-rose-600 font-semibold">{billMetrics.pendingCount} Pending</strong>
                   </span>
                   {totalCashCollected > 0 && (
-                    <span className="text-slate-600 font-medium">Direct cash receipts: ₹{totalCashCollected.toLocaleString('en-IN')}</span>
+                    <span className="text-slate-600 font-medium">Direct cash receipts: {formatRupees(totalCashCollected)}</span>
                   )}
                 </div>
               </div>
@@ -1548,7 +1550,7 @@ export default function ReportsView({
                           </div>
                         </td>
                         <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
-                          ₹{loc.totalGrand.toLocaleString('en-IN')}
+                          {formatRupees(loc.totalGrand)}
                         </td>
                         <td className="px-3.5 py-2.5 text-center">
                           <button
@@ -1671,7 +1673,7 @@ export default function ReportsView({
                 </div>
 
                 <div className="text-slate-500 font-medium">
-                  Active Value: <strong className="text-slate-900 font-mono">₹{lrMetrics.totalGrand.toLocaleString('en-IN')}</strong>
+                  Active Value: <strong className="text-slate-900 font-mono">{formatRupees(lrMetrics.totalGrand)}</strong>
                 </div>
               </div>
 
@@ -1730,7 +1732,7 @@ export default function ReportsView({
                               {Number(d.charged_weight_kg || 0)}
                             </td>
                             <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
-                              ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                              {formatRupees(Number(d.grand_total))}
                             </td>
                             <td className="px-4 py-3.5 text-center">
                               <span
@@ -1804,7 +1806,7 @@ export default function ReportsView({
                     {locationData.avgWeightPerShipment.toFixed(1)}
                     <span className="text-xs font-sans font-normal text-slate-500 ml-1">kg</span>
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">₹{locationData.totalGrandAll.toLocaleString('en-IN')} freight</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{formatRupees(locationData.totalGrandAll)} freight</p>
                 </div>
               </div>
 
@@ -1958,7 +1960,7 @@ export default function ReportsView({
                                   </div>
                                 </td>
                                 <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
-                                  ₹{loc.totalGrand.toLocaleString('en-IN')}
+                                  {formatRupees(loc.totalGrand)}
                                 </td>
                                 <td className="px-4 py-3.5 text-center">
                                   <button
@@ -1996,7 +1998,7 @@ export default function ReportsView({
                                           </Badge>
                                         </div>
                                         <div className="text-slate-500 font-medium">
-                                          Total Weight: <strong className="text-slate-900 font-mono">{loc.chargedWeight} kg</strong> · Freight Sum: <strong className="text-slate-900 font-mono">₹{loc.totalGrand.toLocaleString('en-IN')}</strong>
+                                          Total Weight: <strong className="text-slate-900 font-mono">{loc.chargedWeight} kg</strong> · Freight Sum: <strong className="text-slate-900 font-mono">{formatRupees(loc.totalGrand)}</strong>
                                         </div>
                                       </div>
 
@@ -2032,7 +2034,7 @@ export default function ReportsView({
                                                   {Number(d.charged_weight_kg || 0)}
                                                 </td>
                                                 <td className="px-3 py-2 text-right font-mono font-bold text-slate-900">
-                                                  ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                                                  {formatRupees(Number(d.grand_total))}
                                                 </td>
                                                 <td className="px-3 py-2 text-center">
                                                   <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${getPaymentBadgeStyle(d.payment_mode)}`}>
@@ -2202,14 +2204,14 @@ export default function ReportsView({
                           <td className="px-4 py-3.5 text-slate-600 font-mono text-[11px]">{b.category} · {b.doc_type}</td>
                           <td className="px-4 py-3.5 font-mono">{itemCount} items</td>
                           <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900">
-                            ₹{Number(b.grand_total).toLocaleString('en-IN')}
+                            {formatRupees(Number(b.grand_total))}
                           </td>
                           <td className="px-4 py-3.5 text-right font-mono font-semibold text-emerald-600">
-                            ₹{pay.received.toLocaleString('en-IN')}
+                            {formatRupees(pay.received)}
                           </td>
                           <td className="px-4 py-3.5 text-right font-mono font-semibold">
                             {pay.pending > 0 ? (
-                              <span className="text-rose-600">₹{pay.pending.toLocaleString('en-IN')}</span>
+                              <span className="text-rose-600">{formatRupees(pay.pending)}</span>
                             ) : (
                               <span className="text-slate-400 font-normal">₹0</span>
                             )}
@@ -2349,7 +2351,7 @@ export default function ReportsView({
                         <td className="px-4 py-3.5 font-medium text-slate-900">{l.label || 'Operating Expense'}</td>
                         <td className="px-4 py-3.5 font-mono text-slate-700">{l.entry_count || 0} entries</td>
                         <td className="px-4 py-3.5 text-right font-mono font-bold text-rose-600">
-                          ₹{Number(l.total_amount).toLocaleString('en-IN')}
+                          {formatRupees(Number(l.total_amount))}
                         </td>
                         <td className="px-4 py-3.5 text-slate-600">{l.created_by_name || 'Staff'}</td>
                       </tr>
@@ -2439,7 +2441,7 @@ export default function ReportsView({
                           </span>
                         </td>
                         <td className="px-4 py-3.5 text-right font-mono font-bold text-emerald-600">
-                          ₹{Number(c.amount).toLocaleString('en-IN')}
+                          {formatRupees(Number(c.amount))}
                         </td>
                         <td className="px-4 py-3.5 text-slate-600">{c.recorded_by_name || 'Staff'}</td>
                         <td className="px-4 py-3.5 text-slate-500 italic max-w-[200px] truncate">{c.notes || '—'}</td>

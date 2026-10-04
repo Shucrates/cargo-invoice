@@ -23,6 +23,8 @@ import { CityInput } from '@/components/ui/city-input';
 import { generateQuotationPDF, QuotationRateItem } from '@/lib/pdfGenerator';
 import { getCompanySettings } from '@/lib/companyConfig';
 import { formatCreatedAt } from '@/lib/formatDate';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 export type SheetType = 'ROAD_RAIL' | 'AIR';
 
@@ -357,7 +359,7 @@ export default function QuotationView() {
         })
       );
     } catch (e: any) {
-      alert(e.message || 'Failed to update default');
+      notify(e.message || 'Failed to update default');
     }
   };
 
@@ -376,7 +378,7 @@ export default function QuotationView() {
         setActiveSheetId('');
       }
     } catch (e: any) {
-      alert(e.message || 'Failed to delete sheet');
+      notify(e.message || 'Failed to delete sheet');
     }
   };
 
@@ -1076,7 +1078,7 @@ export default function QuotationView() {
                       )}
                       <td className="p-3 font-bold text-slate-900">{r.destination}</td>
                       <td className="p-3 font-mono font-bold text-[#0A2030] text-sm">
-                        ₹{r.ratePerKg.toLocaleString('en-IN')}/-
+                        {formatRupees(r.ratePerKg)}/-
                       </td>
                       <td className="p-3">
                         <span className="text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60">

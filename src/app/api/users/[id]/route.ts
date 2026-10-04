@@ -4,6 +4,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { rateLimit } from '@/lib/rateLimit';
 import { verifyCsrf } from '@/lib/csrf';
+import { fromPaymentModeEnum } from '@/lib/paymentMethod';
 
 function serializeUser(u: { id: string; email: string; fullName: string | null; role: string; createdAt: Date }) {
   return {
@@ -171,7 +172,7 @@ export async function GET(
       from_city: d.fromCity,
       to_city: d.toCity,
       transport_mode: d.transportMode,
-      payment_mode: d.paymentMode,
+      payment_mode: fromPaymentModeEnum(d.paymentMode),
       grand_total: Number(d.grandTotal || 0),
       status: d.status,
     })),

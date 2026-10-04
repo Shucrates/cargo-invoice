@@ -49,3 +49,10 @@ export function deliveryStatusBadgeVariant(status: string): NonNullable<BadgePro
       return 'info';
   }
 }
+
+/** Reverses `DELIVERY_STATUS_TO_PRISMA_ENUM` — Prisma reads return the enum
+ * key (`In_Transit`), but the UI and comparisons use the label (`In Transit`). */
+export function fromDeliveryStatusEnum(value: string): string {
+  const match = DELIVERY_STATUSES.find((label) => DELIVERY_STATUS_TO_PRISMA_ENUM[label] === value);
+  return match ?? value;
+}

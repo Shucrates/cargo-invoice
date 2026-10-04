@@ -3,9 +3,10 @@ import type { Prisma, CargoDocket } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
-import { isPaymentMethodLabel, toPaymentMethodEnum, fromPaymentMethodEnum } from '@/lib/paymentMethod';
+import { isPaymentMethodLabel, toPaymentMethodEnum, fromPaymentMethodEnum, fromPaymentModeEnum } from '@/lib/paymentMethod';
 import { rateLimit } from '@/lib/rateLimit';
 import { verifyCsrf } from '@/lib/csrf';
+import { fromDeliveryStatusEnum } from '@/lib/deliveryStatus';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -87,9 +88,9 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
     gst_amount: decimal(d.gstAmount),
     grand_total: decimal(d.grandTotal),
 
-    payment_mode: d.paymentMode,
+    payment_mode: fromPaymentModeEnum(d.paymentMode),
     expected_mode: d.expectedMode ? fromPaymentMethodEnum(d.expectedMode) : null,
-    delivery_status: d.deliveryStatus,
+    delivery_status: fromDeliveryStatusEnum(d.deliveryStatus),
     amount_paid: amountPaid,
     amount_due: amountDue,
     customer_code: d.customerCode || '',

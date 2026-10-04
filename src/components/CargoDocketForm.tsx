@@ -1104,7 +1104,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Select a cosignor</h2>
+              <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Select a consignor</h2>
               <p className="text-sm text-slate-500 mt-1 font-normal">Sender of this shipment</p>
             </div>
 
@@ -1124,7 +1124,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                     }`}
                   >
                     <span className={consignorName ? 'text-sm font-medium text-slate-900' : 'text-sm text-slate-400'}>
-                      {consignorName || 'Select a cosignor'}
+                      {consignorName || 'Select a consignor'}
                     </span>
                     <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${consignorOpen ? 'rotate-180 text-slate-700' : ''}`} />
                   </button>
@@ -1229,7 +1229,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 )}
               </div>
             ) : (
-              /* Add new cosignor form */
+              /* Add new consignor form */
               <div className="space-y-5 pt-2">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h3 className="text-lg font-bold text-slate-900 font-heading">Add new customer</h3>

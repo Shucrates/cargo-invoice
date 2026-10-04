@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { Prisma, Bill, CargoDocket } from '@prisma/client';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { fromPaymentModeEnum } from '@/lib/paymentMethod';
 
 type BillWithCreator = Bill & { creator?: { fullName: string | null; email: string } | null };
 
@@ -57,7 +58,7 @@ function serializeDocketLine(d: CargoDocket) {
     charged_weight_kg: decimal(d.chargedWeightKg),
     subtotal: decimal(d.subtotal),
     grand_total: decimal(d.grandTotal),
-    payment_mode: d.paymentMode,
+    payment_mode: fromPaymentModeEnum(d.paymentMode),
     expected_mode: d.expectedMode,
   };
 }

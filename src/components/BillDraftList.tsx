@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { BillDraft } from '@/types/cargo';
 import { FileText, Edit2, Trash2, Search, User } from 'lucide-react';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -56,12 +58,12 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
       const res = await fetch(`/api/billing/drafts/${target.id}`, { method: 'DELETE' });
       if (!res.ok) {
         setDrafts((prev) => [target, ...prev]);
-        alert('Failed to delete bill draft.');
+        notify('Failed to delete bill draft.');
       }
     } catch (err) {
       console.error('Failed to delete bill draft:', err);
       setDrafts((prev) => [target, ...prev]);
-      alert('Failed to delete bill draft.');
+      notify('Failed to delete bill draft.');
     }
   };
 
@@ -165,7 +167,7 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
                   <div className="space-y-0.5">
                     <span className="text-[10px] text-slate-400 block uppercase font-medium">Est. Amount</span>
                     <span className="font-semibold text-slate-900 text-sm">
-                      {grandTotal > 0 ? `₹${grandTotal.toLocaleString('en-IN')}` : '—'}
+                      {grandTotal > 0 ? `${formatRupees(grandTotal)}` : '—'}
                     </span>
                   </div>
                 </div>

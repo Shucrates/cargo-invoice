@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { fromPaymentModeEnum } from '@/lib/paymentMethod';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -203,7 +204,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         actual_weight_kg: Number(docket.actualWeightKg ?? 0),
         charged_weight_kg: Number(docket.chargedWeightKg ?? 0),
         goods_description: docket.goodsDescription || 'General Commercial Freight',
-        payment_mode: docket.paymentMode || 'To Pay',
+        payment_mode: fromPaymentModeEnum(docket.paymentMode),
         eway_bill_no: docket.ewayBillNo || null,
         invoice_no: docket.invoiceNo || null,
         checkpoints,

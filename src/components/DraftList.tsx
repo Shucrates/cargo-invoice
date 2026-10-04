@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { DocketDraft } from '@/types/cargo';
 import { FileText, Edit2, Trash2, Search, Plus, MapPin, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 export type LRStep = 'consignor' | 'consignee' | 'route' | 'shipment' | 'transport' | 'charges' | 'payment';
 
@@ -114,7 +116,7 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
           onDraftsChanged?.(next.length);
           return next;
         });
-        alert('Failed to delete draft.');
+        notify('Failed to delete draft.');
       }
     } catch (err) {
       console.error('Failed to delete draft:', err);
@@ -123,7 +125,7 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
         onDraftsChanged?.(next.length);
         return next;
       });
-      alert('Failed to delete draft.');
+      notify('Failed to delete draft.');
     }
   };
 
@@ -267,7 +269,7 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
                   <div className="space-y-0.5">
                     <span className="text-[10px] text-slate-400 block uppercase font-medium">Freight</span>
                     <span className="font-semibold text-slate-900 text-sm">
-                      {freight ? `₹${Number(freight).toLocaleString('en-IN')}` : '—'}
+                      {freight ? `${formatRupees(Number(freight))}` : '—'}
                     </span>
                   </div>
                 </div>

@@ -39,10 +39,12 @@ import { CargoDocket, Customer, Bill, BillDraft, BillCustomLineItem } from '@/ty
 import { CompanySettings, DEFAULT_COMPANY_SETTINGS, getCompanySettings, getActivePaymentQr } from '@/lib/companyConfig';
 import { generateBillPDF, BillLineDocket } from '@/lib/pdfGenerator';
 import { downloadCSV } from '@/lib/exportUtils';
-import { formatCreatedAt } from '@/lib/formatDate';
+import { formatCreatedAt, formatDay } from '@/lib/formatDate';
 import BillDraftList from '@/components/BillDraftList';
 import type { QuotationSheetDTO } from '@/components/QuotationView';
 import { invalidateReportsCache } from '@/components/ReportsView';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 interface BillingViewProps {
   dockets: CargoDocket[];
@@ -1280,13 +1282,13 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
       const res = await fetch(`/api/billing/${target.id}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to delete bill.');
+        notify(data.error || 'Failed to delete bill.');
         setBills((prev) => [target, ...prev]);
         invalidateReportsCache('bills');
       }
     } catch (err) {
       console.error('Failed to delete bill:', err);
-      alert('Failed to delete bill. Please try again.');
+      notify('Failed to delete bill. Please try again.');
       setBills((prev) => [target, ...prev]);
       invalidateReportsCache('bills');
     }
@@ -1587,7 +1589,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                   <span style={{ textAlign: 'center' }}>{item.weight}</span>
                   <span style={{ textAlign: 'center' }}>{item.rate}</span>
                   <span style={{ textAlign: 'right', fontWeight: 800, fontFamily: 'monospace', color: '#0A2030' }}>
-                    ₹{item.amount.toLocaleString('en-IN')}
+                    {formatRupees(item.amount)}
                   </span>
                 </div>
               ))
@@ -1631,19 +1633,19 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>Sub Total:</span>
               <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0A2030' }}>
-                {subtotal > 0 ? `₹${subtotal.toLocaleString('en-IN')}` : <Skel w={45} h={7} />}
+                {subtotal > 0 ? `${formatRupees(subtotal)}` : <Skel w={45} h={7} />}
               </span>
             </div>
             {discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#166534' }}>
                 <span>Discount:</span>
-                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>- ₹{discount.toLocaleString('en-IN')}</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>- {formatRupees(discount)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>GST ({gstPercentage}%):</span>
               <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0A2030' }}>
-                {gstAmount > 0 ? `₹${gstAmount.toLocaleString('en-IN')}` : <Skel w={40} h={7} />}
+                {gstAmount > 0 ? `${formatRupees(gstAmount)}` : <Skel w={40} h={7} />}
               </span>
             </div>
             {roundOff !== 0 && (
@@ -1655,7 +1657,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
             <div style={{ display: 'flex', justifyContent: 'space-between', background: '#F1F5F9', padding: '4px 6px', borderRadius: 2, fontSize: 9.5, fontWeight: 900, color: '#0A2030', marginTop: 1 }}>
               <span>GRAND TOTAL:</span>
               <span style={{ fontFamily: 'monospace' }}>
-                {grandTotal > 0 ? `₹${grandTotal.toLocaleString('en-IN')}` : <Skel w={60} h={10} />}
+                {grandTotal > 0 ? `${formatRupees(grandTotal)}` : <Skel w={60} h={10} />}
               </span>
             </div>
           </div>
@@ -1745,7 +1747,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                     Tax Invoice {issuedBill.bill_no}
                   </h1>
                   <p className="text-sm text-slate-500 mt-1 font-normal">
-                    Billed to <span className="font-semibold text-slate-800">{issuedBill.customer_name}</span> for ₹{Number(issuedBill.grand_total).toLocaleString('en-IN')}.
+                    Billed to <span className="font-semibold text-slate-800">{issuedBill.customer_name}</span> for {formatRupees(Number(issuedBill.grand_total))}.
                   </p>
                 </div>
 
@@ -1772,17 +1774,17 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                   <div className="space-y-1.5 text-xs text-slate-600">
                     <div className="flex justify-between">
                       <span>Taxable Subtotal</span>
-                      <span>₹{Number(issuedBill.subtotal).toLocaleString('en-IN')}</span>
+                      <span>{formatRupees(Number(issuedBill.subtotal))}</span>
                     </div>
                     {Number(issuedBill.discount) > 0 && (
                       <div className="flex justify-between text-emerald-600">
                         <span>Discount</span>
-                        <span>- ₹{Number(issuedBill.discount).toLocaleString('en-IN')}</span>
+                        <span>- {formatRupees(Number(issuedBill.discount))}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span>Output GST ({issuedBill.gst_percentage ?? 18}%)</span>
-                      <span>₹{Number(issuedBill.gst_amount).toLocaleString('en-IN')}</span>
+                      <span>{formatRupees(Number(issuedBill.gst_amount))}</span>
                     </div>
                     {Number(issuedBill.round_off) !== 0 && (
                       <div className="flex justify-between">
@@ -1792,7 +1794,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                     )}
                     <div className="flex justify-between text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
                       <span>Grand Total</span>
-                      <span className="font-mono text-base text-[#0A2030] font-extrabold">₹{Number(issuedBill.grand_total).toLocaleString('en-IN')}</span>
+                      <span className="font-mono text-base text-[#0A2030] font-extrabold">{formatRupees(Number(issuedBill.grand_total))}</span>
                     </div>
                   </div>
 
@@ -2266,7 +2268,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                   </div>
                                 </div>
                                 <div className="font-mono font-bold text-slate-900 text-right shrink-0">
-                                  <div>₹{Number(d.grand_total).toLocaleString('en-IN')}</div>
+                                  <div>{formatRupees(Number(d.grand_total))}</div>
                                 </div>
                               </div>
                             );
@@ -2341,7 +2343,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                             placeholder={String(calculatedSubtotal)}
                             className="h-10 text-xs font-mono font-bold text-slate-900"
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">Sum of items: ₹{calculatedSubtotal.toLocaleString('en-IN')}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Sum of items: {formatRupees(calculatedSubtotal)}</p>
                         </div>
 
                         <div>
@@ -2382,7 +2384,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                             onChange={(e) => setManualGstAmount(e.target.value)}
                             className="h-10 text-xs font-mono font-bold text-slate-900"
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">Calculated: ₹{calculatedGst.toLocaleString('en-IN')}</p>
+                          <p className="text-[10px] text-slate-400 mt-1">Calculated: {formatRupees(calculatedGst)}</p>
                         </div>
 
                         <div>
@@ -2400,17 +2402,17 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                       <div className="p-4 bg-[#F8FAFC] border border-slate-200 rounded-2xl space-y-2 text-xs font-sans">
                         <div className="flex justify-between text-slate-600">
                           <span>Taxable Subtotal:</span>
-                          <span className="font-mono font-bold text-slate-900">₹{subtotal.toLocaleString('en-IN')}</span>
+                          <span className="font-mono font-bold text-slate-900">{formatRupees(subtotal)}</span>
                         </div>
                         {discount > 0 && (
                           <div className="flex justify-between text-emerald-600 font-medium">
                             <span>Discount:</span>
-                            <span className="font-mono font-bold">- ₹{discount.toLocaleString('en-IN')}</span>
+                            <span className="font-mono font-bold">- {formatRupees(discount)}</span>
                           </div>
                         )}
                         <div className="flex justify-between text-slate-600">
                           <span>Output GST ({gstPercentage}%):</span>
-                          <span className="font-mono font-bold text-slate-900">₹{gstAmount.toLocaleString('en-IN')}</span>
+                          <span className="font-mono font-bold text-slate-900">{formatRupees(gstAmount)}</span>
                         </div>
                         {Number(roundOff) !== 0 && (
                           <div className="flex justify-between text-slate-600">
@@ -2420,7 +2422,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         )}
                         <div className="flex justify-between text-sm font-bold text-slate-900 border-t border-slate-200 pt-2.5">
                           <span>Net Invoice Grand Total:</span>
-                          <span className="font-mono text-[#0A2030] text-lg font-extrabold">₹{grandTotal.toLocaleString('en-IN')}</span>
+                          <span className="font-mono text-[#0A2030] text-lg font-extrabold">{formatRupees(grandTotal)}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 italic pt-1 font-mono">{amountInWords}</div>
                       </div>
@@ -2833,24 +2835,24 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         return (
                           <Fragment key={b.id}>
                             <tr className="hover:bg-[#F8FAFC] transition-saas cursor-pointer" onClick={() => handleToggleExpandHistory(b)}>
-                              <td className="px-4 py-4 font-mono font-bold text-[#0A2030]">{b.bill_no}</td>
-                              <td className="px-4 py-4 text-slate-600">{b.invoice_date}</td>
+                              <td className="px-4 py-4 font-mono font-bold text-[#0A2030] whitespace-nowrap">{b.bill_no}</td>
+                              <td className="px-4 py-4 text-slate-600 whitespace-nowrap">{formatDay(b.invoice_date)}</td>
                               <td className="px-4 py-4">
                                 <div className="font-semibold text-slate-900">{b.customer_name}</div>
                                 <div className="text-[10px] text-slate-400 font-mono">
                                   {b.category} · {b.doc_type}
                                 </div>
                               </td>
-                              <td className="px-4 py-4 font-mono text-slate-600">{itemCount} items</td>
+                              <td className="px-4 py-4 font-mono text-slate-600">{itemCount} {itemCount === 1 ? 'item' : 'items'}</td>
                               <td className="px-4 py-4 text-right font-mono font-bold text-slate-900 text-sm">
-                                ₹{Number(b.grand_total).toLocaleString('en-IN')}
+                                {formatRupees(Number(b.grand_total))}
                               </td>
                               <td className="px-4 py-4 text-right font-mono font-semibold text-emerald-600">
-                                ₹{pay.received.toLocaleString('en-IN')}
+                                {formatRupees(pay.received)}
                               </td>
                               <td className="px-4 py-4 text-right font-mono font-semibold">
                                 {pay.pending > 0 ? (
-                                  <span className="text-rose-600">₹{pay.pending.toLocaleString('en-IN')}</span>
+                                  <span className="text-rose-600">{formatRupees(pay.pending)}</span>
                                 ) : (
                                   <span className="text-slate-400 font-normal">₹0</span>
                                 )}
@@ -2936,12 +2938,12 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                           <div className="text-slate-500 text-[11px]">{b.customer_address || 'No address specified'}</div>
                                         </div>
                                         <div className="text-right space-y-0.5 font-mono">
-                                          <div className="text-slate-600">Subtotal: ₹{Number(b.subtotal).toLocaleString('en-IN')}</div>
-                                          <div className="text-slate-600">GST ({b.gst_percentage ?? 18}%): ₹{Number(b.gst_amount).toLocaleString('en-IN')}</div>
-                                          {b.discount > 0 && <div className="text-emerald-600">Discount: -₹{Number(b.discount).toLocaleString('en-IN')}</div>}
+                                          <div className="text-slate-600">Subtotal: {formatRupees(Number(b.subtotal))}</div>
+                                          <div className="text-slate-600">GST ({b.gst_percentage ?? 18}%): {formatRupees(Number(b.gst_amount))}</div>
+                                          {b.discount > 0 && <div className="text-emerald-600">Discount: -{formatRupees(Number(b.discount))}</div>}
                                           <div className="text-slate-600">Round Off: ₹{Number(b.round_off).toFixed(2)}</div>
                                           <div className="text-slate-900 font-bold text-sm pt-1 border-t border-slate-200">
-                                            Grand Total: ₹{Number(b.grand_total).toLocaleString('en-IN')}
+                                            Grand Total: {formatRupees(Number(b.grand_total))}
                                           </div>
                                         </div>
                                       </div>
@@ -2994,7 +2996,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                                   <td className="px-3 py-2 font-mono">{d.package_count}</td>
                                                   <td className="px-3 py-2 font-mono">{d.charged_weight_kg} kg</td>
                                                   <td className="px-3 py-2 text-right font-mono font-semibold text-slate-900">
-                                                    ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                                                    {formatRupees(Number(d.grand_total))}
                                                   </td>
                                                 </tr>
                                               );

@@ -137,3 +137,13 @@ export function computeBillTotals(docketSubtotalsPaise: number[], discount: unkn
 
   return { subtotalPaise, gstPaise, discountPaise, roundOffPaise, grandTotalPaise };
 }
+
+/** Display a rupee amount: whole rupees stay whole (₹1,357), anything with
+ * paise always shows two digits (₹1,994.20, never ₹1,994.2). */
+export function formatRupees(amount: unknown): string {
+  const n = Number(amount) || 0;
+  return `₹${n.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+    maximumFractionDigits: 2,
+  })}`;
+}

@@ -20,3 +20,8 @@ export function toPaymentMethodEnum(label: string): PaymentMethod {
 export function fromPaymentMethodEnum(value: string): PaymentMethodLabel {
   return (value === 'Bank_Transfer' ? 'Bank Transfer' : value) as PaymentMethodLabel;
 }
+
+/** Same enum-name problem for the LR `PaymentMode` (`To_Pay` → `To Pay`). */
+export function fromPaymentModeEnum(value: string): string {
+  return value === 'To_Pay' ? 'To Pay' : value;
+}

@@ -1607,7 +1607,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                                   </div>
                                 )}
                                 {c.phone && (
-                                  <div className="flex items-center gap-1.5 font-medium text-slate-500">
+                                  <div className="flex items-center gap-1.5 font-medium text-slate-500 whitespace-nowrap">
                                     <Phone className="w-3 h-3 text-slate-400 shrink-0" />
                                     <span>{c.phone}</span>
                                   </div>
@@ -1652,25 +1652,25 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                                   <span>Details</span>
                                 </Button>
                                 <Button
-                                  size="sm"
+                                  size="icon"
                                   variant="outline"
                                   onClick={() => openEditForm(c)}
                                   aria-label={`Edit ${c.name}`}
-                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                                  title="Edit"
+                                  className="h-8 w-8 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
                                 >
                                   <Pencil className="w-4 h-4 text-slate-700" />
-                                  <span>Edit</span>
                                 </Button>
                                 {isAdmin && (
                                   <Button
-                                    size="sm"
+                                    size="icon"
                                     variant="outline"
                                     onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
                                     aria-label={`Delete ${c.name}`}
-                                    className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                                    title="Delete"
+                                    className="h-8 w-8 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
                                   >
                                     <Trash2 className="w-4 h-4 text-red-600" />
-                                    <span>Delete</span>
                                   </Button>
                                 )}
                               </div>

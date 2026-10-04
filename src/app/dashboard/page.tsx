@@ -54,6 +54,8 @@ import {
   Pencil,
   Save,
 } from 'lucide-react';
+import { formatRupees } from '@/lib/money';
+import { formatDay } from '@/lib/formatDate';
 
 /** How many dockets the shipments table loads at a time. */
 const DOCKET_PAGE_SIZE = 100;
@@ -104,7 +106,7 @@ interface DashboardKpis {
 /** Compact Indian-format currency: ₹1.2L above a lakh, grouped digits below. */
 function formatINR(amount: number): string {
   if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-  return `₹${Math.round(amount).toLocaleString('en-IN')}`;
+  return `${formatRupees(Math.round(amount))}`;
 }
 
 /**
@@ -602,7 +604,7 @@ export default function DashboardPage() {
       case 'Voided':
         return d.status === 'voided';
       case 'To Pay':
-        return d.status === 'issued' && (d.payment_mode === 'To Pay' || (d as any).payment_mode === 'To_Pay');
+        return d.status === 'issued' && d.payment_mode === 'To Pay';
       case 'Paid':
         return d.status === 'issued' && d.payment_mode === 'Paid';
       case 'Credit':
@@ -795,7 +797,7 @@ export default function DashboardPage() {
                     value: String(timeframePendingDeliveries),
                     growth: pendingGrowth.text,
                     isPositive: pendingGrowth.isPositive,
-                    sub: `Delivery in progress`,
+                    sub: `In progress`,
                     sparklineData: pendingBuckets,
                     sparklineColor: '#B7791F',
                   },
@@ -839,7 +841,7 @@ export default function DashboardPage() {
                     value: String(timeframePendingDeliveries),
                     growth: pendingGrowth.text,
                     isPositive: pendingGrowth.isPositive,
-                    sub: `Delivery in progress`,
+                    sub: `In progress`,
                     sparklineData: pendingBuckets,
                     sparklineColor: '#B7791F',
                   },
@@ -876,21 +878,21 @@ export default function DashboardPage() {
                 ];
 
             return (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
                 {kpiCards.map((card) => (
                   <Card
                     key={card.key}
-                    className="p-5 sm:p-6 transition-saas hover:-translate-y-0.5 shadow-saas flex flex-col justify-between"
+                    className="p-4 sm:p-6 transition-saas hover:-translate-y-0.5 shadow-saas flex flex-col justify-between"
                   >
                     <div>
                       {/* Top Label */}
-                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2 truncate">
+                      <span className="text-[11px] sm:text-xs font-semibold text-slate-500 uppercase tracking-wider block mb-2 line-clamp-2 sm:truncate">
                         {card.label}
                       </span>
 
                       {/* Value */}
                       <div className="flex items-baseline gap-2">
-                        <span className="text-2xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
+                        <span className="text-xl sm:text-3xl font-bold text-slate-900 font-sans tracking-tight">
                           {card.value}
                         </span>
                       </div>
@@ -914,11 +916,13 @@ export default function DashboardPage() {
                         )}
                       </div>
 
-                      <KpiSparkline
-                        data={card.sparklineData}
-                        color={card.sparklineColor}
-                        gradientId={`spark-${card.key}`}
-                      />
+                      <div className="hidden sm:block shrink-0">
+                        <KpiSparkline
+                          data={card.sparklineData}
+                          color={card.sparklineColor}
+                          gradientId={`spark-${card.key}`}
+                        />
+                      </div>
                     </div>
                   </Card>
                 ))}
@@ -933,7 +937,7 @@ export default function DashboardPage() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Revenue Breakdown</h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Subtotal ₹{timeframeTotalSubtotal.toLocaleString('en-IN')} + GST ₹{timeframeTotalGST.toLocaleString('en-IN')} ({timeframeLabel})
+                    Subtotal {formatRupees(timeframeTotalSubtotal)} + GST {formatRupees(timeframeTotalGST)} ({timeframeLabel})
                   </p>
                 </div>
 
@@ -1186,12 +1190,12 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 max-w-full">
                 {SHIPMENT_FILTERS.map((filter) => (
                   <button
                     key={filter}
                     onClick={() => setStatusFilter(filter)}
-                    className={`px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
+                    className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-saas cursor-pointer ${
                       statusFilter === filter
                         ? 'bg-[#0A2030] text-white shadow-saas'
                         : 'bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-slate-200/80 shadow-2xs'
@@ -1357,7 +1361,7 @@ export default function DashboardPage() {
                           <div>
                             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">TOTAL AMOUNT</span>
                             <span className={`font-mono font-extrabold text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                              ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                              {formatRupees(Number(d.grand_total))}
                             </span>
                           </div>
 
@@ -1538,7 +1542,7 @@ export default function DashboardPage() {
                           <div className="text-right shrink-0">
                             <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Amount</span>
                             <span className={`font-mono font-extrabold text-2xl sm:text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                              ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                              {formatRupees(Number(d.grand_total))}
                             </span>
                           </div>
                         </div>
@@ -1765,7 +1769,7 @@ export default function DashboardPage() {
                             )}
                           </button>
                         </td>
-                        <td className="px-5 py-4 font-mono font-semibold text-xs">
+                        <td className="px-5 py-4 font-mono font-semibold text-xs whitespace-nowrap">
                           <div className={isVoided ? 'line-through text-slate-400' : 'text-slate-900'}>{d.docket_no}</div>
                           {d.physical_docket_no && (
                             <div className="text-[11px] text-slate-400 font-mono">
@@ -1779,13 +1783,13 @@ export default function DashboardPage() {
                           </div>
                           <div className="text-xs text-slate-400">{d.consignee_name}</div>
                         </td>
-                        <td className={`px-5 py-4 text-xs ${isVoided ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+                        <td className={`px-5 py-4 text-xs whitespace-nowrap ${isVoided ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                           {d.from_city} → {d.to_city}
                         </td>
-                        <td className="px-5 py-4 text-slate-500 font-medium text-xs">{d.booking_date}</td>
-                        <td className="px-5 py-4 font-mono text-xs text-slate-700">{d.charged_weight_kg} kg</td>
-                        <td className={`px-5 py-4 font-bold font-mono text-xs ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                          ₹{Number(d.grand_total).toLocaleString('en-IN')}
+                        <td className="px-5 py-4 text-slate-500 font-medium text-xs whitespace-nowrap">{formatDay(d.booking_date)}</td>
+                        <td className="px-5 py-4 font-mono text-xs text-slate-700 whitespace-nowrap">{d.charged_weight_kg} kg</td>
+                        <td className={`px-5 py-4 font-bold font-mono text-xs whitespace-nowrap ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                          {formatRupees(Number(d.grand_total))}
                         </td>
                         <td className="px-5 py-4">
                           {isVoided ? (
@@ -1809,20 +1813,20 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => setTrackingModalDocket(d)} title="Edit tracking timeline">
+                            <Button variant="ghost" size="icon" onClick={() => setTrackingModalDocket(d)} title="Edit tracking timeline" aria-label="Edit tracking timeline">
                               <Truck className="w-4 h-4 text-slate-400 hover:text-[#2563EB]" />
                             </Button>
                             {!isVoided && (
-                              <Button variant="ghost" size="icon" onClick={() => setPaymentModalDocket(d)} title="Record payment">
+                              <Button variant="ghost" size="icon" onClick={() => setPaymentModalDocket(d)} title="Record payment" aria-label="Record payment">
                                 <Wallet className="w-4 h-4 text-slate-400 hover:text-[#2563EB]" />
                               </Button>
                             )}
                             {!isVoided && isAdmin && (
-                              <Button variant="ghost" size="icon" onClick={() => handleEditDocket(d)} title="Edit LR Details (Admin)">
+                              <Button variant="ghost" size="icon" onClick={() => handleEditDocket(d)} title="Edit LR Details (Admin)" aria-label="Edit LR details">
                                 <Pencil className="w-4 h-4 text-slate-400 hover:text-[#0A2030]" />
                               </Button>
                             )}
-                            <Button variant="ghost" size="icon" onClick={() => generateInvoicePDF(d)} title="Download PDF">
+                            <Button variant="ghost" size="icon" onClick={() => generateInvoicePDF(d)} title="Download PDF" aria-label="Download PDF">
                               <Download className="w-4 h-4 text-slate-400 hover:text-slate-700" />
                             </Button>
                           </div>

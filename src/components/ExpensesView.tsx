@@ -29,6 +29,8 @@ import { downloadCSV } from '@/lib/exportUtils';
 import { formatCreatedAt } from '@/lib/formatDate';
 import { generateExpenseLedgerPDF } from '@/lib/pdfGenerator';
 import { invalidateReportsCache } from '@/components/ReportsView';
+import { formatRupees } from '@/lib/money';
+import { notify } from '@/lib/notify';
 
 const CATEGORIES = [
   'Fuel & Diesel',
@@ -252,7 +254,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
         setEntryDraft(emptyEntryDraft(ledger.period_start));
       } else {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to add entry.');
+        notify(data.error || 'Failed to add entry.');
       }
     } catch (err) {
       console.error('Failed to add expense entry:', err);
@@ -281,7 +283,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
     try {
       const res = await fetch(`/api/expenses/${ledger.id}/entries/${entry.id}`, { method: 'DELETE' });
       if (!res.ok) {
-        alert('Failed to delete expense entry.');
+        notify('Failed to delete expense entry.');
         const fresh = await fetchDetail(ledger.id);
         ledgerDetailCache.current.set(ledger.id, fresh);
         setExpandedLedger(fresh);
@@ -348,13 +350,13 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
       const res = await fetch(`/api/expenses/${target.id}`, { method: 'DELETE' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        alert(data.error || 'Failed to delete expense ledger.');
+        notify(data.error || 'Failed to delete expense ledger.');
         setLedgers((prev) => [target, ...prev]);
         invalidateReportsCache('expenses');
       }
     } catch (err) {
       console.error('Failed to delete expense ledger:', err);
-      alert('Failed to delete expense ledger. Please try again.');
+      notify('Failed to delete expense ledger. Please try again.');
       setLedgers((prev) => [target, ...prev]);
       invalidateReportsCache('expenses');
     }
@@ -890,7 +892,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
 
                 <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
                   Are you sure you want to permanently delete ledger <strong className="font-semibold text-slate-900 font-mono">{deleteTarget.ledger_no}</strong>
-                  {deleteTarget.label ? ` (${deleteTarget.label})` : ''} along with all <strong className="font-semibold text-slate-900">{deleteTarget.entry_count ?? 0} logged entries</strong> totaling <strong className="font-mono text-slate-900 font-bold">₹{Number(deleteTarget.total_amount).toLocaleString('en-IN')}</strong>?
+                  {deleteTarget.label ? ` (${deleteTarget.label})` : ''} along with all <strong className="font-semibold text-slate-900">{deleteTarget.entry_count ?? 0} logged entries</strong> totaling <strong className="font-mono text-slate-900 font-bold">{formatRupees(Number(deleteTarget.total_amount))}</strong>?
                 </p>
 
                 <div className="flex items-center justify-end gap-2 pt-1">

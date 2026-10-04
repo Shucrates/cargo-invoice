@@ -27,6 +27,7 @@ import {
   Ban,
   X,
 } from 'lucide-react';
+import { formatRupees } from '@/lib/money';
 
 interface TrackingEvent {
   id: string;
@@ -86,7 +87,7 @@ const FIELD_LABELS: Record<string, string> = {
 };
 
 function formatAmount(val: number): string {
-  return `₹${val.toLocaleString('en-IN')}`;
+  return `${formatRupees(val)}`;
 }
 
 interface ShipmentDetailViewProps {
@@ -243,10 +244,10 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
 
               <div className="text-right">
                 <div className="text-2xl font-extrabold text-[#0A2030] font-mono">
-                  ₹{grandTotal.toLocaleString('en-IN')}
+                  {formatRupees(grandTotal)}
                 </div>
                 <div className="text-[11px] text-slate-400 font-mono">
-                  Due: ₹{amountDue.toLocaleString('en-IN')}
+                  Due: {formatRupees(amountDue)}
                 </div>
               </div>
             </div>
