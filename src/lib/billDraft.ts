@@ -16,10 +16,13 @@ export function serializeDraft(d: {
   data: Prisma.JsonValue;
   createdAt: Date;
   updatedAt: Date;
+  creator?: { fullName?: string | null; email?: string | null } | null;
 }) {
   return {
     id: d.id,
     created_by: d.createdBy,
+    created_by_name: d.creator?.fullName || d.creator?.email?.split('@')[0] || null,
+    created_by_email: d.creator?.email || null,
     label: d.label || 'Untitled bill draft',
     data: d.data,
     created_at: d.createdAt.toISOString(),

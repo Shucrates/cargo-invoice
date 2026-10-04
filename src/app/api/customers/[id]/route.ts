@@ -41,10 +41,44 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         cd.from_city,
         cd.to_city,
         cd.consignor_name,
+        cd.consignor_address,
+        cd.consignor_pin,
+        cd.consignor_phone,
+        cd.consignor_gstin,
         cd.consignee_name,
+        cd.consignee_address,
+        cd.consignee_pin,
+        cd.consignee_phone,
+        cd.consignee_gstin,
+        cd.package_count,
+        cd.packing_method,
+        cd.invoice_no,
+        cd.invoice_value::float8 as invoice_value,
+        cd.actual_weight_kg::float8 as actual_weight_kg,
+        cd.charged_weight_kg::float8 as charged_weight_kg,
+        cd.dimensions_lhb,
+        cd.goods_description,
+        cd.eway_bill_no,
+        cd.freight_amount::float8 as freight_amount,
+        cd.fuel_charge::float8 as fuel_charge,
+        cd.clearing_charge::float8 as clearing_charge,
+        cd.air_service_charge::float8 as air_service_charge,
+        cd.risk_charge::float8 as risk_charge,
+        cd.handling_charge::float8 as handling_charge,
+        cd.docket_charge::float8 as docket_charge,
+        cd.pickup_delivery_charge::float8 as pickup_delivery_charge,
+        cd.other_charge::float8 as other_charge,
+        cd.subtotal::float8 as subtotal,
+        cd.gst_percentage::float8 as gst_percentage,
+        cd.gst_amount::float8 as gst_amount,
         cd.transport_mode,
         cd.payment_mode,
         cd.expected_mode,
+        cd.delivery_status,
+        cd.customer_code,
+        cd.tracking_no,
+        cd.courier_partner,
+        cd.physical_docket_no,
         cd.grand_total::float8 AS grand_total,
         COALESCE(
           CASE
@@ -64,7 +98,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
           0
         )::float8 AS outstanding_amount,
         cd.status,
-        cd.created_at as "created_at"
+        cd.created_at as "created_at",
+        cd.updated_at as "updated_at"
       FROM "cargo_dockets" cd
       LEFT JOIN paid ON paid.docket_id = cd.id
       WHERE cd.customer_code = ${customer.code} OR LOWER(cd.consignor_name) = LOWER(${customer.name})
@@ -74,14 +109,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     // Compute financial summary
     let totalBilled = 0;
     let totalPaid = 0;
-    let outstandingCredit = 0;
+    let creditModeOutstanding = 0;
     let outstandingToPay = 0;
 
     const dockets = docketsRaw.map((d) => {
       totalBilled += d.grand_total || 0;
       totalPaid += d.total_paid || 0;
       if (d.payment_mode === 'Credit') {
-        outstandingCredit += d.outstanding_amount || 0;
+        creditModeOutstanding += d.outstanding_amount || 0;
       } else if (d.payment_mode === 'To Pay') {
         outstandingToPay += d.outstanding_amount || 0;
       }
@@ -90,6 +125,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         expected_mode: d.expected_mode ? fromPaymentMethodEnum(d.expected_mode) : null,
       };
     });
+
+    const outstandingCredit = Math.max(0, totalBilled - totalPaid);
 
     // Fetch payments log
     const paymentsRaw = await prisma.$queryRaw<any[]>`
@@ -119,9 +156,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       ...customer,
       totalBilled,
       totalPaid,
+      outstandingAmount: outstandingCredit,
       outstandingCredit,
+      creditModeOutstanding,
       outstandingToPay,
-      totalOutstanding: outstandingCredit + outstandingToPay,
+      totalOutstanding: outstandingCredit,
       totalLRCount: dockets.length,
       dockets,
       payments,

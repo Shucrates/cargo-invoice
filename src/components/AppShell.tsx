@@ -383,14 +383,20 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                 <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200/90 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="p-4 border-b border-slate-100 bg-slate-50/50">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#EEF4FF] text-[#2563EB] font-bold text-sm flex items-center justify-center font-mono border border-blue-100 shadow-2xs">
+                      <div className="w-10 h-10 rounded-xl bg-[#0A2030] text-white font-bold text-sm flex items-center justify-center font-mono shadow-2xs">
                         {userInitials}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-bold text-slate-900 truncate">{userName}</div>
                         <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
                         <div className="mt-1">
-                          <span className="px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase bg-[#EEF4FF] text-[#2563EB] border border-blue-100">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase tracking-wider ${
+                              isAdmin
+                                ? 'bg-[#0A2030]/10 text-[#0A2030] border border-[#0A2030]/20'
+                                : 'bg-slate-100 text-slate-700 border border-slate-200'
+                            }`}
+                          >
                             {isAdmin ? 'ADMIN ACCESS' : 'STAFF OPERATOR'}
                           </span>
                         </div>
@@ -401,23 +407,35 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                   <div className="p-2 space-y-0.5">
                     <button
                       onClick={() => navigateTab('shipments')}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                        activeTab === 'shipments'
+                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                      }`}
                     >
-                      <Package className="w-4 h-4 text-slate-400" />
+                      <Package className={`w-4 h-4 transition-colors ${activeTab === 'shipments' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                       <span>All Shipments</span>
                     </button>
                     <button
                       onClick={() => navigateTab('billing')}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                        activeTab === 'billing'
+                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                      }`}
                     >
-                      <Receipt className="w-4 h-4 text-slate-400" />
+                      <Receipt className={`w-4 h-4 transition-colors ${activeTab === 'billing' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                       <span>Billing & Invoices</span>
                     </button>
                     <button
                       onClick={() => navigateTab('expenses')}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                        activeTab === 'expenses'
+                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                      }`}
                     >
-                      <Wallet className="w-4 h-4 text-slate-400" />
+                      <Wallet className={`w-4 h-4 transition-colors ${activeTab === 'expenses' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                       <span>Expense Ledgers</span>
                     </button>
 
@@ -426,23 +444,35 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                         <div className="my-1 border-t border-slate-100" />
                         <button
                           onClick={() => navigateTab('reports')}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                            activeTab === 'reports'
+                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                          }`}
                         >
-                          <BarChart3 className="w-4 h-4 text-slate-400" />
+                          <BarChart3 className={`w-4 h-4 transition-colors ${activeTab === 'reports' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                           <span>Reports & Analytics</span>
                         </button>
                         <button
                           onClick={() => navigateTab('staff')}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                            activeTab === 'staff'
+                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                          }`}
                         >
-                          <ShieldCheck className="w-4 h-4 text-slate-400" />
+                          <ShieldCheck className={`w-4 h-4 transition-colors ${activeTab === 'staff' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                           <span>Staff Management</span>
                         </button>
                         <button
                           onClick={() => navigateTab('settings')}
-                          className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 rounded-xl transition-colors cursor-pointer"
+                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
+                            activeTab === 'settings'
+                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
+                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
+                          }`}
                         >
-                          <Settings className="w-4 h-4 text-slate-400" />
+                          <Settings className={`w-4 h-4 transition-colors ${activeTab === 'settings' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
                           <span>Company Settings</span>
                         </button>
                       </>
@@ -505,9 +535,25 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
 
               {accountMenuOpen && (
                 <div className="absolute right-0 mt-2 w-64 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden">
-                  <div className="p-3 border-b border-slate-100 bg-slate-50">
-                    <div className="text-xs font-bold text-slate-900 truncate">{userName}</div>
-                    <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
+                  <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-[#0A2030] text-white font-bold text-xs flex items-center justify-center font-mono shadow-2xs shrink-0">
+                      {userInitials}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold text-slate-900 truncate">{userName}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
+                      <div className="mt-0.5">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8.5px] font-bold font-mono uppercase tracking-wider ${
+                            isAdmin
+                              ? 'bg-[#0A2030]/10 text-[#0A2030] border border-[#0A2030]/20'
+                              : 'bg-slate-100 text-slate-700 border border-slate-200'
+                          }`}
+                        >
+                          {isAdmin ? 'ADMIN ACCESS' : 'STAFF OPERATOR'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   <div className="p-2 space-y-1">
                     <button

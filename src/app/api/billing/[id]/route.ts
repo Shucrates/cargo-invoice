@@ -108,7 +108,7 @@ export async function GET(
       grand_total: Number(item.amount) || 0,
     }));
 
-    const allLines = serializedDbDockets.length > 0 ? serializedDbDockets : manualDockets;
+    const allLines = [...serializedDbDockets, ...manualDockets];
 
     return NextResponse.json({
       ...serializeBill(bill),

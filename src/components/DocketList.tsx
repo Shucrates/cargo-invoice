@@ -469,7 +469,7 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className={`font-mono font-extrabold text-base tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                        LR #{d.docket_no}
+                        {d.docket_no}
                       </span>
                     </div>
 
@@ -667,7 +667,7 @@ export default function DocketList({ refreshKey }: { refreshKey: number }) {
                   <div className="relative z-10 flex items-start justify-between gap-4 pr-16 md:pr-44">
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className={`font-mono font-extrabold text-lg sm:text-xl tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                        LR #{d.docket_no}
+                        {d.docket_no}
                       </span>
 
                       {/* Payment Badge Pill */}

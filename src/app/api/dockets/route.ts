@@ -4,6 +4,8 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
 import { isPaymentMethodLabel, toPaymentMethodEnum, fromPaymentMethodEnum } from '@/lib/paymentMethod';
+import { rateLimit } from '@/lib/rateLimit';
+import { verifyCsrf } from '@/lib/csrf';
 
 const DEFAULT_LIMIT = 100;
 const MAX_LIMIT = 500;
@@ -102,6 +104,12 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
 
 export async function GET(req: Request) {
   try {
+    // Rate limit: 200 requests per minute per IP (dashboard polls frequently)
+    const rl = rateLimit(req, { limit: 200, windowMs: 60_000, namespace: 'dockets-get' });
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
+
     const session = await auth();
     const user = session?.user as { id?: string; role?: string } | undefined;
 
@@ -126,14 +134,18 @@ export async function GET(req: Request) {
     const where: Prisma.CargoDocketWhereInput = {};
 
     if (q) {
+      const cleanQ = q.replace(/^#+\s*/, '').trim();
       where.OR = [
-        { docketNo: { contains: q, mode: 'insensitive' } },
-        { physicalDocketNo: { contains: q, mode: 'insensitive' } },
-        { consignorName: { contains: q, mode: 'insensitive' } },
-        { consigneeName: { contains: q, mode: 'insensitive' } },
-        { fromCity: { contains: q, mode: 'insensitive' } },
-        { toCity: { contains: q, mode: 'insensitive' } },
-        { trackingNo: { contains: q, mode: 'insensitive' } },
+        { docketNo: { contains: q, mode: 'insensitive' as const } },
+        ...(cleanQ && cleanQ !== q ? [{ docketNo: { contains: cleanQ, mode: 'insensitive' as const } }] : []),
+        { physicalDocketNo: { contains: q, mode: 'insensitive' as const } },
+        ...(cleanQ && cleanQ !== q ? [{ physicalDocketNo: { contains: cleanQ, mode: 'insensitive' as const } }] : []),
+        { consignorName: { contains: q, mode: 'insensitive' as const } },
+        { consigneeName: { contains: q, mode: 'insensitive' as const } },
+        { fromCity: { contains: q, mode: 'insensitive' as const } },
+        { toCity: { contains: q, mode: 'insensitive' as const } },
+        { trackingNo: { contains: q, mode: 'insensitive' as const } },
+        ...(cleanQ && cleanQ !== q ? [{ trackingNo: { contains: cleanQ, mode: 'insensitive' as const } }] : []),
       ];
     }
 
@@ -191,6 +203,15 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const csrf = verifyCsrf(req);
+    if (!csrf.ok) {
+      return NextResponse.json({ error: csrf.error }, { status: 403 });
+    }
+    const rl = rateLimit(req, { limit: 30, windowMs: 60_000, namespace: 'dockets-post' });
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
+
     const session = await auth();
     const user = session?.user as { id?: string } | undefined;
 

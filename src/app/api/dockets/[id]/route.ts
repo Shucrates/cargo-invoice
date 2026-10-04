@@ -4,6 +4,8 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeDocketTotals, paiseToDecimalString } from '@/lib/money';
 import { isPaymentMethodLabel, toPaymentMethodEnum } from '@/lib/paymentMethod';
+import { rateLimit } from '@/lib/rateLimit';
+import { verifyCsrf } from '@/lib/csrf';
 
 type Snapshot = Record<string, string | number | boolean | null>;
 
@@ -21,6 +23,15 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const csrf = verifyCsrf(req);
+    if (!csrf.ok) {
+      return NextResponse.json({ error: csrf.error }, { status: 403 });
+    }
+    const rl = rateLimit(req, { limit: 20, windowMs: 60_000, namespace: 'dockets-patch' });
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
+
     const session = await auth();
     const user = session?.user as { id?: string; role?: string } | undefined;
     if (!user?.id) {

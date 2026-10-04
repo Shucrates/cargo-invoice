@@ -222,7 +222,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-extrabold text-slate-900 font-mono tracking-tight">
-                    #{docket.docket_no}
+                    {docket.docket_no}
                   </h2>
                   <Badge
                     variant={isVoided ? 'destructive' : docket.payment_mode === 'Paid' ? 'success' : 'secondary'}

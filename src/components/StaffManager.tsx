@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +107,7 @@ export default function StaffManager() {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [staffDetail, setStaffDetail] = useState<StaffDetailData | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<'activity' | 'lrs' | 'bills' | 'payments'>('activity');
 
   const [showModal, setShowModal] = useState(false);
@@ -141,15 +142,40 @@ export default function StaffManager() {
     fetchUsers();
   }, []);
 
-  const fetchStaffDetail = async (id: string) => {
+  const detailCache = useRef<Record<string, StaffDetailData>>({});
+
+  const fetchStaffDetail = async (id: string, force = false) => {
+    if (!force && detailCache.current[id]) {
+      setStaffDetail(detailCache.current[id]);
+      setLoadingDetail(false);
+      setDetailError(null);
+      return;
+    }
+
     setLoadingDetail(true);
+    setDetailError(null);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+
     try {
-      const res = await fetch(`/api/users/${id}`);
+      const res = await fetch(`/api/users/${id}`, { signal: controller.signal });
+      clearTimeout(timer);
       if (res.ok) {
-        setStaffDetail(await res.json());
+        const data = await res.json();
+        detailCache.current[id] = data;
+        setStaffDetail(data);
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setDetailError(errJson.error || 'Failed to load staff account details');
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      clearTimeout(timer);
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
+      const msg = isAbort
+        ? 'Request timed out while connecting to the database. Please click Retry.'
+        : 'Failed to load staff account details';
       console.error('Failed to fetch staff details:', err);
+      setDetailError(msg);
     } finally {
       setLoadingDetail(false);
     }
@@ -157,7 +183,16 @@ export default function StaffManager() {
 
   useEffect(() => {
     if (selectedStaffId) {
+      if (detailCache.current[selectedStaffId]) {
+        setStaffDetail(detailCache.current[selectedStaffId]);
+        setLoadingDetail(false);
+      } else {
+        setStaffDetail(null);
+      }
       fetchStaffDetail(selectedStaffId);
+    } else {
+      setStaffDetail(null);
+      setDetailError(null);
     }
   }, [selectedStaffId]);
 
@@ -204,7 +239,7 @@ export default function StaffManager() {
       }
       await fetchUsers();
       if (selectedStaffId && editingUser?.id === selectedStaffId) {
-        await fetchStaffDetail(selectedStaffId);
+        await fetchStaffDetail(selectedStaffId, true);
       }
       setShowModal(false);
     } catch (err: unknown) {
@@ -309,79 +344,103 @@ export default function StaffManager() {
   /* ─────────────────────────────────────────────────────────────
      FULL PAGE VIEW FOR SELECTED STAFF MEMBER
   ───────────────────────────────────────────────────────────── */
-  if (selectedStaffId && staffDetail) {
-    const { user, stats, dockets, bills, payments, audit_logs } = staffDetail;
+  if (selectedStaffId) {
+    const selectedUser = users.find((u) => u.id === selectedStaffId) || staffDetail?.user;
+    const stats = staffDetail?.stats || (selectedUser?.stats ? {
+      lrs_count: selectedUser.stats.lrs_count,
+      lrs_total: selectedUser.stats.lrs_total,
+      bills_count: selectedUser.stats.bills_count,
+      bills_total: selectedUser.stats.bills_total,
+      revenue_handled: selectedUser.stats.revenue_handled,
+      activity_logs_count: staffDetail?.stats?.activity_logs_count,
+    } : null);
+    const dockets = staffDetail?.dockets || [];
+    const bills = staffDetail?.bills || [];
+    const payments = staffDetail?.payments || [];
+    const audit_logs = staffDetail?.audit_logs || [];
 
     return (
-      <div className="space-y-6 max-w-6xl mx-auto">
+      <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-200">
         {/* Top Header Navigation */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setSelectedStaffId(null)}
-            className="gap-2 text-slate-700 hover:bg-slate-50 w-fit"
+            onClick={() => {
+              setSelectedStaffId(null);
+              setStaffDetail(null);
+              setDetailError(null);
+            }}
+            className="gap-2 text-slate-700 hover:bg-slate-50 w-fit cursor-pointer font-semibold text-xs rounded-xl"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>Back to Staff Directory</span>
           </Button>
 
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openEditForm(user)}
-              className="gap-1.5 text-xs font-semibold"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              <span>Edit Account</span>
-            </Button>
-          </div>
+          {selectedUser && (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openEditForm(selectedUser)}
+                className="gap-1.5 text-xs font-semibold cursor-pointer rounded-xl"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit Account</span>
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Staff Profile Overview Card */}
         <Card className="p-6 border border-slate-200 bg-white rounded-3xl shadow-2xs space-y-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#0A2030] text-white flex items-center justify-center text-xl font-bold font-mono shadow-sm">
-                {(user.full_name || user.email).substring(0, 2).toUpperCase()}
+              <div className="w-14 h-14 rounded-2xl bg-[#0A2030] text-white flex items-center justify-center text-xl font-bold font-mono shadow-sm shrink-0">
+                {((selectedUser?.full_name || selectedUser?.email) || 'ST').substring(0, 2).toUpperCase()}
               </div>
               <div>
                 <div className="flex items-center gap-2.5">
-                  <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                    {user.full_name || 'Staff Member'}
+                  <h1 className="text-2xl font-bold text-slate-900 tracking-tight font-heading">
+                    {selectedUser?.full_name || 'Staff Member'}
                   </h1>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                      user.role === 'admin'
+                      selectedUser?.role === 'admin'
                         ? 'bg-[#0A2030] text-white'
                         : 'bg-slate-100 text-slate-800 border border-slate-200'
                     }`}
                   >
-                    {user.role === 'admin' ? 'Administrator' : 'Staff Member'}
+                    {selectedUser?.role === 'admin' ? 'Administrator' : 'Staff Member'}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 mt-1 font-medium">
-                  <span className="flex items-center gap-1">
-                    <Mail className="w-3.5 h-3.5 text-slate-400" />
-                    {user.email}
-                  </span>
-                  <span>•</span>
-                  <span>Account Created: {formatDate(user.created_at)}</span>
+                  {selectedUser?.email && (
+                    <span className="flex items-center gap-1">
+                      <Mail className="w-3.5 h-3.5 text-slate-400" />
+                      {selectedUser.email}
+                    </span>
+                  )}
+                  {selectedUser?.created_at && (
+                    <>
+                      <span>•</span>
+                      <span>Account Created: {formatDate(selectedUser.created_at)}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 4 Monochrome KPI Cards */}
+          {/* 4 Monochrome KPI Cards - Rendered Instantly */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-1">
               <div className="flex items-center justify-between text-xs text-slate-500 font-medium">
                 <span>LRs Issued</span>
                 <Package className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-xl font-bold text-slate-900 font-mono">{stats.lrs_count}</div>
-              <div className="text-[11px] text-slate-500 font-medium">{formatCurrency(stats.lrs_total)} value</div>
+              <div className="text-xl font-bold text-slate-900 font-mono">{stats?.lrs_count ?? 0}</div>
+              <div className="text-[11px] text-slate-500 font-medium">{formatCurrency(stats?.lrs_total)} value</div>
             </div>
 
             <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-1">
@@ -389,8 +448,8 @@ export default function StaffManager() {
                 <span>Invoices Generated</span>
                 <FileText className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-xl font-bold text-slate-900 font-mono">{stats.bills_count}</div>
-              <div className="text-[11px] text-slate-500 font-medium">{formatCurrency(stats.bills_total)} billed</div>
+              <div className="text-xl font-bold text-slate-900 font-mono">{stats?.bills_count ?? 0}</div>
+              <div className="text-[11px] text-slate-500 font-medium">{formatCurrency(stats?.bills_total)} billed</div>
             </div>
 
             <div className="p-4 bg-slate-50/80 border border-slate-200/80 rounded-2xl space-y-1">
@@ -398,7 +457,7 @@ export default function StaffManager() {
                 <span>Revenue Handled</span>
                 <DollarSign className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-xl font-bold text-slate-900 font-mono">{formatCurrency(stats.revenue_handled)}</div>
+              <div className="text-xl font-bold text-slate-900 font-mono">{formatCurrency(stats?.revenue_handled)}</div>
               <div className="text-[11px] text-slate-500 font-medium">Cleared payments collected</div>
             </div>
 
@@ -407,13 +466,21 @@ export default function StaffManager() {
                 <span>Audit Logged Events</span>
                 <Activity className="w-4 h-4 text-slate-400" />
               </div>
-              <div className="text-xl font-bold text-slate-900 font-mono">{stats.activity_logs_count}</div>
+              <div className="text-xl font-bold text-slate-900 font-mono">
+                {stats?.activity_logs_count !== undefined ? (
+                  stats.activity_logs_count
+                ) : loadingDetail ? (
+                  <span className="text-sm font-normal text-slate-400 animate-pulse">Syncing...</span>
+                ) : (
+                  0
+                )}
+              </div>
               <div className="text-[11px] text-slate-500 font-medium">Tracked operations</div>
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="border-b border-slate-100 flex gap-6 pt-2">
+          {/* Navigation Tabs - Rendered Instantly */}
+          <div className="border-b border-slate-100 flex flex-wrap gap-4 sm:gap-6 pt-2">
             <button
               type="button"
               onClick={() => setDetailTab('activity')}
@@ -424,7 +491,7 @@ export default function StaffManager() {
               }`}
             >
               <History className="w-3.5 h-3.5" />
-              <span>Activity Audit Log ({audit_logs.length})</span>
+              <span>Activity Audit Log {staffDetail ? `(${audit_logs.length})` : ''}</span>
             </button>
             <button
               type="button"
@@ -436,7 +503,7 @@ export default function StaffManager() {
               }`}
             >
               <Package className="w-3.5 h-3.5" />
-              <span>Issued LRs ({dockets.length})</span>
+              <span>Issued LRs ({stats?.lrs_count ?? dockets.length})</span>
             </button>
             <button
               type="button"
@@ -448,122 +515,201 @@ export default function StaffManager() {
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Generated Invoices ({bills.length})</span>
+              <span>Generated Invoices ({stats?.bills_count ?? bills.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDetailTab('payments')}
+              className={`pb-3 text-xs font-bold border-b-2 transition-all cursor-pointer flex items-center gap-1.5 ${
+                detailTab === 'payments'
+                  ? 'border-[#0A2030] text-[#0A2030]'
+                  : 'border-transparent text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Recorded Payments {staffDetail ? `(${payments.length})` : ''}</span>
             </button>
           </div>
 
-          {/* Tab Content */}
+          {/* Tab Content Container */}
           <div>
-            {/* 1. ACTIVITY AUDIT LOG TAB */}
-            {detailTab === 'activity' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between text-xs text-slate-500">
-                  <span>Documenting all platform activities by {user.full_name || user.email}</span>
-                </div>
+            {loadingDetail && !staffDetail ? (
+              <div className="py-16 flex flex-col items-center justify-center gap-2.5 text-slate-400 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200 animate-in fade-in duration-150">
+                <div className="w-5 h-5 border-2 border-[#0A2030] border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-semibold text-slate-600">
+                  Loading {detailTab === 'activity' ? 'audit logs' : detailTab === 'lrs' ? 'issued LRs' : detailTab === 'bills' ? 'invoices' : 'payments'}...
+                </span>
+                <span className="text-[11px] text-slate-400">Fetching latest synchronized records</span>
+              </div>
+            ) : detailError && !staffDetail ? (
+              <div className="p-8 text-center space-y-3 bg-red-50/50 border border-red-200 rounded-2xl">
+                <ShieldAlert className="w-8 h-8 text-red-500 mx-auto" />
+                <div className="text-sm font-bold text-red-900">{detailError}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => selectedStaffId && fetchStaffDetail(selectedStaffId, true)}
+                  className="text-xs cursor-pointer rounded-xl"
+                >
+                  Retry
+                </Button>
+              </div>
+            ) : (
+              <>
+                {/* 1. ACTIVITY AUDIT LOG TAB */}
+                {detailTab === 'activity' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <span>Documenting all platform activities by {selectedUser?.full_name || selectedUser?.email}</span>
+                    </div>
 
-                {audit_logs.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    No activity logs recorded yet for this staff member.
-                  </div>
-                ) : (
-                  <div className="relative pl-6 border-l-2 border-slate-200 space-y-4 my-2">
-                    {audit_logs.map((log) => (
-                      <div key={log.id} className="relative group">
-                        <div className="absolute -left-[31px] top-0.5 w-4 h-4 rounded-full bg-slate-200 border-2 border-white group-hover:bg-[#0A2030] transition-colors" />
-                        <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-bold text-slate-900">{log.action.replace(/_/g, ' ')}</span>
-                            <span className="text-[11px] text-slate-400 font-mono">{formatDateTime(log.created_at)}</span>
-                          </div>
-                          <p className="text-xs text-slate-600 font-medium">{log.summary}</p>
-                        </div>
+                    {audit_logs.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        No activity logs recorded yet for this staff member.
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 2. ISSUED LRS TAB */}
-            {detailTab === 'lrs' && (
-              <div className="space-y-3">
-                {dockets.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    No LRs created by this staff member yet.
-                  </div>
-                ) : (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3">LR Number</th>
-                          <th className="px-4 py-3">Date</th>
-                          <th className="px-4 py-3">Route</th>
-                          <th className="px-4 py-3">Consignee</th>
-                          <th className="px-4 py-3">Payment Mode</th>
-                          <th className="px-4 py-3 text-right">Grand Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                        {dockets.map((d) => (
-                          <tr key={d.id} className="hover:bg-slate-50/80">
-                            <td className="px-4 py-3 font-mono font-bold text-slate-900">{d.docket_no}</td>
-                            <td className="px-4 py-3 text-slate-600">{formatDate(d.booking_date)}</td>
-                            <td className="px-4 py-3 text-slate-700">{d.from_city} &rarr; {d.to_city}</td>
-                            <td className="px-4 py-3 text-slate-700">{d.consignee_name}</td>
-                            <td className="px-4 py-3">
-                              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                                {d.payment_mode}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(d.grand_total)}</td>
-                          </tr>
+                    ) : (
+                      <div className="relative pl-6 border-l-2 border-slate-200 space-y-4 my-2">
+                        {audit_logs.map((log) => (
+                          <div key={log.id} className="relative group">
+                            <div className="absolute -left-[31px] top-0.5 w-4 h-4 rounded-full bg-slate-200 border-2 border-white group-hover:bg-[#0A2030] transition-colors" />
+                            <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl space-y-1">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-slate-900">{log.action.replace(/_/g, ' ')}</span>
+                                <span className="text-[11px] text-slate-400 font-mono">{formatDateTime(log.created_at)}</span>
+                              </div>
+                              <p className="text-xs text-slate-600 font-medium">{log.summary}</p>
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* 3. GENERATED INVOICES TAB */}
-            {detailTab === 'bills' && (
-              <div className="space-y-3">
-                {bills.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-                    No bills generated by this staff member yet.
-                  </div>
-                ) : (
-                  <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
-                        <tr>
-                          <th className="px-4 py-3">Invoice No.</th>
-                          <th className="px-4 py-3">Date</th>
-                          <th className="px-4 py-3">Customer</th>
-                          <th className="px-4 py-3">Status</th>
-                          <th className="px-4 py-3 text-right">Grand Total</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                        {bills.map((b) => (
-                          <tr key={b.id} className="hover:bg-slate-50/80">
-                            <td className="px-4 py-3 font-mono font-bold text-slate-900">{b.invoice_number}</td>
-                            <td className="px-4 py-3 text-slate-600">{formatDate(b.invoice_date)}</td>
-                            <td className="px-4 py-3 text-slate-700">{b.customer_name}</td>
-                            <td className="px-4 py-3">
-                              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
-                                {b.payment_status}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(b.grand_total)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* 2. ISSUED LRS TAB */}
+                {detailTab === 'lrs' && (
+                  <div className="space-y-3">
+                    {dockets.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        No LRs created by this staff member yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                            <tr>
+                              <th className="px-4 py-3">LR Number</th>
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Route</th>
+                              <th className="px-4 py-3">Consignee</th>
+                              <th className="px-4 py-3">Payment Mode</th>
+                              <th className="px-4 py-3 text-right">Grand Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                            {dockets.map((d) => (
+                              <tr key={d.id} className="hover:bg-slate-50/80">
+                                <td className="px-4 py-3 font-mono font-bold text-slate-900">{d.docket_no}</td>
+                                <td className="px-4 py-3 text-slate-600">{formatDate(d.booking_date)}</td>
+                                <td className="px-4 py-3 text-slate-700">{d.from_city} &rarr; {d.to_city}</td>
+                                <td className="px-4 py-3 text-slate-700">{d.consignee_name}</td>
+                                <td className="px-4 py-3">
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                    {d.payment_mode}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(d.grand_total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+
+                {/* 3. GENERATED INVOICES TAB */}
+                {detailTab === 'bills' && (
+                  <div className="space-y-3">
+                    {bills.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        No bills generated by this staff member yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                            <tr>
+                              <th className="px-4 py-3">Invoice No.</th>
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Customer</th>
+                              <th className="px-4 py-3">Status</th>
+                              <th className="px-4 py-3 text-right">Grand Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                            {bills.map((b) => (
+                              <tr key={b.id} className="hover:bg-slate-50/80">
+                                <td className="px-4 py-3 font-mono font-bold text-slate-900">{b.invoice_number}</td>
+                                <td className="px-4 py-3 text-slate-600">{formatDate(b.invoice_date)}</td>
+                                <td className="px-4 py-3 text-slate-700">{b.customer_name}</td>
+                                <td className="px-4 py-3">
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                    {b.payment_status}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(b.grand_total)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 4. RECORDED PAYMENTS TAB */}
+                {detailTab === 'payments' && (
+                  <div className="space-y-3">
+                    {payments.length === 0 ? (
+                      <div className="text-center py-10 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                        No payments recorded by this staff member yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                            <tr>
+                              <th className="px-4 py-3">Docket / LR</th>
+                              <th className="px-4 py-3">Date</th>
+                              <th className="px-4 py-3">Method</th>
+                              <th className="px-4 py-3">Notes</th>
+                              <th className="px-4 py-3 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                            {payments.map((p) => (
+                              <tr key={p.id} className="hover:bg-slate-50/80">
+                                <td className="px-4 py-3 font-mono font-bold text-slate-900">{p.docket_no}</td>
+                                <td className="px-4 py-3 text-slate-600">{formatDate(p.date)}</td>
+                                <td className="px-4 py-3">
+                                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                                    {p.method}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">{p.notes || '—'}</td>
+                                <td className="px-4 py-3 text-right font-bold font-mono text-emerald-600">
+                                  {formatCurrency(p.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </Card>
@@ -677,7 +823,7 @@ export default function StaffManager() {
                     </div>
                   </th>
 
-                  <th className="px-4 py-3.5 text-center">Actions</th>
+                  <th className="px-5 py-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
@@ -694,13 +840,16 @@ export default function StaffManager() {
                       className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
                     >
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 font-mono font-bold flex items-center justify-center text-xs group-hover:bg-[#0A2030] group-hover:text-white transition-colors">
+                        <div
+                          className="flex items-center gap-3 cursor-pointer group/name"
+                          onClick={() => setSelectedStaffId(u.id)}
+                        >
+                          <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 text-slate-800 font-mono font-bold flex items-center justify-center text-xs group-hover/name:bg-[#0A2030] group-hover/name:text-white transition-colors">
                             {(u.full_name || u.email).substring(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-900 group-hover:text-[#0A2030] transition-colors">
-                              {u.full_name || 'Staff Member'}
+                            <div className="font-bold text-slate-900 group-hover/name:text-[#0A2030] group-hover/name:underline transition-colors flex items-center gap-1.5">
+                              <span>{u.full_name || 'Staff Member'}</span>
                             </div>
                             <div className="text-[11px] text-slate-400 font-medium">{u.email}</div>
                           </div>
@@ -731,22 +880,13 @@ export default function StaffManager() {
                         {formatCurrency(revHandled)}
                       </td>
 
-                      <td className="px-4 py-4 text-center">
-                        <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setSelectedStaffId(u.id)}
-                            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
-                          >
-                            <Activity className="w-4 h-4 text-[#0A2030]" />
-                            <span>Details</span>
-                          </Button>
+                      <td className="px-5 py-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => openEditForm(u)}
-                            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                            className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs cursor-pointer"
                           >
                             <Pencil className="w-4 h-4 text-slate-700" />
                             <span>Edit</span>
@@ -756,7 +896,7 @@ export default function StaffManager() {
                               size="sm"
                               variant="outline"
                               onClick={() => setDeleteTarget(u)}
-                              className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                              className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs cursor-pointer"
                             >
                               <Trash2 className="w-4 h-4 text-red-600" />
                               <span>Delete</span>

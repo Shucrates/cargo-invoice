@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import QRCode from 'qrcode';
 import { CargoDocket, Bill, ExpenseLedger, ExpenseEntry } from '@/types/cargo';
-import { getCompanySettings } from '@/lib/companyConfig';
+import { getCompanySettings, getActivePaymentQr, buildUpiUri } from '@/lib/companyConfig';
 import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 
 function numberToWords(num: number): string {
@@ -178,7 +178,15 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.setTextColor(71, 85, 105);
   doc.text('DATE:', 198, marginY + 16.5);
   setDataStyle(7.5);
-  doc.text(docket.booking_date, 236, marginY + 16.5);
+  const rawDate = docket.booking_date as any;
+  const bookingDateFormatted = rawDate
+    ? (rawDate instanceof Date
+        ? rawDate.toISOString().split('T')[0]
+        : String(rawDate).includes('T')
+        ? String(rawDate).split('T')[0]
+        : String(rawDate))
+    : '';
+  doc.text(bookingDateFormatted, 236, marginY + 16.5);
 
   setTemplateStyle();
   doc.line(196, marginY + 18, marginX + pageW, marginY + 18);
@@ -599,6 +607,10 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.line(rightColX, sigY, marginX + pageW, sigY);
 
   // --- GOOGLE PAY PAYMENT QR CODE & SIGNATURES AREA (3 Equal Columns) ---
+  const activeQr = getActivePaymentQr(settings);
+  const upiPayee = activeQr.payeeName || settings.payeeName || settings.tradeName;
+  const upiId = activeQr.upiId || settings.upiId;
+  const gpayNo = activeQr.gpayNo || settings.gpayNo;
 
   // 1. Google Pay QR Box on PDF (X = 135 to X = 180, width 45mm)
   // Left Column Text (X = 137 to X = 156, width 19mm)
@@ -611,10 +623,14 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   doc.setFontSize(5.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(`GPay: ${settings.gpayNo}`, rightColX + 2, sigY + 12);
+  if (gpayNo) {
+    doc.text(`GPay: ${gpayNo}`, rightColX + 2, sigY + 12);
+  }
 
-  const displayUpi = settings.upiId.length > 16 ? settings.upiId.substring(0, 15) + '...' : settings.upiId;
-  doc.text(`UPI: ${displayUpi}`, rightColX + 2, sigY + 16);
+  if (upiId) {
+    const displayUpi = upiId.length > 16 ? upiId.substring(0, 15) + '...' : upiId;
+    doc.text(`UPI: ${displayUpi}`, rightColX + 2, sigY + 16);
+  }
 
   doc.setFontSize(6);
   doc.setFont('helvetica', 'bold');
@@ -623,16 +639,20 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   // Render Scannable GPay UPI QR Code Image (Size 20mm x 20mm at X = rightColX + 23 = 158mm to 178mm)
   try {
-    let qrDataUrl = settings.qrCodeUrl;
+    let qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
     if (!qrDataUrl || !qrDataUrl.startsWith('data:image/')) {
-      const upiUri = `upi://pay?pa=${settings.upiId || '9821541984@upi'}&pn=${encodeURIComponent(settings.tradeName)}&cu=INR`;
-      qrDataUrl = await QRCode.toDataURL(upiUri, {
-        margin: 0,
-        width: 250,
-        color: { dark: '#000000', light: '#ffffff' },
-      });
+      const upiUri = buildUpiUri(upiId, upiPayee, settings.tradeName);
+      if (upiUri) {
+        qrDataUrl = await QRCode.toDataURL(upiUri, {
+          margin: 0,
+          width: 250,
+          color: { dark: '#000000', light: '#ffffff' },
+        });
+      }
     }
-    doc.addImage(qrDataUrl, 'PNG', rightColX + 23, sigY + 3.5, 20, 20);
+    if (qrDataUrl) {
+      doc.addImage(qrDataUrl, 'PNG', rightColX + 23, sigY + 3.5, 20, 20);
+    }
   } catch (e) {
     console.error('Failed to generate GPay QR Code image on PDF:', e);
   }
@@ -738,127 +758,132 @@ export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
   const settings = getCompanySettings();
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-  const marginX = 10;
-  const pageW = 190; // content width, x = 10..200
+  const marginX = 12;
+  const pageW = 186; // content width, x = 12..198
   const rightX = marginX + pageW;
 
-  const slate = () => doc.setTextColor(71, 85, 105);
-  const ink = () => doc.setTextColor(15, 23, 42);
-  const dark = () => doc.setTextColor(15, 23, 42);
-  doc.setDrawColor(100, 116, 139);
-  doc.setLineWidth(0.3);
+  // Colors
+  const setPrimary = () => doc.setTextColor(10, 32, 48); // #0A2030 Brand Navy
+  const setSlate = () => doc.setTextColor(71, 85, 105);   // #475569 Muted Slate
+  const setDark = () => doc.setTextColor(15, 23, 42);    // #0F172A Dark Ink
 
   // ==========================================
-  // SUPPLIER BLOCK + LOGO
+  // 1. TOP HEADER: LOGO + SUPPLIER (LEFT) & CONTACT (RIGHT)
   // ==========================================
-  let y = 10;
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text('SUPPLIER:', marginX, y + 3);
+  let y = 12;
 
-  doc.setFontSize(13);
-  dark();
-  doc.text(settings.tradeName, marginX, y + 9);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  slate();
-  doc.text(settings.gstin, marginX, y + 13.5);
-  doc.text(`Address: ${settings.address}`, marginX, y + 18, { maxWidth: 150 });
-
+  // Company Logo
   try {
-    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', rightX - 24, y, 24, 22);
+    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', marginX, y, 22, 22);
   } catch (e) {
     console.error('Failed to render company logo on Tax Invoice PDF:', e);
   }
 
-  y += 26;
-  doc.setDrawColor(100, 116, 139);
-  doc.line(marginX, y, rightX, y);
-
-  // ==========================================
-  // TAX INVOICE BAR + INVOICE META (right) / CUSTOMER (left)
-  // ==========================================
-  doc.setFillColor(226, 232, 240);
-  doc.rect(marginX, y, pageW, 6, 'F');
-  doc.setFontSize(9);
+  // Company Name & GSTIN
+  doc.setFontSize(13);
   doc.setFont('helvetica', 'bold');
-  dark();
-  doc.text('TAX INVOICE', marginX + pageW / 2, y + 4.2, { align: 'center' });
-  y += 6;
-
-  const custColX = marginX;
-  const custColW = 118;
-  const metaColX = marginX + custColW;
-  const blockTop = y;
+  setPrimary();
+  doc.text(settings.tradeName, marginX + 25, y + 6);
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text('CUSTOMER:', custColX + 2, y + 4);
-  doc.setFontSize(9);
-  ink();
-  doc.text(bill.customer_name, custColX + 26, y + 4);
+  setSlate();
+  doc.text(`GSTIN: ${settings.gstin}`, marginX + 25, y + 11.5);
 
-  const custRows: Array<[string, string]> = [
-    ['GSTIN', bill.customer_gstin || '-'],
-    ['Address', bill.customer_address || '-'],
-    ['Email ID', bill.customer_email || '-'],
-    ['Contact No.', bill.customer_phone || '-'],
-  ];
-  let cy = y + 4;
-  custRows.forEach(([label, value]) => {
-    cy += 5;
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    slate();
-    doc.text(label, custColX + 2, cy);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    ink();
-    doc.text(doc.splitTextToSize(value, custColW - 32), custColX + 26, cy);
-  });
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.text('Logistics & Freight Forwarding', marginX + 25, y + 16);
 
-  const metaRows: Array<[string, string]> = [
-    ['Invoice No.', bill.bill_no],
-    ['Invoice Date', bill.invoice_date],
-    ['Category', bill.category],
-    ['Document Type', bill.doc_type],
-    ['Is Services', bill.is_services ? 'Yes' : 'No'],
-  ];
-  let my = y;
-  metaRows.forEach(([label, value]) => {
-    my += 5;
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    slate();
-    doc.text(label, metaColX + 2, my);
-    doc.setFont('helvetica', 'normal');
-    ink();
-    doc.text(value, metaColX + 30, my);
-  });
+  // Right Side: Company Contact Info
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  setSlate();
+  doc.text(`Ph: ${settings.phone1} / ${settings.phone2}`, rightX, y + 5, { align: 'right' });
+  doc.text(`Email: ${settings.email}`, rightX, y + 9.5, { align: 'right' });
+  doc.text(doc.splitTextToSize(settings.address, 72), rightX, y + 14, { align: 'right' });
 
-  const blockBottom = Math.max(cy + 2, my + 2);
-  doc.setDrawColor(100, 116, 139);
-  doc.line(metaColX, blockTop, metaColX, blockBottom);
-  doc.line(marginX, blockBottom, rightX, blockBottom);
-  doc.rect(marginX, blockTop, pageW, blockBottom - blockTop);
-
-  y = blockBottom + 4;
+  y += 24;
+  doc.setDrawColor(226, 232, 240);
+  doc.setLineWidth(0.4);
+  doc.line(marginX, y, rightX, y);
 
   // ==========================================
-  // LINE ITEMS TABLE
+  // 2. BILLED TO (LEFT) & INVOICE META (RIGHT)
+  // ==========================================
+  y += 6;
+  const leftColX = marginX;
+  const rightColX = rightX - 68;
+
+  // BILLED TO (Left)
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  setSlate();
+  doc.text('BILLED TO:', leftColX, y);
+
+  doc.setFontSize(10.5);
+  doc.setFont('helvetica', 'bold');
+  setPrimary();
+  doc.text(bill.customer_name || 'Cash Customer', leftColX, y + 5);
+
+  let custY = y + 9.5;
+  const custDetails: Array<[string, string]> = [
+    ['GSTIN', bill.customer_gstin || 'Unregistered / B2C'],
+    ['Address', bill.customer_address || '-'],
+    ['Contact', `${bill.customer_phone || '-'}  |  ${bill.customer_email || '-'}`],
+  ];
+
+  custDetails.forEach(([label, val]) => {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    setSlate();
+    doc.text(`${label}:`, leftColX, custY);
+    doc.setFont('helvetica', 'normal');
+    setDark();
+    doc.text(doc.splitTextToSize(val, 85), leftColX + 16, custY);
+    custY += label === 'Address' && val.length > 40 ? 7 : 4.5;
+  });
+
+  // INVOICE META (Right)
+  doc.setFontSize(16);
+  doc.setFont('helvetica', 'bold');
+  setPrimary();
+  doc.text('TAX INVOICE', rightColX, y + 2);
+
+  let metaY = y + 7.5;
+  const metaDetails: Array<[string, string]> = [
+    ['Invoice No', bill.bill_no],
+    ['Invoice Date', bill.invoice_date],
+    ['Category', bill.category],
+    ['Doc Type', bill.doc_type],
+    ['Reverse Charge', bill.reverse_charge ? 'YES (RCM)' : 'NO'],
+  ];
+
+  metaDetails.forEach(([label, val]) => {
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    setSlate();
+    doc.text(`${label}:`, rightColX, metaY);
+    doc.setFont('helvetica', label === 'Invoice No' ? 'bold' : 'normal');
+    if (label === 'Invoice No') setPrimary(); else setDark();
+    doc.text(val, rightColX + 26, metaY);
+    metaY += 4.5;
+  });
+
+  y = Math.max(custY, metaY) + 3;
+
+  // ==========================================
+  // 3. LINE ITEMS TABLE
   // ==========================================
   const rateFor = (amount: number, weight: number) => (weight > 0 ? (amount / weight).toFixed(0) : '-');
 
   autoTable(doc, {
     startY: y,
-    head: [['Sr', 'Date', 'Particulars', 'Origin', 'Destination', 'Mode', 'L.R.No', 'Invoice No', 'Pcs', 'Other Charges', 'Gross Wt (KG)', 'Rate/KG', 'Total Amount']],
+    margin: { left: marginX, right: 210 - rightX },
+    head: [['Sr', 'Date', 'Particulars', 'Origin', 'Destination', 'Mode', 'L.R. No', 'Inv No', 'Pcs', 'Other Chgs', 'Gross Wt', 'Rate/KG', 'Amount (Rs)']],
     body: dockets.map((d, idx) => {
       const isCash = d.expected_mode === 'Cash' || String(d.expected_mode).toLowerCase() === 'cash';
       const particularBase = d.particulars || 'RMG';
-      const particularDisplay = isCash ? `${particularBase} (Cash Expected)` : particularBase;
+      const particularDisplay = isCash ? `${particularBase} (Cash)` : particularBase;
 
       return [
         idx + 1,
@@ -870,186 +895,223 @@ export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
         d.docket_no,
         d.invoice_no || '-',
         d.package_count,
-        d.other_charges || '-',
+        d.other_charges ? Number(d.other_charges).toFixed(2) : '-',
         Number(d.charged_weight_kg || 0),
         rateFor(Number(d.grand_total), Number(d.charged_weight_kg || 0)),
         Number(d.grand_total).toFixed(2),
       ];
     }),
-    theme: 'grid',
-    styles: { fontSize: 6.8, cellPadding: 1.3, textColor: [71, 85, 105], lineColor: [100, 116, 139] },
-    headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 6.8 },
-    bodyStyles: { textColor: [29, 78, 216], fontStyle: 'bold' },
+    theme: 'striped',
+    styles: {
+      fontSize: 6.5,
+      cellPadding: 1.8,
+      textColor: [30, 41, 59],
+      lineColor: [226, 232, 240],
+      lineWidth: 0.15,
+      font: 'helvetica',
+    },
+    headStyles: {
+      fillColor: [10, 32, 48], // #0A2030 Brand Navy
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 6.8,
+      cellPadding: 2,
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252], // #F8FAFC
+    },
     columnStyles: {
       0: { cellWidth: 7, halign: 'center', textColor: [71, 85, 105] },
       1: { cellWidth: 14, textColor: [71, 85, 105] },
-      2: { cellWidth: 14, textColor: [71, 85, 105] },
-      3: { cellWidth: 20 },
-      4: { cellWidth: 20 },
-      5: { cellWidth: 12, textColor: [71, 85, 105] },
-      6: { cellWidth: 17 },
-      7: { cellWidth: 18 },
+      2: { cellWidth: 20 },
+      3: { cellWidth: 16 },
+      4: { cellWidth: 16 },
+      5: { cellWidth: 10, halign: 'center', textColor: [71, 85, 105] },
+      6: { cellWidth: 18, fontStyle: 'bold', textColor: [10, 32, 48] },
+      7: { cellWidth: 15, textColor: [71, 85, 105] },
       8: { cellWidth: 8, halign: 'center' },
-      9: { cellWidth: 16, textColor: [71, 85, 105] },
+      9: { cellWidth: 14, halign: 'right', textColor: [71, 85, 105] },
       10: { cellWidth: 14, halign: 'right' },
-      11: { cellWidth: 12, halign: 'right', textColor: [71, 85, 105] },
-      12: { cellWidth: 18, halign: 'right' },
+      11: { cellWidth: 14, halign: 'right', textColor: [71, 85, 105] },
+      12: { cellWidth: 20, halign: 'right', fontStyle: 'bold', textColor: [10, 32, 48] },
     },
   });
 
   // @ts-expect-error jspdf-autotable augments jsPDF with lastAutoTable at runtime
-  const finalY = (doc.lastAutoTable?.finalY as number) || y + 20;
+  let finalY = (doc.lastAutoTable?.finalY as number) || y + 20;
 
-  // ==========================================
-  // TERMS & CONDITIONS (left) / TOTALS (right)
-  // ==========================================
-  const totalsColW = 62;
-  const totalsColX = rightX - totalsColW;
-  const termsColW = pageW - totalsColW - 2;
-
-  const totalsRows: Array<[string, string]> = [
-    ['Discount', `Rs. ${Number(bill.discount).toFixed(2)}`],
-    ['Sub Amount', `Rs. ${Number(bill.subtotal).toFixed(2)}`],
-    [`GST Amount @${bill.gst_percentage ?? 18}%`, `Rs. ${Number(bill.gst_amount).toFixed(2)}`],
-    ['Total Invoice Amt (With GST)', `Rs. ${(Number(bill.subtotal) + Number(bill.gst_amount)).toFixed(2)}`],
-    ['Round Off', `Rs. ${Number(bill.round_off).toFixed(2)}`],
-  ];
-
-  const rowH = 5;
-  const totalsTop = finalY + 3;
-  doc.setDrawColor(100, 116, 139);
-  doc.rect(totalsColX, totalsTop, totalsColW, rowH * totalsRows.length);
-  totalsRows.forEach(([label, value], i) => {
-    const rowY = totalsTop + i * rowH;
-    if (i > 0) doc.line(totalsColX, rowY, totalsColX + totalsColW, rowY);
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    slate();
-    doc.text(label, totalsColX + 2, rowY + 3.5);
-    doc.setFont('helvetica', 'normal');
-    dark();
-    doc.text(value, totalsColX + totalsColW - 2, rowY + 3.5, { align: 'right' });
-  });
-
-  const netY = totalsTop + rowH * totalsRows.length;
-  doc.setFillColor(226, 232, 240);
-  doc.rect(totalsColX, netY, totalsColW, 6.5, 'F');
-  doc.rect(totalsColX, netY, totalsColW, 6.5);
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  dark();
-  doc.text('Net Invoice Amount', totalsColX + 2, netY + 4.3);
-  ink();
-  doc.text(`Rs. ${Number(bill.grand_total).toFixed(2)}`, totalsColX + totalsColW - 2, netY + 4.3, { align: 'right' });
-
-  // Terms & Conditions box, height-matched to totals box
-  const termsBoxBottom = netY + 6.5;
-  doc.setDrawColor(100, 116, 139);
-  doc.rect(marginX, totalsTop, termsColW, termsBoxBottom - totalsTop);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text('Terms & Conditions:', marginX + 2, totalsTop + 4);
-  doc.setFont('helvetica', 'normal');
-  settings.terms.forEach((t, i) => {
-    doc.text(`${i + 1}. ${t}`, marginX + 2, totalsTop + 8 + i * 4, { maxWidth: termsColW - 4 });
-  });
-  if (bill.reverse_charge || bill.notes) {
-    const extraLines = [
-      bill.reverse_charge ? 'Reverse Charge: Applicable' : '',
-      bill.notes ? `Note: ${bill.notes}` : '',
-    ].filter(Boolean);
-    doc.text(extraLines.join(' | '), marginX + 2, totalsTop + 8 + settings.terms.length * 4, { maxWidth: termsColW - 4 });
+  // Check if we have enough room on the current page for Totals + Banking + Signatures (~60mm)
+  if (finalY + 62 > 280) {
+    doc.addPage();
+    finalY = 16;
   }
 
-  y = termsBoxBottom + 5;
-
   // ==========================================
-  // AMOUNT IN WORDS
+  // 4. TOTALS (RIGHT) & PAYMENT / BANK (LEFT)
   // ==========================================
-  doc.setDrawColor(100, 116, 139);
-  doc.rect(marginX, y, pageW, 8);
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text('Amount in words:', marginX + 2, y + 5);
-  doc.setFont('helvetica', 'normal');
-  dark();
-  doc.text(numberToWords(Number(bill.grand_total)), marginX + 36, y + 5, { maxWidth: pageW - 40 });
+  const totalsTop = finalY + 4;
+  const totalsColW = 68;
+  const totalsColX = rightX - totalsColW;
+  const leftInfoW = totalsColX - marginX - 6;
 
-  y += 12;
-
-  // ==========================================
-  // BANK DETAIL (left) / RECEIVER'S SEAL (mid) / FOR COMPANY (right)
-  // ==========================================
-  const footBoxH = 30;
-  const col1W = 70;
-  const col2W = 60;
-  const col2X = marginX + col1W;
-  const col3X = col2X + col2W;
-  const col3W = pageW - col1W - col2W;
-
-  doc.rect(marginX, y, pageW, footBoxH);
-  doc.line(col2X, y, col2X, y + footBoxH);
-  doc.line(col3X, y, col3X, y + footBoxH);
-
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text('BANK DETAIL:', marginX + 2, y + 4.5);
-  doc.setFontSize(7);
-  doc.setFont('helvetica', 'normal');
-  const bankRows: Array<[string, string]> = [
-    ['Name', settings.tradeName],
-    ['Bank', settings.bankName],
-    ['Branch', settings.branch],
-    ['A/C No.', settings.accountNo],
-    ['IFSC', settings.ifsc],
+  // --- Right Totals Breakdown ---
+  const totalsRows: Array<[string, string]> = [
+    ['Sub Total', `Rs. ${Number(bill.subtotal).toFixed(2)}`],
+    ...(Number(bill.discount) > 0 ? [['Discount', `- Rs. ${Number(bill.discount).toFixed(2)}`]] as Array<[string, string]> : []),
+    [`GST Amount (${bill.gst_percentage ?? 18}%)`, `Rs. ${Number(bill.gst_amount).toFixed(2)}`],
+    ...(Number(bill.round_off) !== 0 ? [['Round Off', `Rs. ${Number(bill.round_off).toFixed(2)}`]] as Array<[string, string]> : []),
   ];
-  bankRows.forEach(([label, value], i) => {
-    const rowY = y + 9 + i * 4;
-    slate();
-    doc.setFont('helvetica', 'bold');
-    doc.text(label, marginX + 2, rowY);
-    dark();
+
+  let totY = totalsTop;
+  totalsRows.forEach(([label, value]) => {
+    doc.setFontSize(7);
     doc.setFont('helvetica', 'normal');
-    doc.text(value, marginX + 20, rowY);
+    setSlate();
+    doc.text(label, totalsColX, totY + 3);
+    setDark();
+    doc.setFont('helvetica', 'bold');
+    doc.text(value, rightX, totY + 3, { align: 'right' });
+    totY += 4.5;
   });
 
+  // Grand Total Card / Box
+  doc.setDrawColor(226, 232, 240);
+  doc.line(totalsColX, totY + 1, rightX, totY + 1);
+
+  const grandBoxY = totY + 2.5;
+  doc.setFillColor(241, 245, 249); // #F1F5F9
+  doc.roundedRect(totalsColX, grandBoxY, totalsColW, 8.5, 1, 1, 'F');
+
+  doc.setFontSize(8.5);
+  doc.setFont('helvetica', 'bold');
+  setPrimary();
+  doc.text('Grand Total:', totalsColX + 2.5, grandBoxY + 5.5);
+  doc.text(`Rs. ${Number(bill.grand_total).toFixed(2)}`, rightX - 2.5, grandBoxY + 5.5, { align: 'right' });
+
+  // --- Left Side: Bank Details, QR & Notes ---
+  const activeQr = getActivePaymentQr(settings);
+  const upiPayee = activeQr.payeeName || settings.payeeName || settings.tradeName;
+  const upiId = activeQr.upiId || settings.upiId;
+
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  slate();
-  doc.text("RECEIVER'S SEAL & SIGNATURE", col2X + col2W / 2, y + 5, { align: 'center' });
+  setPrimary();
+  doc.text('Payment Methods & Bank Details:', marginX, totalsTop + 3);
 
-  doc.text(`For ${settings.tradeName}`, col3X + col3W / 2, y + 5, { align: 'center' });
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  setSlate();
+  doc.text(`Bank: ${settings.bankName}  |  Branch: ${settings.branch}`, marginX, totalsTop + 7.5);
+  doc.text(`A/C No: ${settings.accountNo}  |  IFSC: ${settings.ifsc}`, marginX, totalsTop + 11.5);
 
+  // UPI QR Code
   try {
-    const upiUri = `upi://pay?pa=${settings.upiId || '9821541984@upi'}&pn=${encodeURIComponent(settings.tradeName)}&cu=INR`;
-    const qrDataUrl = await QRCode.toDataURL(upiUri, {
-      margin: 0,
-      width: 250,
-      color: { dark: '#000000', light: '#ffffff' },
-    });
-    doc.addImage(qrDataUrl, 'PNG', marginX + 2, y + footBoxH - 20, 18, 18);
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    slate();
-    doc.text(`GPay/UPI: ${settings.upiId}`, marginX + 22, y + footBoxH - 4);
+    let qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
+    if (!qrDataUrl || !qrDataUrl.startsWith('data:image/')) {
+      const upiUri = buildUpiUri(upiId, upiPayee, settings.tradeName);
+      if (upiUri) {
+        qrDataUrl = await QRCode.toDataURL(upiUri, {
+          margin: 0,
+          width: 200,
+          color: { dark: '#0A2030', light: '#ffffff' },
+        });
+      }
+    }
+    if (qrDataUrl) {
+      doc.addImage(qrDataUrl, 'PNG', marginX, totalsTop + 14.5, 15, 15);
+    }
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'bold');
+    setPrimary();
+    if (upiId) {
+      doc.text(`GPay / UPI: ${upiId}`, marginX + 17.5, totalsTop + 18.5);
+    }
+    if (upiPayee) {
+      doc.setFontSize(6);
+      doc.setFont('helvetica', 'normal');
+      setSlate();
+      doc.text(`A/C Name: ${upiPayee}`, marginX + 17.5, totalsTop + 22, { maxWidth: leftInfoW - 20 });
+    }
+    doc.setFontSize(5.8);
+    doc.setFont('helvetica', 'italic');
+    setSlate();
+    doc.text(`Scan QR to pay securely via any UPI App`, marginX + 17.5, totalsTop + 25.5);
   } catch (e) {
     console.error('Failed to generate GPay QR Code on Tax Invoice PDF:', e);
   }
 
-  y += footBoxH;
-
-  // ==========================================
-  // FOOTER: PHONE / EMAIL
-  // ==========================================
-  doc.setFontSize(7.5);
+  // Amount in Words
+  const amountWordsY = totalsTop + 32;
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'bold');
+  setSlate();
+  doc.text('Amount in Words:', marginX, amountWordsY);
   doc.setFont('helvetica', 'normal');
-  slate();
-  doc.text(`Phone : ${settings.phone1} and ${settings.phone2}, Email:- ${settings.email}`, marginX, y + 6, { align: 'left' });
+  setDark();
+  doc.text(numberToWords(Number(bill.grand_total)), marginX + 24, amountWordsY, { maxWidth: leftInfoW - 24 });
 
-  doc.setTextColor(0, 0, 0);
+  // Terms & Notes
+  const termsY = amountWordsY + 5;
+  doc.setFontSize(6.5);
+  doc.setFont('helvetica', 'normal');
+  setSlate();
+  const noteLines = [
+    'Note: Difference, if any, may be notified within 3 days. Interest @24% p.a. charged if unpaid within 15 days.',
+    bill.notes ? `Special Note: ${bill.notes}` : '',
+  ].filter(Boolean);
+  doc.text(doc.splitTextToSize(noteLines.join(' | '), leftInfoW), marginX, termsY);
+
+  // ==========================================
+  // 5. SIGNATORY & CLOSING (BOTTOM)
+  // ==========================================
+  const closingY = Math.max(grandBoxY + 12, termsY + 8);
+
+  // Left: Thank You message
+  doc.setFontSize(9.5);
+  doc.setFont('helvetica', 'bold');
+  setPrimary();
+  doc.text('Thank You For Your Business', marginX, closingY + 8);
+
+  // Right: Signature Block
+  const sigCenterX = rightX - 30;
+  doc.setFontSize(7.5);
+  doc.setFont('helvetica', 'bold');
+  setSlate();
+  doc.text(`For ${settings.tradeName}`, sigCenterX, closingY, { align: 'center' });
+
+  // Embed Staff Signature if present
+  if (settings.staffSignatureUrl) {
+    try {
+      doc.addImage(settings.staffSignatureUrl, 'PNG', sigCenterX - 15, closingY + 1.5, 30, 9);
+    } catch (e) {
+      console.error('Failed to embed staff signature in bill PDF:', e);
+    }
+  }
+
+  doc.setDrawColor(203, 213, 225);
+  doc.setLineWidth(0.3);
+  doc.line(rightX - 55, closingY + 11, rightX, closingY + 11);
+
+  doc.setFontSize(6.8);
+  doc.setFont('helvetica', 'normal');
+  setSlate();
+  doc.text('Authorized Signatory', sigCenterX, closingY + 14.5, { align: 'center' });
+
+  // ==========================================
+  // 6. BOTTOM ACCENT FOOTER BAR (ALL PAGES)
+  // ==========================================
+  // @ts-expect-error jspdf internal page count
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    // Thin gold/slate line
+    doc.setFillColor(203, 213, 225);
+    doc.rect(0, 291, 210, 1, 'F');
+    // Solid signature #0A2030 brand bar
+    doc.setFillColor(10, 32, 48);
+    doc.rect(0, 292, 210, 5, 'F');
+  }
+
   doc.save(`${bill.bill_no.replace(/\//g, '-')}.pdf`);
 }
 

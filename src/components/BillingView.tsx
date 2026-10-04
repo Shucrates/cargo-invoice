@@ -26,6 +26,7 @@ import {
   X,
   FileSpreadsheet,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
 import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 import { Card } from '@/components/ui/card';
@@ -34,12 +35,13 @@ import { Input } from '@/components/ui/input';
 import { CityInput } from '@/components/ui/city-input';
 import { Badge } from '@/components/ui/badge';
 import { CargoDocket, Customer, Bill, BillDraft, BillCustomLineItem } from '@/types/cargo';
-import { CompanySettings, DEFAULT_COMPANY_SETTINGS, getCompanySettings } from '@/lib/companyConfig';
+import { CompanySettings, DEFAULT_COMPANY_SETTINGS, getCompanySettings, getActivePaymentQr } from '@/lib/companyConfig';
 import { generateBillPDF, BillLineDocket } from '@/lib/pdfGenerator';
 import { downloadCSV } from '@/lib/exportUtils';
 import { formatCreatedAt } from '@/lib/formatDate';
 import BillDraftList from '@/components/BillDraftList';
 import type { QuotationSheetDTO } from '@/components/QuotationView';
+import { invalidateReportsCache } from '@/components/ReportsView';
 
 interface BillingViewProps {
   dockets: CargoDocket[];
@@ -181,6 +183,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedDockets, setExpandedDockets] = useState<BillLineDocket[]>([]);
   const [expandLoading, setExpandLoading] = useState(false);
+  const billDetailsCache = useRef<Map<string, BillLineDocket[]>>(new Map());
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Bill | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -250,6 +253,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const [issuedBill, setIssuedBill] = useState<Bill | null>(null);
   const [isPreviewing, setIsPreviewing] = useState<boolean>(false);
   const [billStep, setBillStep] = useState<number>(1);
+  const [autoZoom, setAutoZoom] = useState<boolean>(true);
 
   useEffect(() => {
     setSettings(getCompanySettings());
@@ -534,8 +538,68 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   // once and must never read stale closure state.
   const isDirtyRef = useRef(isDirty);
   isDirtyRef.current = isDirty;
+  const subTabRef = useRef(subTab);
+  subTabRef.current = subTab;
   const snapshotRef = useRef(getBillFormSnapshot);
   snapshotRef.current = getBillFormSnapshot;
+
+  // Interrupted draft recovery state (when user reloads the page while making a bill)
+  const [interruptedDraft, setInterruptedDraft] = useState<any | null>(null);
+
+  // Check for interrupted draft in sessionStorage on initial mount
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = sessionStorage.getItem('cargoflow_bill_inprogress');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const hasMeaningfulData = Boolean(
+          (parsed.customer_name && parsed.customer_name.trim()) ||
+          (parsed.docket_ids && parsed.docket_ids.length > 0) ||
+          (parsed.items && parsed.items.length > 0) ||
+          (parsed.notes && parsed.notes.trim())
+        );
+        if (hasMeaningfulData) {
+          setInterruptedDraft(parsed);
+        } else {
+          sessionStorage.removeItem('cargoflow_bill_inprogress');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse interrupted bill draft:', e);
+    }
+  }, []);
+
+  // Continuously sync active dirty draft to sessionStorage so page reload preserves work
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (subTab === 'new' && isDirty) {
+      try {
+        const snap = getBillFormSnapshot();
+        sessionStorage.setItem('cargoflow_bill_inprogress', JSON.stringify(snap));
+      } catch (e) {
+        // ignore quota errors
+      }
+    }
+  }, [
+    subTab,
+    isDirty,
+    customerName,
+    customerGstin,
+    customerAddress,
+    customerPhone,
+    customerEmail,
+    selectedDocketIds,
+    customItems,
+    notes,
+    invoiceDate,
+    category,
+    docType,
+    gstPercentage,
+    discount,
+    manualSubtotal,
+    manualGstAmount,
+  ]);
 
   const resetForm = () => {
     const blank = {
@@ -681,6 +745,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
       const saved = await res.json();
       setEditingDraftId(saved.id);
       pristineSnapshotRef.current = JSON.stringify(snapshot);
+      if (typeof window !== 'undefined') sessionStorage.removeItem('cargoflow_bill_inprogress');
       return true;
     } catch (err) {
       console.error('Failed to save bill draft:', err);
@@ -691,23 +756,115 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   useImperativeHandle(ref, () => ({ isDirty, saveAsDraft: persistDraft }));
 
   // Native browser warning on reload/close while dirty, plus a best-effort
-  // silent draft snapshot via sendBeacon so a hard reload doesn't lose work
-  // even if the user dismisses that warning.
+  // silent draft snapshot via sendBeacon & sessionStorage so a reload prompts or recovers
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
-      if (!isDirtyRef.current) return;
+      if (!isDirtyRef.current || subTabRef.current !== 'new') return;
       e.preventDefault();
-      e.returnValue = '';
+      e.returnValue = 'You have unsaved changes in your tax invoice.';
       try {
-        const blob = new Blob([JSON.stringify(snapshotRef.current())], { type: 'application/json' });
+        const snap = snapshotRef.current();
+        sessionStorage.setItem('cargoflow_bill_inprogress', JSON.stringify(snap));
+        const blob = new Blob([JSON.stringify(snap)], { type: 'application/json' });
         navigator.sendBeacon('/api/billing/drafts', blob);
       } catch (err) {
         console.error('Failed to beacon bill draft snapshot:', err);
       }
+      return 'You have unsaved changes in your tax invoice.';
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, []);
+
+  const handleResumeInterruptedDraft = () => {
+    if (!interruptedDraft) return;
+    handleLoadDraft({ id: '', data: interruptedDraft } as any);
+    if (typeof window !== 'undefined') sessionStorage.removeItem('cargoflow_bill_inprogress');
+    setInterruptedDraft(null);
+  };
+
+  const handleSaveInterruptedDraft = async () => {
+    if (!interruptedDraft) return;
+    setSavingDraft(true);
+    try {
+      const res = await fetch('/api/billing/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(interruptedDraft),
+      });
+      if (res.ok) {
+        if (typeof window !== 'undefined') sessionStorage.removeItem('cargoflow_bill_inprogress');
+        setInterruptedDraft(null);
+        setSubTab('drafts');
+      }
+    } catch (e) {
+      console.error('Failed to save recovered draft:', e);
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleDiscardInterruptedDraft = () => {
+    if (typeof window !== 'undefined') sessionStorage.removeItem('cargoflow_bill_inprogress');
+    setInterruptedDraft(null);
+  };
+
+  const renderInterruptedDraftModal = () => {
+    if (!interruptedDraft) return null;
+    return (
+      <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+          <div className="flex items-start gap-4">
+            <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="space-y-1">
+              <h3 className="text-base font-bold text-slate-900 font-heading">
+                Unsaved Bill in Progress
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                You were in the middle of creating a tax invoice before the page reloaded. Would you like to resume editing, save it as a draft, or discard changes?
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs text-slate-600">
+            <span className="font-medium text-slate-500">Customer Target:</span>
+            <span className="font-semibold text-slate-800 truncate max-w-[200px]">
+              {interruptedDraft.customer_name || 'Unnamed Customer'}
+            </span>
+          </div>
+
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={handleDiscardInterruptedDraft}
+              className="w-full sm:w-auto px-4 py-2.5 border border-red-200 bg-red-50/50 hover:bg-red-50 text-red-600 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center"
+            >
+              Discard Changes
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveInterruptedDraft}
+              disabled={savingDraft}
+              className="w-full sm:w-auto px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center flex items-center justify-center gap-1.5"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{savingDraft ? 'Saving...' : 'Save as Draft'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleResumeInterruptedDraft}
+              className="w-full sm:w-auto px-4 py-2.5 bg-[#0A2030] hover:bg-[#071520] text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>Resume Editing</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const handleSaveDraft = async () => {
     setSavingDraft(true);
@@ -809,6 +966,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
       setIssuedBill(data as Bill);
       setEditingDraftId(null);
+      invalidateReportsCache('bills');
       fetchBills();
     } catch (err) {
       console.error('Failed to issue bill:', err);
@@ -853,35 +1011,94 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     generateBillPDF(issuedBill, combinedLines);
   };
 
+  const resolveBillDockets = async (bill: Bill): Promise<BillLineDocket[]> => {
+    // 1. Check in-memory cache first (0ms instant)
+    if (billDetailsCache.current.has(bill.id)) {
+      return billDetailsCache.current.get(bill.id)!;
+    }
+
+    // 2. Resolve immediately from local dockets + bill.items if available (0ms instant)
+    const localDbLines: BillLineDocket[] = dockets
+      .filter((d) => (bill.docket_ids || []).includes(d.id))
+      .map((d) => ({
+        docket_no: d.docket_no,
+        booking_date: d.booking_date,
+        from_city: d.from_city,
+        to_city: d.to_city,
+        consignor_name: d.consignor_name,
+        package_count: d.articles_count || d.package_count,
+        invoice_no: d.invoice_no,
+        charged_weight_kg: Number(d.charged_weight_kg) || 0,
+        grand_total: Number(d.grand_total) || 0,
+        transport_mode: d.transport_mode,
+        particulars: d.goods_description || 'Freight Charges',
+        expected_mode: d.expected_mode,
+        payment_mode: d.payment_mode,
+      }));
+
+    const customItems: any[] = Array.isArray(bill.items) ? (bill.items as any[]) : [];
+    const localCustomLines: BillLineDocket[] = customItems.map((item, idx) => ({
+      docket_no: item.docket_no || `ITEM-${idx + 1}`,
+      booking_date: item.booking_date || bill.invoice_date,
+      from_city: item.from_city || '',
+      to_city: item.to_city || '',
+      consignor_name: item.consignor_name || item.particulars || 'Custom Item',
+      package_count: Number(item.package_count) || 1,
+      invoice_no: item.invoice_no || '',
+      charged_weight_kg: Number(item.charged_weight_kg) || 0,
+      grand_total: Number(item.amount) || 0,
+      particulars: item.particulars || 'Freight Charges',
+      payment_mode: 'Credit',
+      expected_mode: 'Credit',
+    }));
+
+    const combinedLocal = [...localDbLines, ...localCustomLines];
+    const expectedCount = (bill.docket_ids?.length || 0) + customItems.length;
+
+    if (combinedLocal.length > 0 && combinedLocal.length >= expectedCount) {
+      billDetailsCache.current.set(bill.id, combinedLocal);
+      return combinedLocal;
+    }
+
+    // 3. Fallback to API fetch if missing from memory
+    try {
+      const res = await fetch(`/api/billing/${bill.id}`);
+      if (res.ok) {
+        const detail = await res.json();
+        const loaded = detail.dockets ?? combinedLocal;
+        billDetailsCache.current.set(bill.id, loaded);
+        return loaded;
+      }
+    } catch (err) {
+      console.error('Failed to load bill details:', err);
+    }
+    return combinedLocal;
+  };
+
   const handleToggleExpandHistory = async (bill: Bill) => {
     if (expandedId === bill.id) {
       setExpandedId(null);
       return;
     }
     setExpandedId(bill.id);
-    setExpandLoading(true);
-    try {
-      const res = await fetch(`/api/billing/${bill.id}`);
-      if (res.ok) {
-        const detail = await res.json();
-        setExpandedDockets(detail.dockets ?? []);
-      }
-    } catch (err) {
-      console.error(err);
-      setExpandedDockets([]);
-    } finally {
+
+    if (billDetailsCache.current.has(bill.id)) {
+      setExpandedDockets(billDetailsCache.current.get(bill.id)!);
       setExpandLoading(false);
+      return;
     }
+
+    setExpandLoading(true);
+    const docketsList = await resolveBillDockets(bill);
+    setExpandedDockets(docketsList);
+    setExpandLoading(false);
   };
 
   const handleDownloadHistoryBill = async (bill: Bill) => {
     setDownloadingId(bill.id);
     try {
-      const res = await fetch(`/api/billing/${bill.id}`);
-      if (res.ok) {
-        const detail = await res.json();
-        generateBillPDF(bill, detail.dockets ?? []);
-      }
+      const docketsList = await resolveBillDockets(bill);
+      generateBillPDF(bill, docketsList);
     } catch (err) {
       console.error('Failed to download bill PDF:', err);
     } finally {
@@ -1007,42 +1224,37 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const handleDownloadHistoryBillCSV = async (bill: Bill) => {
     setDownloadingCsvId(bill.id);
     try {
-      const res = await fetch(`/api/billing/${bill.id}`);
-      if (res.ok) {
-        const detail = await res.json();
-        const dockets: BillLineDocket[] = detail.dockets ?? [];
+      const docketsList = await resolveBillDockets(bill);
+      const headers = [
+        'Sr No',
+        'Booking Date',
+        'LR / Docket No',
+        'Particulars / Consignor',
+        'From City',
+        'To City',
+        'Transport Mode',
+        'Invoice No',
+        'Package Count',
+        'Charged Weight (kg)',
+        'Line Amount (₹)',
+      ];
 
-        const headers = [
-          'Sr No',
-          'Booking Date',
-          'LR / Docket No',
-          'Particulars / Consignor',
-          'From City',
-          'To City',
-          'Transport Mode',
-          'Invoice No',
-          'Package Count',
-          'Charged Weight (kg)',
-          'Line Amount (₹)',
-        ];
+      const rows = docketsList.map((d, i) => [
+        i + 1,
+        d.booking_date || '',
+        d.docket_no || '',
+        d.consignor_name || d.particulars || '',
+        d.from_city || '',
+        d.to_city || '',
+        d.transport_mode || 'Road',
+        d.invoice_no || '',
+        d.package_count || 1,
+        d.charged_weight_kg || 0,
+        Number(d.grand_total || 0).toFixed(2),
+      ]);
 
-        const rows = dockets.map((d, i) => [
-          i + 1,
-          d.booking_date || '',
-          d.docket_no || '',
-          d.consignor_name || d.particulars || '',
-          d.from_city || '',
-          d.to_city || '',
-          d.transport_mode || 'Road',
-          d.invoice_no || '',
-          d.package_count || 1,
-          d.charged_weight_kg || 0,
-          Number(d.grand_total || 0).toFixed(2),
-        ]);
-
-        const filename = `Tax_Invoice_${bill.bill_no.replace(/[^a-z0-9]+/gi, '_')}_Items.csv`;
-        downloadCSV(headers, rows, filename);
-      }
+      const filename = `Tax_Invoice_${bill.bill_no.replace(/[^a-z0-9]+/gi, '_')}_Items.csv`;
+      downloadCSV(headers, rows, filename);
     } catch (err) {
       console.error('Failed to download bill CSV:', err);
     } finally {
@@ -1052,18 +1264,28 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
   const handleDeleteBill = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
+    const target = deleteTarget;
+    setDeleteTarget(null); // Close modal immediately for instant feedback
+
+    // Optimistic UI update: Remove immediately from list
+    setBills((prev) => prev.filter((b) => b.id !== target.id));
+    if (expandedId === target.id) setExpandedId(null);
+    billDetailsCache.current.delete(target.id);
+    invalidateReportsCache('bills');
+
     try {
-      const res = await fetch(`/api/billing/${deleteTarget.id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setBills((prev) => prev.filter((b) => b.id !== deleteTarget.id));
-        if (expandedId === deleteTarget.id) setExpandedId(null);
-        setDeleteTarget(null);
+      const res = await fetch(`/api/billing/${target.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete bill.');
+        setBills((prev) => [target, ...prev]);
+        invalidateReportsCache('bills');
       }
     } catch (err) {
       console.error('Failed to delete bill:', err);
-    } finally {
-      setDeleting(false);
+      alert('Failed to delete bill. Please try again.');
+      setBills((prev) => [target, ...prev]);
+      invalidateReportsCache('bills');
     }
   };
 
@@ -1095,6 +1317,13 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     setIssueError(null);
     if (billStep > 1) setBillStep(billStep - 1);
   };
+
+  const Skel = ({ w = 70, h = 8, className = '' }: { w?: number | string; h?: number; className?: string }) => (
+    <span
+      className={`inline-block bg-slate-200 rounded animate-pulse align-middle ${className}`}
+      style={{ width: w, height: h }}
+    />
+  );
 
   const renderBillDocumentPreview = (noHighlight: boolean = false, disableZoom: boolean = false) => {
     const docNo = billNo || (editingDraftId ? 'INV-DRAFT' : 'INV-2026-0001');
@@ -1136,97 +1365,133 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
       })),
     ];
 
-    const activeQr = settings.savedQrCodes.find((q) => q.id === settings.activeQrCodeId) || settings.savedQrCodes[0];
+    const activeQr = getActivePaymentQr(settings);
 
-    const STEP_ZOOM_TARGETS: Record<number, { origin: string; scale: number; name: string }> = {
-      1: { origin: '0% 25%', scale: 1.85, name: 'Billed Customer' },
-      2: { origin: '0% 0%', scale: 1.85, name: 'Invoice Info' },
-      3: { origin: '50% 50%', scale: 1.75, name: 'Line Items Table' },
-      4: { origin: '100% 100%', scale: 1.85, name: 'Totals & Financials' },
+    const highlightBillStep = (step: number): React.CSSProperties => {
+      if (noHighlight || billStep !== step) return { transition: 'all 0.25s ease' };
+      return {
+        outline: '2px solid #0A2030',
+        outlineOffset: 3,
+        borderRadius: 3,
+        boxShadow: '0 0 0 4px rgba(10, 32, 48, 0.08)',
+        backgroundColor: 'rgba(10, 32, 48, 0.02)',
+        transition: 'all 0.25s ease',
+      };
     };
 
-    const zoomTarget = (!disableZoom && !noHighlight) ? STEP_ZOOM_TARGETS[billStep] : null;
+    const STEP_ZOOM_TARGETS: Record<number, { origin: string; scale: number; translateY: number; name: string }> = {
+      1: { origin: '20% 0%', scale: 1.48, translateY: 48, name: 'Billed Customer' },
+      2: { origin: '80% 0%', scale: 1.48, translateY: 48, name: 'Invoice Info' },
+      3: { origin: '50% 32%', scale: 1.18, translateY: 28, name: 'Line Items Table' },
+      4: { origin: '50% 90%', scale: 1.45, translateY: -45, name: 'Totals & Financials' },
+    };
+
+    const zoomTarget = (!disableZoom && autoZoom && !noHighlight) ? STEP_ZOOM_TARGETS[billStep] : null;
 
     return (
       <div
         style={{
           background: '#fff',
-          border: '0.4px solid #94A3B8',
+          border: '1px solid #E2E8F0',
           fontFamily: 'sans-serif',
           width: '100%',
-          aspectRatio: '297/210',
+          aspectRatio: '210/297',
           position: 'relative',
           boxSizing: 'border-box',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.25)',
+          boxShadow: '0 20px 40px -15px rgba(0, 0, 0, 0.22)',
           transformOrigin: zoomTarget ? zoomTarget.origin : '50% 50%',
-          transform: zoomTarget ? `scale(${zoomTarget.scale})` : 'scale(1)',
+          transform: zoomTarget
+            ? `translateY(${zoomTarget.translateY}px) scale(${zoomTarget.scale})`
+            : 'translateY(28px) scale(1)',
           transition: 'transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform-origin 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
           willChange: 'transform, transform-origin',
-          padding: '6px',
+          padding: '9px 12px 14px 12px',
         }}
       >
-        {/* HEADER BLOCK */}
-        <div style={{ borderBottom: '0.4px solid #64748B', paddingBottom: 3, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <img src={RUDRA_LOGO_BASE64} alt="logo" style={{ width: 26, height: 26, objectFit: 'contain', flexShrink: 0 }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 8.5, color: '#0A2030', fontWeight: 800, textTransform: 'uppercase', lineHeight: 1.1 }}>
-              {settings.tradeName}
-            </div>
-            <div style={{ fontSize: 5.5, color: '#475569', marginTop: 1 }}>GSTIN: {settings.gstin}</div>
-            <div style={{ fontSize: 5, color: '#475569', lineHeight: 1.2 }}>{settings.address}</div>
-            <div style={{ fontSize: 5, color: '#475569' }}>
-              Ph: {settings.phone1} | Email: {settings.email}
+        {/* TOP HEADER */}
+        <div style={{ borderBottom: '1px solid #E2E8F0', paddingBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <img src={RUDRA_LOGO_BASE64} alt="logo" style={{ width: 30, height: 30, objectFit: 'contain', flexShrink: 0 }} />
+            <div>
+              <div style={{ fontSize: 11.5, color: '#0A2030', fontWeight: 800, textTransform: 'uppercase', lineHeight: 1.1 }}>
+                {settings.tradeName}
+              </div>
+              <div style={{ fontSize: 6.8, color: '#475569', fontWeight: 700, marginTop: 1 }}>GSTIN: {settings.gstin}</div>
+              <div style={{ fontSize: 6.2, color: '#64748B' }}>Logistics & Freight Forwarding</div>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, color: '#0A2030', textTransform: 'uppercase' }}>TAX INVOICE</div>
-            <div style={{ fontSize: 5.5, color: '#64748B', fontWeight: 700 }}>ORIGINAL FOR RECIPIENT</div>
+          <div style={{ textAlign: 'right', fontSize: 6.2, color: '#475569', lineHeight: 1.35 }}>
+            <div>Ph: {settings.phone1} / {settings.phone2}</div>
+            <div>Email: {settings.email}</div>
+            <div style={{ maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{settings.address}</div>
           </div>
         </div>
 
-        {/* CUSTOMER & INVOICE DETAILS GRID */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', border: '0.4px solid #64748B', margin: '4px 0' }}>
-          {/* Customer Box */}
-          <div style={{ borderRight: '0.4px solid #64748B', padding: '3px 5px' }}>
-            <div style={{ fontSize: 5.5, fontWeight: 800, color: '#64748B', marginBottom: 1 }}>
-              CUSTOMER / BILLED TO:
+        {/* BILLED TO & INVOICE META */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '7px 0 5px 0', alignItems: 'flex-start', gap: 6 }}>
+          {/* Customer Details (Left) */}
+          <div style={{ flex: 1.2, padding: '3px 5px', ...highlightBillStep(1) }}>
+            <div style={{ fontSize: 7, fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: 2 }}>
+              BILLED TO:
             </div>
-            <div style={{ fontSize: 7, fontWeight: 800, color: '#0A2030' }}>
-              {customerName || '— Select Customer —'}
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#0A2030', lineHeight: 1.2, minHeight: 14 }}>
+              {customerName ? (
+                customerName
+              ) : (
+                <Skel w={130} h={11} />
+              )}
             </div>
-            <div style={{ fontSize: 5, color: '#475569', marginTop: 1 }}>
-              <strong>GSTIN:</strong> {customerGstin || 'Unregistered / B2C'}
+            <div style={{ fontSize: 6.8, color: '#475569', marginTop: 3 }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>GSTIN:</span>{' '}
+              {customerGstin ? (
+                <strong style={{ color: '#0A2030', fontFamily: 'monospace' }}>{customerGstin}</strong>
+              ) : customerName ? (
+                'Unregistered / B2C'
+              ) : (
+                <Skel w={85} h={7} />
+              )}
             </div>
-            <div style={{ fontSize: 5, color: '#475569' }}>
-              <strong>Address:</strong> {customerAddress || '—'}
+            <div style={{ fontSize: 6.8, color: '#475569', marginTop: 2 }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Address:</span>{' '}
+              {customerAddress ? (
+                customerAddress
+              ) : (
+                <Skel w={145} h={7} />
+              )}
             </div>
-            <div style={{ fontSize: 5, color: '#475569' }}>
-              <strong>Contact:</strong> {customerPhone || '—'} | <strong>Email:</strong> {customerEmail || '—'}
+            <div style={{ fontSize: 6.8, color: '#475569', marginTop: 2 }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Contact:</span>{' '}
+              {customerPhone || customerEmail ? (
+                `${customerPhone || ''}${customerPhone && customerEmail ? ' | ' : ''}${customerEmail || ''}`
+              ) : (
+                <Skel w={110} h={7} />
+              )}
             </div>
           </div>
 
-          {/* Metadata Box */}
-          <div style={{ padding: '3px 5px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 5.5 }}>
-              <span style={{ color: '#64748B', fontWeight: 700 }}>Invoice No:</span>
-              <span style={{ fontWeight: 800, color: '#0A2030', fontFamily: 'monospace' }}>{docNo}</span>
+          {/* Invoice Metadata (Right) */}
+          <div style={{ flex: 0.9, textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, padding: '3px 5px', ...highlightBillStep(2) }}>
+            <div style={{ fontSize: 15, fontWeight: 900, color: '#0A2030', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              TAX INVOICE
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 5.5 }}>
-              <span style={{ color: '#64748B', fontWeight: 700 }}>Invoice Date:</span>
-              <span style={{ fontWeight: 700, color: '#1E293B' }}>{displayInvoiceDate}</span>
+            <div style={{ fontSize: 7.5, color: '#475569' }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Invoice No:</span>{' '}
+              <strong style={{ color: '#0A2030', fontFamily: 'monospace' }}>{docNo}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 5.5 }}>
-              <span style={{ color: '#64748B', fontWeight: 700 }}>Category:</span>
-              <span style={{ fontWeight: 700, color: '#1E293B' }}>{category}</span>
+            <div style={{ fontSize: 7.5, color: '#475569' }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Invoice Date:</span>{' '}
+              <strong style={{ color: '#1E293B' }}>{displayInvoiceDate}</strong>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 5.5 }}>
-              <span style={{ color: '#64748B', fontWeight: 700 }}>Doc Type:</span>
-              <span style={{ fontWeight: 700, color: '#1E293B' }}>{docType}</span>
+            <div style={{ fontSize: 7.5, color: '#475569' }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Category:</span> {category}
+            </div>
+            <div style={{ fontSize: 7.5, color: '#475569' }}>
+              <span style={{ fontWeight: 700, color: '#64748B' }}>Doc Type:</span> {docType}
             </div>
             {reverseCharge && (
-              <div style={{ fontSize: 5, fontWeight: 800, color: '#D14343', textTransform: 'uppercase' }}>
+              <div style={{ fontSize: 6.5, fontWeight: 800, color: '#D14343', textTransform: 'uppercase' }}>
                 Reverse Charge (RCM): YES
               </div>
             )}
@@ -1234,16 +1499,16 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
         </div>
 
         {/* LINE ITEMS TABLE */}
-        <div style={{ flex: 1, border: '0.4px solid #64748B', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, border: '1px solid #CBD5E1', borderRadius: 2, overflow: 'hidden', display: 'flex', flexDirection: 'column', margin: '4px 0', ...highlightBillStep(3) }}>
           <div
             style={{
               background: '#0A2030',
               color: '#fff',
               display: 'grid',
-              gridTemplateColumns: '16px 36px 1fr 35px 35px 25px 45px 40px 20px 25px 30px 40px',
-              fontSize: 5,
+              gridTemplateColumns: '18px 44px 1fr 38px 38px 26px 46px 40px 20px 28px 30px 46px',
+              fontSize: 6.5,
               fontWeight: 700,
-              padding: '2px 4px',
+              padding: '4px 5px',
               textAlign: 'center',
             }}
           >
@@ -1263,8 +1528,33 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {displayLineItems.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '10px', fontSize: 5.5, color: '#94A3B8', fontStyle: 'italic' }}>
-                No line items added yet. Select LRs or add custom entries.
+              <div className="divide-y divide-slate-100">
+                {[1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '18px 44px 1fr 38px 38px 26px 46px 40px 20px 28px 30px 46px',
+                      fontSize: 6.5,
+                      padding: '3.5px 5px',
+                      alignItems: 'center',
+                      background: i % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                    }}
+                  >
+                    <span style={{ textAlign: 'center', color: '#94A3B8' }}>{i}</span>
+                    <span style={{ textAlign: 'center' }}><Skel w={28} h={6.5} /></span>
+                    <span style={{ paddingLeft: 4 }}><Skel w={i === 1 ? 120 : i === 2 ? 85 : 105} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={24} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={24} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={18} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={32} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={26} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={12} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={16} h={6.5} /></span>
+                    <span style={{ textAlign: 'center' }}><Skel w={18} h={6.5} /></span>
+                    <span style={{ textAlign: 'right' }}><Skel w={32} h={6.5} /></span>
+                  </div>
+                ))}
               </div>
             ) : (
               displayLineItems.map((item, idx) => (
@@ -1272,16 +1562,16 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                   key={idx}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '16px 36px 1fr 35px 35px 25px 45px 40px 20px 25px 30px 40px',
-                    fontSize: 5,
-                    padding: '2px 4px',
-                    borderBottom: '0.4px solid #CBD5E1',
+                    gridTemplateColumns: '18px 44px 1fr 38px 38px 26px 46px 40px 20px 28px 30px 46px',
+                    fontSize: 6.5,
+                    padding: '3px 5px',
+                    borderBottom: '1px solid #F1F5F9',
                     alignItems: 'center',
                     background: idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
                   }}
                 >
                   <span style={{ textAlign: 'center', color: '#64748B' }}>{item.sr}</span>
-                  <span style={{ color: '#475569', fontSize: 4.8 }}>{item.date}</span>
+                  <span style={{ color: '#475569', fontSize: 6.2 }}>{item.date}</span>
                   <span style={{ fontWeight: 700, color: '#0A2030', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.particulars}
                   </span>
@@ -1302,26 +1592,44 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
           </div>
         </div>
 
-        {/* FOOTER & TOTALS */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', border: '0.4px solid #64748B', marginTop: 4, gap: 4, padding: 3 }}>
-          {/* Left Footer: Bank Details & QR Code */}
-          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-            {activeQr?.qrCodeUrl && (
-              <img src={activeQr.qrCodeUrl} alt="UPI QR" style={{ width: 32, height: 32, border: '0.4px solid #CBD5E1', padding: 1, borderRadius: 2 }} />
-            )}
-            <div style={{ flex: 1, fontSize: 4.8, color: '#475569', lineHeight: 1.2 }}>
-              <div style={{ fontWeight: 800, color: '#0A2030', fontSize: 5.2, textTransform: 'uppercase' }}>BANK DETAILS:</div>
-              <div>Bank: {settings.bankName} | Branch: {settings.branch}</div>
-              <div>A/C: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{settings.accountNo}</span></div>
-              <div>IFSC: <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>{settings.ifsc}</span></div>
+        {/* TOTALS & BANKING SECTION */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 6, marginTop: 4, alignItems: 'start', padding: '3px 5px', ...highlightBillStep(4) }}>
+          {/* Left Info: Bank Details & QR Code */}
+          <div>
+            <div style={{ fontSize: 7, fontWeight: 800, color: '#0A2030', textTransform: 'uppercase', marginBottom: 2 }}>
+              Payment Methods & Bank Details:
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              {activeQr?.qrCodeUrl && (
+                <img src={activeQr.qrCodeUrl} alt="UPI QR" style={{ width: 32, height: 32, border: '1px solid #CBD5E1', padding: 1, borderRadius: 2, objectFit: 'contain' }} />
+              )}
+              <div style={{ fontSize: 6.5, color: '#475569', lineHeight: 1.35 }}>
+                <div>Bank: {settings.bankName} | Branch: {settings.branch}</div>
+                <div>A/C: <strong style={{ fontFamily: 'monospace', color: '#0A2030' }}>{settings.accountNo}</strong></div>
+                <div>IFSC: <strong style={{ fontFamily: 'monospace', color: '#0A2030' }}>{settings.ifsc}</strong></div>
+                <div style={{ color: '#0A2030', fontWeight: 700 }}>GPay/UPI: {activeQr?.upiId || settings.upiId}</div>
+                {activeQr?.payeeName && <div style={{ color: '#64748B', fontSize: 5.8 }}>Payee: {activeQr.payeeName}</div>}
+              </div>
+            </div>
+
+            <div style={{ fontSize: 6.5, color: '#64748B', marginTop: 4, lineHeight: 1.25 }}>
+              <div>
+                <strong style={{ color: '#475569' }}>Amount in Words:</strong>{' '}
+                {grandTotal > 0 ? numberToWordsIndian(grandTotal) : <Skel w={140} h={7} />}
+              </div>
+              <div style={{ marginTop: 1.5, fontSize: 5.8 }}>
+                Note: Difference, if any, may be notified within 3 days. Interest @24% p.a. if unpaid within 15 days.
+              </div>
             </div>
           </div>
 
-          {/* Right Footer: Financial Totals */}
-          <div style={{ fontSize: 5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {/* Right Totals Breakdown */}
+          <div style={{ fontSize: 7, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
-              <span>Subtotal:</span>
-              <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>₹{subtotal.toLocaleString('en-IN')}</span>
+              <span>Sub Total:</span>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0A2030' }}>
+                {subtotal > 0 ? `₹${subtotal.toLocaleString('en-IN')}` : <Skel w={45} h={7} />}
+              </span>
             </div>
             {discount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', color: '#166534' }}>
@@ -1331,14 +1639,39 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
               <span>GST ({gstPercentage}%):</span>
-              <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>₹{gstAmount.toLocaleString('en-IN')}</span>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#0A2030' }}>
+                {gstAmount > 0 ? `₹${gstAmount.toLocaleString('en-IN')}` : <Skel w={40} h={7} />}
+              </span>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '0.4px solid #0A2030', paddingTop: 1.5, fontSize: 6.5, fontWeight: 800, color: '#0A2030' }}>
-              <span>NET TOTAL:</span>
-              <span style={{ fontFamily: 'monospace' }}>₹{grandTotal.toLocaleString('en-IN')}</span>
+            {roundOff !== 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569' }}>
+                <span>Round Off:</span>
+                <span style={{ fontFamily: 'monospace', fontWeight: 700 }}>₹{roundOff.toFixed(2)}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'space-between', background: '#F1F5F9', padding: '4px 6px', borderRadius: 2, fontSize: 9.5, fontWeight: 900, color: '#0A2030', marginTop: 1 }}>
+              <span>GRAND TOTAL:</span>
+              <span style={{ fontFamily: 'monospace' }}>
+                {grandTotal > 0 ? `₹${grandTotal.toLocaleString('en-IN')}` : <Skel w={60} h={10} />}
+              </span>
             </div>
           </div>
         </div>
+
+        {/* CLOSING & SIGNATURE */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 'auto', paddingTop: 6 }}>
+          <div style={{ fontSize: 9.5, fontWeight: 800, color: '#0A2030' }}>
+            Thank You For Your Business
+          </div>
+          <div style={{ textAlign: 'center', minWidth: 100 }}>
+            <div style={{ fontSize: 7, fontWeight: 700, color: '#475569' }}>For {settings.tradeName}</div>
+            <div style={{ borderBottom: '1px solid #CBD5E1', width: 90, margin: '8px auto 2px auto' }} />
+            <div style={{ fontSize: 6.5, color: '#64748B' }}>Authorized Signatory</div>
+          </div>
+        </div>
+
+        {/* BOTTOM ACCENT BAR */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, background: '#0A2030', borderTop: '1px solid #CBD5E1' }} />
       </div>
     );
   };
@@ -1501,9 +1834,9 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
             </div>
 
             {/* RIGHT: Live Bill Preview */}
-            <div className="hidden lg:flex items-center justify-center bg-[#F1F5F9] overflow-hidden relative p-8 overflow-y-auto">
-              <div className="w-full max-w-2xl flex items-center justify-center">
-                {renderBillDocumentPreview()}
+            <div className="hidden lg:flex items-start justify-center bg-[#F1F5F9] border-l border-slate-200 overflow-y-auto relative p-6 lg:p-8">
+              <div className="w-full max-w-[490px] xl:max-w-[530px] flex items-center justify-center">
+                {renderBillDocumentPreview(true, true)}
               </div>
             </div>
           </div>
@@ -2139,45 +2472,101 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
           </div>
 
           {/* RIGHT: Live Bill Sheet Preview (50% screen) */}
-          <div className="hidden lg:flex items-center justify-center bg-[#F1F5F9] overflow-hidden relative p-8 overflow-y-auto">
-            <div className="w-full max-w-2xl flex items-center justify-center">
-              {renderBillDocumentPreview()}
+          <div className="hidden lg:flex flex-col bg-[#F1F5F9] border-l border-slate-200 overflow-hidden relative">
+            {/* Live Preview Toolbar */}
+            <div className="flex items-center justify-between px-6 py-2.5 border-b border-slate-200/80 bg-white/70 backdrop-blur-sm shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs font-bold text-slate-800 tracking-tight">Live Tax Invoice Preview</span>
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px] font-semibold text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => setAutoZoom(true)}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    autoZoom ? 'bg-white text-[#0A2030] shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Auto-Zoom
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAutoZoom(false)}
+                  className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${
+                    !autoZoom ? 'bg-white text-[#0A2030] shadow-2xs font-bold' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  Full Page
+                </button>
+              </div>
+            </div>
+
+            {/* Preview Canvas */}
+            <div className="flex-1 flex items-start justify-center p-4 lg:p-6 pt-10 lg:pt-14 pb-16 overflow-y-auto overflow-x-hidden relative">
+              <div className="w-full max-w-[460px] xl:max-w-[500px] flex items-center justify-center">
+                {renderBillDocumentPreview()}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Unsaved changes confirmation dialog if any */}
         {pendingSubTab && (
-          <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl">
-              <h3 className="text-base font-bold text-slate-900 mb-2">Unsaved changes</h3>
-              <p className="text-xs text-slate-600 mb-4">
-                {"This bill hasn't been issued yet. Save it as a draft to finish later, or discard your changes."}
-              </p>
-              <div className="flex justify-end gap-2">
+          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-slate-900 font-heading">
+                    Unsaved Bill Changes
+                  </h3>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    You have an in-progress tax invoice with unsaved customer details or line items. If you exit now, any unsaved data will be permanently lost unless you save it as a draft.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                <span className="font-medium text-slate-500">Invoice Target:</span>
+                <span className="font-semibold text-slate-800">
+                  {customerName ? `${customerName} (${billNo || 'Draft'})` : 'New Unsaved Invoice'}
+                </span>
+              </div>
+
+              <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5 pt-1">
                 <button
+                  type="button"
                   onClick={() => resolvePendingSubTab('cancel')}
-                  className="px-4 py-2 border border-slate-300 rounded-xl text-sm font-semibold text-slate-600 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center"
                 >
-                  Cancel
+                  Keep Editing
                 </button>
                 <button
+                  type="button"
                   onClick={() => resolvePendingSubTab('discard')}
-                  className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded-xl text-sm font-semibold cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 border border-red-200 bg-red-50/50 hover:bg-red-50 text-red-600 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center"
                 >
-                  Discard
+                  Discard Changes
                 </button>
                 <button
+                  type="button"
                   onClick={() => resolvePendingSubTab('save')}
                   disabled={leaveSaving}
-                  className="px-4 py-2 bg-[#0A2030] hover:bg-[#071520] text-white rounded-xl text-sm font-bold disabled:opacity-50 cursor-pointer"
+                  className="w-full sm:w-auto px-4 py-2.5 bg-[#0A2030] hover:bg-[#071520] text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
                 >
-                  {leaveSaving ? 'Saving...' : 'Save as Draft'}
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{leaveSaving ? 'Saving Draft...' : 'Save as Draft'}</span>
                 </button>
               </div>
             </div>
           </div>
         )}
+
+        {/* Reload Interrupted Draft Recovery Modal */}
+        {renderInterruptedDraftModal()}
       </div>
     );
   }
@@ -2187,6 +2576,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   // =========================================================
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      {renderInterruptedDraftModal()}
       {/* Top Header & Action Buttons */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
         <div>

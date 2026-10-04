@@ -20,19 +20,24 @@ export async function GET() {
       where: { createdAt: { lt: thirtyDaysAgo } },
     });
 
-    const where: Prisma.BillDraftWhereInput = {
-      createdAt: { gte: thirtyDaysAgo },
-      createdBy: user.id,
-    };
+    const isAdmin = user.role === 'admin';
+    const where: Prisma.BillDraftWhereInput = isAdmin
+      ? { createdAt: { gte: thirtyDaysAgo } }
+      : { createdAt: { gte: thirtyDaysAgo }, createdBy: user.id };
 
     const drafts = await prisma.billDraft.findMany({
       where,
+      include: {
+        creator: {
+          select: { fullName: true, email: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
 
     return NextResponse.json({ drafts: drafts.map(serializeDraft) });
   } catch (error: unknown) {
-    console.error('Failed to list bill drafts:', error);
+    console.error('Failed to load bill drafts:', error);
     return NextResponse.json({ error: 'Failed to load bill drafts' }, { status: 500 });
   }
 }

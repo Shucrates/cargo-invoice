@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { Receipt, Download, Trash2, ChevronDown, ChevronUp, FileSpreadsheet, Loader2 } from 'lucide-react';
 import { Bill } from '@/types/cargo';
 import { generateBillPDF, BillLineDocket } from '@/lib/pdfGenerator';
@@ -40,10 +40,17 @@ export default function BillHistoryList() {
     fetchBills();
   }, []);
 
+  const billDetailCache = useRef<Map<string, any>>(new Map());
+
   const fetchDetail = async (id: string) => {
+    if (billDetailCache.current.has(id)) {
+      return billDetailCache.current.get(id);
+    }
     const res = await fetch(`/api/billing/${id}`);
     if (!res.ok) throw new Error('Failed to load bill detail');
-    return res.json();
+    const data = await res.json();
+    billDetailCache.current.set(id, data);
+    return data;
   };
 
   const handleToggleView = async (bill: Bill) => {
@@ -52,6 +59,11 @@ export default function BillHistoryList() {
       return;
     }
     setExpandedId(bill.id);
+    if (billDetailCache.current.has(bill.id)) {
+      setExpandedDockets(billDetailCache.current.get(bill.id).dockets ?? []);
+      setExpandLoading(false);
+      return;
+    }
     setExpandLoading(true);
     try {
       const detail = await fetchDetail(bill.id);
@@ -121,18 +133,22 @@ export default function BillHistoryList() {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
+    const target = deleteTarget;
+    setDeleteTarget(null); // Immediate modal close
+    setBills((prev) => prev.filter((b) => b.id !== target.id)); // Optimistic UI removal
+    if (expandedId === target.id) setExpandedId(null);
+    billDetailCache.current.delete(target.id);
+
     try {
-      const res = await fetch(`/api/billing/${deleteTarget.id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setBills((prev) => prev.filter((b) => b.id !== deleteTarget.id));
-        if (expandedId === deleteTarget.id) setExpandedId(null);
-        setDeleteTarget(null);
+      const res = await fetch(`/api/billing/${target.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        setBills((prev) => [target, ...prev]);
+        alert('Failed to delete bill.');
       }
     } catch (err) {
       console.error('Failed to delete bill:', err);
-    } finally {
-      setDeleting(false);
+      setBills((prev) => [target, ...prev]);
+      alert('Failed to delete bill.');
     }
   };
 

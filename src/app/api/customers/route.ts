@@ -1,9 +1,16 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { rateLimit } from '@/lib/rateLimit';
+import { verifyCsrf } from '@/lib/csrf';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const rl = rateLimit(req, { limit: 120, windowMs: 60_000, namespace: 'customers-get' });
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
+
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -45,7 +52,8 @@ export async function GET() {
         COALESCE(SUM(dm.grand_total), 0)::float8 AS "totalBilled",
         COALESCE(SUM(dm.paid_amount), 0)::float8 AS "totalPaid",
         GREATEST(COALESCE(SUM(dm.grand_total), 0) - COALESCE(SUM(dm.paid_amount), 0), 0)::float8 AS "outstandingAmount",
-        COALESCE(SUM(CASE WHEN dm.payment_mode = 'Credit' THEN GREATEST(dm.grand_total - dm.paid_amount, 0) ELSE 0 END), 0)::float8 AS "outstandingCredit",
+        GREATEST(COALESCE(SUM(dm.grand_total), 0) - COALESCE(SUM(dm.paid_amount), 0), 0)::float8 AS "outstandingCredit",
+        COALESCE(SUM(CASE WHEN dm.payment_mode = 'Credit' THEN GREATEST(dm.grand_total - dm.paid_amount, 0) ELSE 0 END), 0)::float8 AS "creditModeOutstanding",
         COALESCE(SUM(CASE WHEN dm.payment_mode = 'To Pay' THEN GREATEST(dm.grand_total - dm.paid_amount, 0) ELSE 0 END), 0)::float8 AS "outstandingToPay"
       FROM "customers" c
       LEFT JOIN docket_match dm ON dm.customer_id = c.id
@@ -61,6 +69,15 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const csrf = verifyCsrf(req);
+    if (!csrf.ok) {
+      return NextResponse.json({ error: csrf.error }, { status: 403 });
+    }
+    const rl = rateLimit(req, { limit: 30, windowMs: 60_000, namespace: 'customers-post' });
+    if (!rl.ok) {
+      return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+    }
+
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

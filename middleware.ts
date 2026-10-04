@@ -11,7 +11,10 @@ export default auth((req) => {
   // 1. Determine host type
   const isAdminSubdomain = host.startsWith('admin.') || host.startsWith('system.');
   const isTrackingSubdomain = host.startsWith('track.') || host.startsWith('tracking.');
-  const isCustomerFacing = !isAdminSubdomain || isTrackingSubdomain;
+  // A host is "customer-facing" only when it is neither an admin subdomain
+  // nor a tracking subdomain.  The previous `||` made this always true —
+  // fixed to `&&` so admin.rudracargo.com correctly routes to /dashboard.
+  const isCustomerFacing = !isAdminSubdomain && !isTrackingSubdomain;
 
   // 2. Customer-facing host (www.rudracargo.com, rudracargo.com, track.*)
   if (isCustomerFacing && !host.includes('localhost')) {

@@ -11,7 +11,7 @@ import ShipmentDetailView from '@/components/ShipmentDetailView';
 import BillingView, { BillingViewHandle } from '@/components/BillingView';
 import QuotationView from '@/components/QuotationView';
 import ExpensesView from '@/components/ExpensesView';
-import CompanySettingsView from '@/components/CompanySettingsView';
+import CompanySettingsView, { CompanySettingsViewHandle } from '@/components/CompanySettingsView';
 import StaffManager from '@/components/StaffManager';
 import ReportsView from '@/components/ReportsView';
 import CashBookView from '@/components/CashBookView';
@@ -51,6 +51,8 @@ import {
   Calendar,
   ChevronRight,
   MapPin,
+  Pencil,
+  Save,
 } from 'lucide-react';
 
 /** How many dockets the shipments table loads at a time. */
@@ -316,9 +318,11 @@ export default function DashboardPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const cargoFormRef = useRef<CargoDocketFormHandle>(null);
   const billFormRef = useRef<BillingViewHandle>(null);
+  const settingsFormRef = useRef<CompanySettingsViewHandle>(null);
   const [editingDraft, setEditingDraft] = useState<DocketDraft | null>(null);
+  const [editingDocket, setEditingDocket] = useState<CargoDocket | null>(null);
   const [pendingNav, setPendingNav] = useState<NavTab | null>(null);
-  const [pendingNavSource, setPendingNavSource] = useState<'lr' | 'bill' | null>(null);
+  const [pendingNavSource, setPendingNavSource] = useState<'lr' | 'bill' | 'settings' | null>(null);
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [dockets, setDockets] = useState<CargoDocket[]>([]);
   const [docketTotal, setDocketTotal] = useState(0);
@@ -646,8 +650,14 @@ export default function DashboardPage() {
       setPendingNavSource('bill');
       return;
     }
+    if (activeTab === 'settings' && tab !== 'settings' && settingsFormRef.current?.isDirty) {
+      setPendingNav(tab);
+      setPendingNavSource('settings');
+      return;
+    }
     setSelectedDocketForDetail(null);
     setEditingDraft(null);
+    setEditingDocket(null);
     setActiveTab(tab);
 
     if (typeof window !== 'undefined') {
@@ -666,14 +676,26 @@ export default function DashboardPage() {
     if (action === 'save') {
       setLeaveSaving(true);
       if (pendingNavSource === 'bill') await billFormRef.current?.saveAsDraft();
+      else if (pendingNavSource === 'settings') await settingsFormRef.current?.save();
       else await cargoFormRef.current?.saveAsDraft();
       setLeaveSaving(false);
+    } else if (action === 'discard') {
+      if (pendingNavSource === 'settings') settingsFormRef.current?.discard();
     }
     setSelectedDocketForDetail(null);
     setEditingDraft(null);
+    setEditingDocket(null);
     if (pendingNav) setActiveTab(pendingNav);
     setPendingNav(null);
     setPendingNavSource(null);
+  };
+
+  const handleEditDocket = (docket: CargoDocket) => {
+    if (!isAdmin) return;
+    setEditingDocket(docket);
+    setEditingDraft(null);
+    setSelectedDocketForDetail(null);
+    setActiveTab('new_lr');
   };
 
 
@@ -1267,7 +1289,7 @@ export default function DashboardPage() {
                               )}
                             </button>
                             <span className={`font-mono font-extrabold text-base tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                              LR #{d.docket_no}
+                              {d.docket_no}
                             </span>
                           </div>
 
@@ -1447,6 +1469,20 @@ export default function DashboardPage() {
                               <ChevronRight className="w-4 h-4 text-slate-400" />
                             </button>
                           )}
+
+                          {!isVoided && isAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleEditDocket(d)}
+                              className="w-full py-3 px-4 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-800 flex items-center justify-between cursor-pointer shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Pencil className="w-4 h-4 text-[#0A2030]" />
+                                <span>Edit LR Details (Admin)</span>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
@@ -1480,7 +1516,7 @@ export default function DashboardPage() {
                             </button>
 
                             <span className={`font-mono font-extrabold text-lg sm:text-xl tracking-tight ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
-                              LR #{d.docket_no}
+                              {d.docket_no}
                             </span>
 
                             {/* Payment Badge Pill */}
@@ -1654,6 +1690,19 @@ export default function DashboardPage() {
                                 <span>Update Status</span>
                               </Button>
                             )}
+
+                            {!isVoided && isAdmin && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleEditDocket(d)}
+                                className="h-9 px-3.5 text-xs font-bold gap-1.5 text-slate-800 bg-white hover:bg-slate-50 border-slate-200 rounded-xl shadow-2xs"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-[#0A2030]" />
+                                <span>Edit</span>
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1768,6 +1817,11 @@ export default function DashboardPage() {
                                 <Wallet className="w-4 h-4 text-slate-400 hover:text-[#2563EB]" />
                               </Button>
                             )}
+                            {!isVoided && isAdmin && (
+                              <Button variant="ghost" size="icon" onClick={() => handleEditDocket(d)} title="Edit LR Details (Admin)">
+                                <Pencil className="w-4 h-4 text-slate-400 hover:text-[#0A2030]" />
+                              </Button>
+                            )}
                             <Button variant="ghost" size="icon" onClick={() => generateInvoicePDF(d)} title="Download PDF">
                               <Download className="w-4 h-4 text-slate-400 hover:text-slate-700" />
                             </Button>
@@ -1796,19 +1850,30 @@ export default function DashboardPage() {
             setActiveTab('new_lr');
           }}
           onDraftsChanged={setDraftTotal}
+          onNewLR={() => {
+            setEditingDraft(null);
+            setActiveTab('new_lr');
+          }}
         />
       )}
 
-      {/* 4. NEW LR CREATION WIZARD TAB (Mockup 5) */}
+      {/* 4. NEW LR CREATION WIZARD TAB / ADMIN EDIT LR */}
       {activeTab === 'new_lr' && (
         <CargoDocketForm
-          key={editingDraft?.id || 'new'}
+          key={editingDocket?.id ? `edit-${editingDocket.id}` : editingDraft?.id || 'new'}
           ref={cargoFormRef}
+          editDocketId={editingDocket?.id}
           draftId={editingDraft?.id}
-          initialData={editingDraft?.data}
-          onBack={() => handleTabChange('dashboard')}
+          initialData={editingDocket ? (editingDocket as any) : editingDraft?.data}
+          onBack={() => {
+            const wasEditing = Boolean(editingDocket);
+            setEditingDocket(null);
+            setEditingDraft(null);
+            handleTabChange(wasEditing ? 'shipments' : 'dashboard');
+          }}
           onCreated={() => {
             setRefreshKey((prev) => prev + 1);
+            setEditingDocket(null);
             setEditingDraft(null);
             setActiveTab('shipments');
           }}
@@ -1823,7 +1888,14 @@ export default function DashboardPage() {
 
       {/* 6. REPORTS TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
       {activeTab === 'reports' && isAdmin && (
-        <ReportsView dockets={dockets} cashLog={cashLog} customers={customersList} />
+        <ReportsView
+          dockets={dockets}
+          cashLog={cashLog}
+          customers={customersList}
+          onNavigateToBilling={() => handleTabChange('billing')}
+          onNavigateToShipments={() => handleTabChange('shipments')}
+          onNavigateToExpenses={() => handleTabChange('expenses')}
+        />
       )}
 
       {/* 6b. CASH BOOK TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
@@ -1832,7 +1904,7 @@ export default function DashboardPage() {
       )}
 
       {/* 7. SETTINGS TAB */}
-      {activeTab === 'settings' && <CompanySettingsView />}
+      {activeTab === 'settings' && <CompanySettingsView ref={settingsFormRef} />}
       {activeTab === 'staff' && <StaffManager />}
 
       {/* Tracking timeline editor, opened from a Shipments row action */}
@@ -1854,35 +1926,61 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Unsaved-changes guard when navigating away from a dirty New LR form */}
+      {/* Unsaved-changes guard when navigating away from a dirty form */}
       {pendingNav && (
-        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full border border-slate-300 shadow-xl">
-            <h3 className="text-base font-bold text-slate-900 mb-2">Unsaved changes</h3>
-            <p className="text-xs text-slate-600 mb-4">
-              {pendingNavSource === 'bill'
-                ? "This bill hasn't been issued yet. Save it as a draft to finish later, or discard your changes."
-                : "This LR hasn't been issued yet. Save it as a draft to finish later, or discard your changes."}
-            </p>
-            <div className="flex justify-end gap-2">
+        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-900 font-heading">
+                  {pendingNavSource === 'bill'
+                    ? 'Unsaved Bill Changes'
+                    : pendingNavSource === 'settings'
+                    ? 'Unsaved Settings Changes'
+                    : 'Unsaved LR Changes'}
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {pendingNavSource === 'bill'
+                    ? "You have an in-progress tax invoice with unsaved entries. If you leave now without saving, your changes will be discarded."
+                    : pendingNavSource === 'settings'
+                    ? "You have modified company profile, GSTIN, or payment configurations. Leaving this tab without saving will revert your recent changes."
+                    : "You have an in-progress Lorry Receipt with unsaved shipment details. If you leave now without saving, your entries will be discarded."}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2.5 pt-1">
               <button
+                type="button"
                 onClick={() => resolvePendingNav('cancel')}
-                className="px-4 py-2 border border-slate-300 rounded text-sm font-semibold text-slate-600"
+                className="w-full sm:w-auto px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center"
               >
-                Cancel
+                Keep Editing
               </button>
               <button
+                type="button"
                 onClick={() => resolvePendingNav('discard')}
-                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 rounded text-sm font-semibold"
+                className="w-full sm:w-auto px-4 py-2.5 border border-red-200 bg-red-50/50 hover:bg-red-50 text-red-600 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-center"
               >
-                Discard
+                Discard & Leave
               </button>
               <button
+                type="button"
                 onClick={() => resolvePendingNav('save')}
                 disabled={leaveSaving}
-                className="px-4 py-2 bg-[#0A2030] hover:bg-[#071520] text-white rounded text-sm font-bold disabled:opacity-50"
+                className="w-full sm:w-auto px-4 py-2.5 bg-[#0A2030] hover:bg-[#071520] text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                {leaveSaving ? 'Saving...' : 'Save as Draft'}
+                <Save className="w-3.5 h-3.5" />
+                <span>
+                  {leaveSaving
+                    ? 'Saving...'
+                    : pendingNavSource === 'settings'
+                    ? 'Save Changes'
+                    : 'Save as Draft'}
+                </span>
               </button>
             </div>
           </div>
@@ -1895,6 +1993,7 @@ export default function DashboardPage() {
         isOpen={!!selectedDocketForDetail}
         onBack={() => setSelectedDocketForDetail(null)}
         onVoidSuccess={() => setRefreshKey((prev) => prev + 1)}
+        onEdit={() => selectedDocketForDetail && handleEditDocket(selectedDocketForDetail)}
       />
     </AppShell>
   );

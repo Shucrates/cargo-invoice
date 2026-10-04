@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useMemo, useRef, Fragment } from 'react';
 import { useSession } from 'next-auth/react';
 import {
   Wallet,
@@ -13,17 +13,22 @@ import {
   FileText,
   FileSpreadsheet,
   Loader2,
-  TrendingUp,
+  Search,
+  Calendar,
+  Layers,
+  ArrowUpRight,
   TrendingDown,
-  IndianRupee,
+  Building2,
+  DollarSign,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ExpenseLedger, ExpenseEntry } from '@/types/cargo';
 import { downloadCSV } from '@/lib/exportUtils';
-import { generateExpenseLedgerPDF } from '@/lib/pdfGenerator';
 import { formatCreatedAt } from '@/lib/formatDate';
+import { generateExpenseLedgerPDF } from '@/lib/pdfGenerator';
+import { invalidateReportsCache } from '@/components/ReportsView';
 
 const CATEGORIES = [
   'Fuel & Diesel',
@@ -119,6 +124,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [expandedLedger, setExpandedLedger] = useState<ExpenseLedger | null>(null);
   const [expandLoading, setExpandLoading] = useState(false);
+  const ledgerDetailCache = useRef<Map<string, ExpenseLedger>>(new Map());
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExpenseLedger | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -134,8 +140,6 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
   const [periodStart, setPeriodStart] = useState(monthBounds(currentMonthKey).start);
   const [periodEnd, setPeriodEnd] = useState(monthBounds(currentMonthKey).end);
   const [monthPicker, setMonthPicker] = useState(currentMonthKey);
-  // Typed independently so the field can be cleared/retyped; only commits
-  // to monthPicker once it's a plausible 4-digit year.
   const [yearDraft, setYearDraft] = useState(currentMonthKey.slice(0, 4));
   const [label, setLabel] = useState('');
   const [notes, setNotes] = useState('');
@@ -187,10 +191,19 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
       return;
     }
     setExpandedId(ledger.id);
-    setExpandLoading(true);
     setEntryDraft(emptyEntryDraft(ledger.period_start));
+
+    // 1. Instant display from cache if already loaded
+    if (ledgerDetailCache.current.has(ledger.id)) {
+      setExpandedLedger(ledgerDetailCache.current.get(ledger.id)!);
+      setExpandLoading(false);
+      return;
+    }
+
+    setExpandLoading(true);
     try {
       const detail = await fetchDetail(ledger.id);
+      ledgerDetailCache.current.set(ledger.id, detail);
       setExpandedLedger(detail);
     } catch (err) {
       console.error(err);
@@ -225,15 +238,16 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
       });
       if (res.ok) {
         const newEntry: ExpenseEntry = await res.json();
-        setExpandedLedger((prev) =>
-          prev && prev.id === ledger.id
-            ? {
-                ...prev,
-                entries: [...(prev.entries ?? []), newEntry].sort((a, b) => a.date.localeCompare(b.date)),
-                total_amount: prev.total_amount + amount,
-              }
-            : prev
-        );
+        setExpandedLedger((prev) => {
+          if (!prev || prev.id !== ledger.id) return prev;
+          const updated = {
+            ...prev,
+            entries: [...(prev.entries ?? []), newEntry].sort((a, b) => a.date.localeCompare(b.date)),
+            total_amount: prev.total_amount + amount,
+          };
+          ledgerDetailCache.current.set(ledger.id, updated);
+          return updated;
+        });
         syncLedgerTotals(ledger.id, ledger.total_amount + amount, (ledger.entry_count ?? 0) + 1);
         setEntryDraft(emptyEntryDraft(ledger.period_start));
       } else {
@@ -249,19 +263,28 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
 
   const handleDeleteEntry = async (ledger: ExpenseLedger, entry: ExpenseEntry) => {
     setDeletingEntryId(entry.id);
+
+    // Optimistic UI update: Remove entry immediately
+    setExpandedLedger((prev) => {
+      if (!prev || prev.id !== ledger.id) return prev;
+      const updated = {
+        ...prev,
+        entries: (prev.entries ?? []).filter((e) => e.id !== entry.id),
+        total_amount: prev.total_amount - entry.amount,
+      };
+      ledgerDetailCache.current.set(ledger.id, updated);
+      return updated;
+    });
+    syncLedgerTotals(ledger.id, ledger.total_amount - entry.amount, Math.max((ledger.entry_count ?? 1) - 1, 0));
+    invalidateReportsCache('expenses');
+
     try {
       const res = await fetch(`/api/expenses/${ledger.id}/entries/${entry.id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setExpandedLedger((prev) =>
-          prev && prev.id === ledger.id
-            ? {
-                ...prev,
-                entries: (prev.entries ?? []).filter((e) => e.id !== entry.id),
-                total_amount: prev.total_amount - entry.amount,
-              }
-            : prev
-        );
-        syncLedgerTotals(ledger.id, ledger.total_amount - entry.amount, Math.max((ledger.entry_count ?? 1) - 1, 0));
+      if (!res.ok) {
+        alert('Failed to delete expense entry.');
+        const fresh = await fetchDetail(ledger.id);
+        ledgerDetailCache.current.set(ledger.id, fresh);
+        setExpandedLedger(fresh);
       }
     } catch (err) {
       console.error('Failed to delete expense entry:', err);
@@ -273,7 +296,11 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
   const handleDownloadCSV = async (ledger: ExpenseLedger) => {
     setDownloadingId(ledger.id);
     try {
-      const detail = expandedId === ledger.id && expandedLedger ? expandedLedger : await fetchDetail(ledger.id);
+      let detail = expandedId === ledger.id && expandedLedger ? expandedLedger : ledgerDetailCache.current.get(ledger.id);
+      if (!detail) {
+        detail = await fetchDetail(ledger.id);
+        ledgerDetailCache.current.set(ledger.id, detail);
+      }
       const entries = detail.entries ?? [];
       downloadCSV(
         ['Date', 'Category', 'Vendor', 'Description', 'Ref No.', 'Payment Mode', 'Amount (₹)'],
@@ -290,7 +317,11 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
   const handleDownloadPDF = async (ledger: ExpenseLedger) => {
     setDownloadingId(ledger.id);
     try {
-      const detail = expandedId === ledger.id && expandedLedger ? expandedLedger : await fetchDetail(ledger.id);
+      let detail = expandedId === ledger.id && expandedLedger ? expandedLedger : ledgerDetailCache.current.get(ledger.id);
+      if (!detail) {
+        detail = await fetchDetail(ledger.id);
+        ledgerDetailCache.current.set(ledger.id, detail);
+      }
       generateExpenseLedgerPDF(detail, detail.entries ?? []);
     } catch (err) {
       console.error('Failed to download PDF:', err);
@@ -301,21 +332,31 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
 
   const handleDeleteLedger = async () => {
     if (!deleteTarget) return;
-    setDeleting(true);
+    const target = deleteTarget;
+    setDeleteTarget(null); // Close modal immediately for instant feedback
+
+    // Optimistic UI update: Remove immediately from list
+    setLedgers((prev) => prev.filter((l) => l.id !== target.id));
+    if (expandedId === target.id) {
+      setExpandedId(null);
+      setExpandedLedger(null);
+    }
+    ledgerDetailCache.current.delete(target.id);
+    invalidateReportsCache('expenses');
+
     try {
-      const res = await fetch(`/api/expenses/${deleteTarget.id}`, { method: 'DELETE' });
-      if (res.ok) {
-        setLedgers((prev) => prev.filter((l) => l.id !== deleteTarget.id));
-        if (expandedId === deleteTarget.id) {
-          setExpandedId(null);
-          setExpandedLedger(null);
-        }
-        setDeleteTarget(null);
+      const res = await fetch(`/api/expenses/${target.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete expense ledger.');
+        setLedgers((prev) => [target, ...prev]);
+        invalidateReportsCache('expenses');
       }
     } catch (err) {
       console.error('Failed to delete expense ledger:', err);
-    } finally {
-      setDeleting(false);
+      alert('Failed to delete expense ledger. Please try again.');
+      setLedgers((prev) => [target, ...prev]);
+      invalidateReportsCache('expenses');
     }
   };
 
@@ -337,8 +378,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
 
   const pendingTotal = pendingEntries.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-  // KPI strip: current-month expense (ledgers overlapping this calendar
-  // month) vs. total cost logged across every ledger loaded.
+  // KPI calculations
   const thisMonthKey = todayISO().slice(0, 7);
   const thisMonthBounds = monthBounds(thisMonthKey);
   const monthlyExpenseTotal = ledgers
@@ -395,6 +435,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
       if (res.ok) {
         resetNewForm();
         setSubTab('history');
+        invalidateReportsCache('expenses');
         fetchLedgers(search);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -417,220 +458,293 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
       {/* Top Header & Navigation Switcher */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/80">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Expense Ledgers</h1>
-          <p className="text-xs text-slate-500 font-medium mt-0.5">
-            Log operating expenses into ledgers scoped to a date or date range, and export each as CSV or PDF.
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight font-heading">Expense Ledgers</h1>
+          <p className="text-xs text-slate-500 font-normal mt-0.5">
+            Log and track operating expenses across custom date ranges, and export records as Excel CSV or PDF.
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200/80 rounded-2xl shadow-saas">
-          <button
+        {/* Top Right Action Buttons */}
+        <div className="flex items-center gap-2">
+          <Button
             onClick={() => setSubTab('history')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
+            variant={subTab === 'history' ? 'default' : 'outline'}
+            className={`h-9 px-3.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer transition-all ${
               subTab === 'history'
-                ? 'bg-[#2563EB] text-white shadow-saas'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-[#0A2030]'
             }`}
           >
-            <History className="w-4 h-4" />
-            <span>Ledgers</span>
-          </button>
+            <History className="w-3.5 h-3.5" />
+            <span>All Ledgers</span>
+          </Button>
 
-          <button
+          <Button
             onClick={() => setSubTab('new')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-saas cursor-pointer ${
+            variant={subTab === 'new' ? 'default' : 'outline'}
+            className={`h-9 px-3.5 text-xs font-semibold rounded-xl gap-1.5 cursor-pointer transition-all ${
               subTab === 'new'
-                ? 'bg-[#2563EB] text-white shadow-saas'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                ? 'bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas'
+                : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-[#0A2030]'
             }`}
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             <span>New Ledger</span>
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* KPI Cards: 3 columns for Admin (including Total Balance), default 2 columns for Staff */}
-      <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2'} gap-5`}>
-        <Card className="p-6 shadow-saas">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">This Month&apos;s Expense</div>
-          <div className="text-2xl font-bold text-red-600 mt-2 font-mono tracking-tight">₹{monthlyExpenseTotal.toLocaleString('en-IN')}</div>
-          <div className="text-xs text-slate-500 mt-2 font-medium">{thisMonthBounds.label}</div>
-        </Card>
-
-        <Card className="p-6 shadow-saas">
-          <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Cost</div>
-          <div className="text-2xl font-bold text-slate-900 mt-2 font-mono tracking-tight">₹{allTimeExpenseTotal.toLocaleString('en-IN')}</div>
-          <div className="text-xs text-slate-500 mt-2 font-medium">Across {ledgers.length} ledger{ledgers.length === 1 ? '' : 's'}</div>
-        </Card>
-
-        {/* Total Balance KPI — Only visible to Admins (Amount Earned minus Expenses) */}
-        {isAdmin && (
-          <Card className="p-6 shadow-saas">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Total Balance
+      {/* KPI Cards Strip — Only displayed in All Ledgers view, hidden during New Ledger creation */}
+      {subTab === 'history' && (
+        <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2'} gap-4`}>
+          {/* KPI 1: This Month's Expenses */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">This Month&apos;s Expenses</p>
+                <h3 className="text-2xl font-bold text-slate-900 font-mono mt-1.5 tracking-tight">
+                  ₹{monthlyExpenseTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
               </div>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-[#2563EB] border border-blue-200/60">
-                Admin
-              </span>
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                <Calendar className="w-4 h-4" />
+              </div>
             </div>
-            <div
-              className={`text-2xl font-bold mt-2 font-mono tracking-tight ${
-                isPositiveBalance ? 'text-[#1F8A4C]' : 'text-[#D14343]'
-              }`}
-            >
-              {totalBalance < 0 ? '-' : '+'}₹{Math.abs(totalBalance).toLocaleString('en-IN')}
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              {thisMonthBounds.label} period
             </div>
-            <div className="text-xs text-slate-500 mt-2 font-medium flex items-center gap-1.5 flex-wrap">
-              <span>Earned: ₹{totalEarned.toLocaleString('en-IN')}</span>
-              <span className="text-slate-300">•</span>
-              <span>Expenses: ₹{allTimeExpenseTotal.toLocaleString('en-IN')}</span>
+          </div>
+
+          {/* KPI 2: Total Recorded Cost */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Recorded Cost</p>
+                <h3 className="text-2xl font-bold text-slate-900 font-mono mt-1.5 tracking-tight">
+                  ₹{allTimeExpenseTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </h3>
+              </div>
+              <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center">
+                <Wallet className="w-4 h-4" />
+              </div>
             </div>
-          </Card>
-        )}
-      </div>
+            <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5">
+              Across {ledgers.length} ledger{ledgers.length === 1 ? '' : 's'}
+            </div>
+          </div>
+
+          {/* KPI 3: Admin Net Margin / Total Balance */}
+          {isAdmin && (
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-saas transition-saas hover:-translate-y-0.5">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Net Operating Margin</p>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 border border-slate-200/80">
+                      Admin
+                    </span>
+                  </div>
+                  <h3
+                    className={`text-2xl font-bold font-mono mt-1.5 tracking-tight ${
+                      isPositiveBalance ? 'text-emerald-700' : 'text-rose-700'
+                    }`}
+                  >
+                    {totalBalance < 0 ? '-' : '+'}₹{Math.abs(totalBalance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </h3>
+                </div>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isPositiveBalance ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  <ArrowUpRight className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2.5 flex items-center gap-1.5 flex-wrap">
+                <span>Earned: ₹{totalEarned.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+                <span className="text-slate-300">&middot;</span>
+                <span>Expenses: ₹{allTimeExpenseTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ========================================================= */}
-      {/* HISTORY SUBTAB */}
+      {/* HISTORY / ALL LEDGERS SUBTAB */}
       {/* ========================================================= */}
       {subTab === 'history' && (
         <div className="space-y-4">
-          <Input
-            placeholder="Search by ledger no. or label..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="max-w-sm text-xs"
-          />
+          <div className="flex items-center justify-between gap-3">
+            <div className="relative max-w-sm flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by ledger no., label, vendor..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-9 pl-9 pr-3 rounded-lg border border-slate-200 bg-white text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 transition-colors"
+              />
+            </div>
+            <span className="text-xs text-slate-500 font-normal">
+              {ledgers.length} ledger{ledgers.length === 1 ? '' : 's'} recorded
+            </span>
+          </div>
 
           {loading ? (
-            <div className="text-center py-16 text-sm text-slate-400">Loading expense ledgers...</div>
-          ) : ledgers.length === 0 ? (
-            <div className="text-center py-16 border border-dashed border-slate-200 rounded-xl bg-white">
-              <Wallet className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">No expense ledgers yet. Create one in "New Ledger".</p>
+            <div className="text-center py-16 text-xs text-slate-400 font-medium flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#0A2030]" />
+              <span>Loading expense ledgers...</span>
             </div>
+          ) : ledgers.length === 0 ? (
+            <Card className="p-12 text-center border border-dashed border-slate-200 rounded-2xl bg-white space-y-3 shadow-saas">
+              <Wallet className="w-10 h-10 text-slate-300 mx-auto" />
+              <h3 className="text-sm font-bold text-slate-800">No expense ledgers found</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {search ? `No ledgers matching "${search}"` : 'Create your first expense ledger to track operating costs.'}
+              </p>
+              {!search && (
+                <Button
+                  onClick={() => setSubTab('new')}
+                  className="mt-2 h-9 px-4 text-xs font-bold rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create First Ledger</span>
+                </Button>
+              )}
+            </Card>
           ) : (
-            <div className="border border-slate-200 shadow-2xs rounded-xl bg-white overflow-hidden">
+            <Card className="border border-slate-200/80 shadow-saas rounded-2xl bg-white overflow-hidden p-0">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase tracking-wider text-[10px]">
                     <tr>
-                      <th className="px-4 py-3">Ledger No.</th>
-                      <th className="px-4 py-3">Period</th>
-                      <th className="px-4 py-3">Label</th>
-                      <th className="px-4 py-3">Entries</th>
-                      <th className="px-4 py-3">Created By</th>
-                      <th className="px-4 py-3 text-right">Total</th>
-                      <th className="px-4 py-3 text-right">Actions</th>
+                      <th className="px-4 py-3.5">Ledger No.</th>
+                      <th className="px-4 py-3.5">Period</th>
+                      <th className="px-4 py-3.5">Label</th>
+                      <th className="px-4 py-3.5">Entries</th>
+                      <th className="px-4 py-3.5">Created By</th>
+                      <th className="px-4 py-3.5 text-right">Total Amount</th>
+                      <th className="px-4 py-3.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {ledgers.map((l) => (
                       <Fragment key={l.id}>
-                        <tr className="hover:bg-slate-50/80">
-                          <td className="px-4 py-3 font-mono font-bold text-blue-700">{l.ledger_no}</td>
-                          <td className="px-4 py-3 text-slate-500 font-mono">
+                        <tr className="hover:bg-slate-50/70 transition-colors">
+                          <td className="px-4 py-3.5 font-mono font-bold text-[#0A2030]">{l.ledger_no}</td>
+                          <td className="px-4 py-3.5 text-slate-600 font-mono text-[11px]">
                             {l.period_start === l.period_end ? l.period_start : `${l.period_start} → ${l.period_end}`}
                           </td>
-                          <td className="px-4 py-3 text-slate-700">{l.label || '-'}</td>
-                          <td className="px-4 py-3 font-mono text-slate-600">{l.entry_count ?? 0}</td>
-                          <td
-                            className="px-4 py-3 text-slate-500"
-                            title={`${l.created_at ? formatCreatedAt(l.created_at) : ''}`}
-                          >
-                            <div>{l.created_by_name || 'Staff'}</div>
+                          <td className="px-4 py-3.5 text-slate-800 font-medium">{l.label || '—'}</td>
+                          <td className="px-4 py-3.5 font-mono text-slate-600">
+                            <span className="bg-slate-100 text-slate-700 px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-200/60">
+                              {l.entry_count ?? 0} item{l.entry_count === 1 ? '' : 's'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-600 text-xs">
+                            <div className="font-semibold text-slate-800">{l.created_by_name || 'Staff'}</div>
                             {l.created_at && (
-                              <div className="text-[10px] text-slate-400 font-mono">{formatCreatedAt(l.created_at)}</div>
+                              <div className="text-[10px] text-slate-400">{formatCreatedAt(l.created_at)}</div>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-red-600">
-                            ₹{Number(l.total_amount).toLocaleString('en-IN')}
+                          <td className="px-4 py-3.5 text-right font-mono font-bold text-slate-900 text-sm">
+                            ₹{Number(l.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-1">
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center justify-end gap-1.5">
                               <button
                                 onClick={() => handleToggleView(l)}
-                                className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer"
-                                title="View entries"
+                                className="h-8 px-2.5 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer flex items-center gap-1 text-[11px] font-semibold transition-colors"
+                                title="View details"
                               >
-                                {expandedId === l.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                <span>{expandedId === l.id ? 'Close' : 'View'}</span>
+                                {expandedId === l.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                               </button>
                               <button
                                 onClick={() => handleDownloadCSV(l)}
                                 disabled={downloadingId === l.id}
-                                className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer disabled:opacity-50"
-                                title="Download CSV"
+                                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center cursor-pointer disabled:opacity-50 transition-colors"
+                                title="Export CSV"
                               >
-                                <FileSpreadsheet className="w-4 h-4" />
+                                <FileSpreadsheet className="w-3.5 h-3.5 text-slate-700" />
                               </button>
                               <button
                                 onClick={() => handleDownloadPDF(l)}
                                 disabled={downloadingId === l.id}
-                                className="p-1.5 rounded-lg text-[#2563EB] hover:bg-blue-50 cursor-pointer disabled:opacity-50"
+                                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center justify-center cursor-pointer disabled:opacity-50 transition-colors"
                                 title="Download PDF"
                               >
-                                <Download className="w-4 h-4" />
+                                <Download className="w-3.5 h-3.5 text-[#0A2030]" />
                               </button>
                               <button
                                 onClick={() => setDeleteTarget(l)}
-                                className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
+                                className="h-8 w-8 rounded-lg border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
                                 title="Delete ledger"
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>
                         </tr>
+
+                        {/* Expanded Detailed Entries Drawer */}
                         {expandedId === l.id && (
-                          <tr className="bg-slate-50/60">
-                            <td colSpan={7} className="px-4 py-4">
+                          <tr className="bg-slate-50/50">
+                            <td colSpan={7} className="px-5 py-5">
                               {expandLoading ? (
-                                <div className="text-xs text-slate-400 py-2">Loading entries...</div>
+                                <div className="text-xs text-slate-400 py-4 text-center flex items-center justify-center gap-2">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0A2030]" />
+                                  <span>Loading ledger entries...</span>
+                                </div>
                               ) : (
-                                <div className="space-y-3">
+                                <div className="space-y-4">
                                   {expandedLedger?.notes && (
-                                    <p className="text-[11px] text-slate-500 italic">Notes: {expandedLedger.notes}</p>
+                                    <div className="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200/80">
+                                      <strong className="font-semibold text-slate-800">Ledger Remarks:</strong> {expandedLedger.notes}
+                                    </div>
                                   )}
 
-                                  <div className="border border-slate-200 rounded-lg overflow-hidden bg-white">
-                                    <table className="w-full text-left text-[11px]">
-                                      <thead className="bg-slate-100 text-slate-600 font-bold">
+                                  {/* Inner Entries Table */}
+                                  <div className="border border-slate-200/90 rounded-xl overflow-hidden bg-white shadow-2xs">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
                                         <tr>
-                                          <th className="px-3 py-2">Date</th>
-                                          <th className="px-3 py-2">Category</th>
-                                          <th className="px-3 py-2">Vendor</th>
-                                          <th className="px-3 py-2">Description</th>
-                                          <th className="px-3 py-2">Ref No.</th>
-                                          <th className="px-3 py-2">Payment Mode</th>
-                                          <th className="px-3 py-2 text-right">Amount</th>
-                                          <th className="px-3 py-2 w-8"></th>
+                                          <th className="px-3.5 py-2.5">Date</th>
+                                          <th className="px-3.5 py-2.5">Category</th>
+                                          <th className="px-3.5 py-2.5">Vendor</th>
+                                          <th className="px-3.5 py-2.5">Description</th>
+                                          <th className="px-3.5 py-2.5">Vehicle / Ref No.</th>
+                                          <th className="px-3.5 py-2.5">Payment Mode</th>
+                                          <th className="px-3.5 py-2.5 text-right">Amount (₹)</th>
+                                          <th className="px-3.5 py-2.5 w-10 text-center"></th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100">
                                         {(expandedLedger?.entries ?? []).length === 0 ? (
                                           <tr>
-                                            <td colSpan={8} className="px-3 py-4 text-center text-slate-400">
-                                              No entries logged yet.
+                                            <td colSpan={8} className="px-4 py-6 text-center text-slate-400 text-xs">
+                                              No expense items logged yet. Add your first entry below.
                                             </td>
                                           </tr>
                                         ) : (
                                           expandedLedger?.entries?.map((e) => (
-                                            <tr key={e.id}>
-                                              <td className="px-3 py-2 font-mono text-slate-600">{e.date}</td>
-                                              <td className="px-3 py-2 font-semibold text-slate-900">{e.category}</td>
-                                              <td className="px-3 py-2 text-slate-600">{e.vendor_name || '-'}</td>
-                                              <td className="px-3 py-2 text-slate-600">{e.description || '-'}</td>
-                                              <td className="px-3 py-2 font-mono text-slate-500">{e.ref_number || '-'}</td>
-                                              <td className="px-3 py-2 text-slate-600">{e.payment_mode}</td>
-                                              <td className="px-3 py-2 text-right font-mono font-bold text-red-600">
-                                                ₹{Number(e.amount).toLocaleString('en-IN')}
+                                            <tr key={e.id} className="hover:bg-slate-50/60">
+                                              <td className="px-3.5 py-2.5 font-mono text-slate-600">{e.date}</td>
+                                              <td className="px-3.5 py-2.5 font-semibold text-slate-900">{e.category}</td>
+                                              <td className="px-3.5 py-2.5 text-slate-600">{e.vendor_name || '—'}</td>
+                                              <td className="px-3.5 py-2.5 text-slate-600">{e.description || '—'}</td>
+                                              <td className="px-3.5 py-2.5 font-mono text-slate-500">{e.ref_number || '—'}</td>
+                                              <td className="px-3.5 py-2.5">
+                                                <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60">
+                                                  {e.payment_mode}
+                                                </span>
                                               </td>
-                                              <td className="px-3 py-2 text-right">
+                                              <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                                                ₹{Number(e.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                              </td>
+                                              <td className="px-3.5 py-2.5 text-center">
                                                 <button
                                                   onClick={() => handleDeleteEntry(l, e)}
                                                   disabled={deletingEntryId === e.id}
-                                                  className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                                                  className="w-6 h-6 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 mx-auto"
+                                                  title="Delete item"
                                                 >
                                                   <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
@@ -639,88 +753,107 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                                           ))
                                         )}
                                       </tbody>
+                                      {(expandedLedger?.entries ?? []).length > 0 && (
+                                        <tfoot>
+                                          <tr className="bg-slate-50 font-bold border-t border-slate-200">
+                                            <td colSpan={6} className="px-3.5 py-2.5 text-right text-slate-700 uppercase text-[10px] tracking-wider">
+                                              Ledger Subtotal:
+                                            </td>
+                                            <td className="px-3.5 py-2.5 text-right font-mono text-slate-900 text-sm">
+                                              ₹{Number(expandedLedger?.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                                            </td>
+                                            <td></td>
+                                          </tr>
+                                        </tfoot>
+                                      )}
                                     </table>
                                   </div>
 
-                                  {/* Inline add-entry row */}
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2 items-end bg-white border border-slate-200 rounded-lg p-3">
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Date</label>
-                                      <Input
-                                        type="date"
-                                        min={l.period_start}
-                                        max={l.period_end}
-                                        value={entryDraft.date}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, date: e.target.value }))}
-                                        className="mt-1 text-[11px] h-8"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Category</label>
-                                      <select
-                                        value={entryDraft.category}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, category: e.target.value }))}
-                                        className="mt-1 w-full text-[11px] h-8 px-2 border border-slate-200 rounded-lg bg-white"
+                                  {/* Inline Quick Add Entry Form */}
+                                  <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5 shadow-2xs">
+                                    <div className="text-xs font-bold text-slate-900 font-heading">Add Line Item to this Ledger</div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-2.5 items-end">
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Date</label>
+                                        <Input
+                                          type="date"
+                                          min={l.period_start}
+                                          max={l.period_end}
+                                          value={entryDraft.date}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, date: e.target.value }))}
+                                          className="text-xs h-8 bg-slate-50/50 border-slate-200 rounded-lg focus:bg-white focus:border-[#0A2030]"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Category</label>
+                                        <select
+                                          value={entryDraft.category}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, category: e.target.value }))}
+                                          className="w-full text-xs h-8 px-2 border border-slate-200 rounded-lg bg-slate-50/50 text-slate-900 focus:bg-white focus:border-[#0A2030] focus:outline-none"
+                                        >
+                                          {CATEGORIES.map((c) => (
+                                            <option key={c} value={c}>{c}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Vendor Name</label>
+                                        <Input
+                                          placeholder="Fuel Pump / Garage"
+                                          value={entryDraft.vendor_name}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, vendor_name: e.target.value }))}
+                                          className="text-xs h-8 bg-slate-50/50 border-slate-200 rounded-lg focus:bg-white focus:border-[#0A2030]"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Amount (₹) *</label>
+                                        <Input
+                                          type="number"
+                                          placeholder="0"
+                                          value={entryDraft.amount}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, amount: e.target.value }))}
+                                          className="text-xs h-8 font-mono bg-slate-50/50 border-slate-200 rounded-lg focus:bg-white focus:border-[#0A2030]"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Payment Mode</label>
+                                        <select
+                                          value={entryDraft.payment_mode}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, payment_mode: e.target.value }))}
+                                          className="w-full text-xs h-8 px-2 border border-slate-200 rounded-lg bg-slate-50/50 text-slate-900 focus:bg-white focus:border-[#0A2030] focus:outline-none"
+                                        >
+                                          {PAYMENT_MODES.map((p) => (
+                                            <option key={p} value={p}>{p}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Vehicle / Ref</label>
+                                        <Input
+                                          placeholder="MH-04-1234"
+                                          value={entryDraft.ref_number}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, ref_number: e.target.value }))}
+                                          className="text-xs h-8 bg-slate-50/50 border-slate-200 rounded-lg focus:bg-white focus:border-[#0A2030]"
+                                        />
+                                      </div>
+                                      <div>
+                                        <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Remarks</label>
+                                        <Input
+                                          placeholder="Description..."
+                                          value={entryDraft.description}
+                                          onChange={(e) => setEntryDraft((d) => ({ ...d, description: e.target.value }))}
+                                          className="text-xs h-8 bg-slate-50/50 border-slate-200 rounded-lg focus:bg-white focus:border-[#0A2030]"
+                                        />
+                                      </div>
+                                      <Button
+                                        onClick={() => handleAddEntry(l)}
+                                        disabled={addingEntry}
+                                        className="h-8 text-xs font-bold rounded-lg bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas gap-1.5 cursor-pointer disabled:opacity-50"
                                       >
-                                        {CATEGORIES.map((c) => (
-                                          <option key={c} value={c}>{c}</option>
-                                        ))}
-                                      </select>
+                                        {addingEntry ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                                        <span>Add</span>
+                                      </Button>
                                     </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Vendor Name</label>
-                                      <Input
-                                        value={entryDraft.vendor_name}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, vendor_name: e.target.value }))}
-                                        className="mt-1 text-[11px] h-8"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Amount (₹)</label>
-                                      <Input
-                                        type="number"
-                                        placeholder="0"
-                                        value={entryDraft.amount}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, amount: e.target.value }))}
-                                        className="mt-1 text-[11px] h-8 font-mono"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Payment Mode</label>
-                                      <select
-                                        value={entryDraft.payment_mode}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, payment_mode: e.target.value }))}
-                                        className="mt-1 w-full text-[11px] h-8 px-2 border border-slate-200 rounded-lg bg-white"
-                                      >
-                                        {PAYMENT_MODES.map((p) => (
-                                          <option key={p} value={p}>{p}</option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Ref No. / Vehicle</label>
-                                      <Input
-                                        value={entryDraft.ref_number}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, ref_number: e.target.value }))}
-                                        className="mt-1 text-[11px] h-8"
-                                      />
-                                    </div>
-                                    <div>
-                                      <label className="text-[10px] font-semibold text-slate-700">Description</label>
-                                      <Input
-                                        value={entryDraft.description}
-                                        onChange={(e) => setEntryDraft((d) => ({ ...d, description: e.target.value }))}
-                                        className="mt-1 text-[11px] h-8"
-                                      />
-                                    </div>
-                                    <Button
-                                      onClick={() => handleAddEntry(l)}
-                                      disabled={addingEntry}
-                                      className="bg-[#2563EB] hover:bg-blue-700 text-white h-8 text-[11px] font-medium gap-1"
-                                    >
-                                      {addingEntry ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                                      <span>Add</span>
-                                    </Button>
                                   </div>
                                 </div>
                               )}
@@ -732,76 +865,100 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Card>
           )}
 
+          {/* Delete Confirmation Modal */}
           {deleteTarget && (
-            <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full border border-slate-300 shadow-xl">
-                <h3 className="text-base font-bold text-red-700 mb-2">Delete Expense Ledger</h3>
-                <p className="text-xs text-slate-600 mb-4">
-                  Delete ledger "{deleteTarget.ledger_no}"{deleteTarget.label ? ` (${deleteTarget.label})` : ''} and all
-                  {' '}{deleteTarget.entry_count ?? 0} of its entries? This cannot be undone.
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-150">
+              <Card className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-xl space-y-4">
+                <div className="flex items-center gap-2.5 text-red-600">
+                  <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 font-heading">Delete Expense Ledger</h3>
+                    <p className="text-xs text-slate-500">This action cannot be undone.</p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  Are you sure you want to permanently delete ledger <strong className="font-semibold text-slate-900 font-mono">{deleteTarget.ledger_no}</strong>
+                  {deleteTarget.label ? ` (${deleteTarget.label})` : ''} along with all <strong className="font-semibold text-slate-900">{deleteTarget.entry_count ?? 0} logged entries</strong> totaling <strong className="font-mono text-slate-900 font-bold">₹{Number(deleteTarget.total_amount).toLocaleString('en-IN')}</strong>?
                 </p>
-                <div className="flex justify-end gap-2">
-                  <button
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button
+                    variant="outline"
                     onClick={() => setDeleteTarget(null)}
-                    className="px-4 py-2 border border-slate-300 rounded text-sm font-semibold text-slate-600"
+                    disabled={deleting}
+                    className="h-9 px-3.5 text-xs font-semibold rounded-xl border-slate-200 hover:bg-slate-50 cursor-pointer"
                   >
                     Cancel
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     onClick={handleDeleteLedger}
                     disabled={deleting}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-bold uppercase disabled:opacity-50"
+                    className="h-9 px-4 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-700 text-white shadow-saas cursor-pointer disabled:opacity-50"
                   >
-                    {deleting ? 'Deleting...' : 'Delete'}
-                  </button>
+                    {deleting ? 'Deleting...' : 'Delete Ledger'}
+                  </Button>
                 </div>
-              </div>
+              </Card>
             </div>
           )}
         </div>
       )}
 
       {/* ========================================================= */}
-      {/* NEW LEDGER SUBTAB */}
+      {/* NEW LEDGER FORM SUBTAB */}
       {/* ========================================================= */}
       {subTab === 'new' && (
-        <div className="space-y-4">
-          <Card className="p-6 shadow-saas space-y-4">
-            <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">Ledger Period</h3>
+        <div className="space-y-5 animate-in fade-in duration-150">
+          {/* Step 1: Ledger Setup Card */}
+          <Card className="p-6 border border-slate-200/80 shadow-saas rounded-2xl bg-white space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 font-heading">Ledger Period & Setup</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Select a month or define a custom accounting timeframe.</p>
+              </div>
 
-            <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl w-fit">
-              <button
-                type="button"
-                onClick={() => setPeriodMode('month')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
-                  periodMode === 'month' ? 'bg-white text-slate-900 shadow-saas' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                Month
-              </button>
-              <button
-                type="button"
-                onClick={() => setPeriodMode('custom')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
-                  periodMode === 'custom' ? 'bg-white text-slate-900 shadow-saas' : 'text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                Custom Range
-              </button>
+              {/* Period Selector Segmented Switcher */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode('month')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
+                    periodMode === 'month'
+                      ? 'bg-[#0A2030] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  Monthly
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPeriodMode('custom')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
+                    periodMode === 'custom'
+                      ? 'bg-[#0A2030] text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                  }`}
+                >
+                  Custom Range
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {periodMode === 'month' ? (
                 <>
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Month</label>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1.5">Month</label>
                     <select
                       value={monthPicker.slice(5, 7)}
                       onChange={(e) => selectMonth(`${monthPicker.slice(0, 4)}-${e.target.value}`, label)}
-                      className="mt-1 w-full text-xs h-9 px-2 border border-slate-200 rounded-lg bg-white"
+                      className="w-full text-xs h-9 px-3 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 font-semibold focus:bg-white focus:border-[#0A2030] focus:outline-none"
                     >
                       {MONTH_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>
@@ -809,7 +966,7 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                     </select>
                   </div>
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Year</label>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1.5">Year</label>
                     <Input
                       type="number"
                       value={yearDraft}
@@ -821,14 +978,14 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                       onBlur={() => {
                         if (!/^\d{4}$/.test(yearDraft)) setYearDraft(monthPicker.slice(0, 4));
                       }}
-                      className="mt-1 text-xs"
+                      className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                     />
                   </div>
                 </>
               ) : (
                 <>
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Period Start</label>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1.5">Period Start *</label>
                     <Input
                       type="date"
                       value={periodStart}
@@ -836,62 +993,73 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                         setPeriodStart(e.target.value);
                         if (periodEnd < e.target.value) setPeriodEnd(e.target.value);
                       }}
-                      className="mt-1 text-xs"
+                      className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-semibold text-slate-700">Period End</label>
+                    <label className="text-xs font-semibold text-slate-700 block mb-1.5">Period End *</label>
                     <Input
                       type="date"
                       min={periodStart}
                       value={periodEnd}
                       onChange={(e) => setPeriodEnd(e.target.value)}
-                      className="mt-1 text-xs"
+                      className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                     />
                   </div>
                 </>
               )}
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Label (optional)</label>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Ledger Label (optional)</label>
                 <Input
-                  placeholder="Aug 2026 Fuel & Toll"
+                  placeholder="e.g. Aug 2026 Fleet Maintenance"
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  className="mt-1 text-xs"
+                  className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Notes (optional)</label>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Remarks / Notes (optional)</label>
                 <Input
+                  placeholder="e.g. Approved monthly diesel bill"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="mt-1 text-xs"
+                  className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
             </div>
           </Card>
 
-          <Card className="p-6 shadow-saas space-y-4">
-            <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3">Entries</h3>
+          {/* Step 2: Line Items Card */}
+          <Card className="p-6 border border-slate-200/80 shadow-saas rounded-2xl bg-white space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 font-heading">Expense Line Items</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Add line entries for fuel, allowance, tolls, maintenance, etc.</p>
+              </div>
+              <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-lg">
+                {pendingEntries.length} item{pendingEntries.length === 1 ? '' : 's'} added
+              </span>
+            </div>
 
+            {/* Entry Form Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-7 gap-3 items-end">
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Date</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Date *</label>
                 <Input
                   type="date"
                   min={periodStart}
                   max={periodEnd}
                   value={newEntryDraft.date}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, date: e.target.value }))}
-                  className="mt-1 text-xs"
+                  className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Category</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Category *</label>
                 <select
                   value={newEntryDraft.category}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, category: e.target.value }))}
-                  className="mt-1 w-full text-xs h-9 px-2 border border-slate-200 rounded-lg bg-white"
+                  className="w-full text-xs h-9 px-2 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 font-semibold focus:bg-white focus:border-[#0A2030] focus:outline-none"
                 >
                   {CATEGORIES.map((c) => (
                     <option key={c} value={c}>{c}</option>
@@ -899,30 +1067,30 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Vendor Name</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Vendor / Payee</label>
                 <Input
-                  placeholder="ABC Transport Services"
+                  placeholder="Indian Oil Hub"
                   value={newEntryDraft.vendor_name}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, vendor_name: e.target.value }))}
-                  className="mt-1 text-xs"
+                  className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Amount (₹)</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Amount (₹) *</label>
                 <Input
                   type="number"
                   placeholder="4500"
                   value={newEntryDraft.amount}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, amount: e.target.value }))}
-                  className="mt-1 text-xs font-mono"
+                  className="text-xs h-9 font-mono bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Payment Mode</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Payment Mode</label>
                 <select
                   value={newEntryDraft.payment_mode}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, payment_mode: e.target.value }))}
-                  className="mt-1 w-full text-xs h-9 px-2 border border-slate-200 rounded-lg bg-white"
+                  className="w-full text-xs h-9 px-2 border border-slate-200 rounded-xl bg-slate-50/50 text-slate-900 focus:bg-white focus:border-[#0A2030] focus:outline-none"
                 >
                   {PAYMENT_MODES.map((p) => (
                     <option key={p} value={p}>{p}</option>
@@ -930,75 +1098,85 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                 </select>
               </div>
               <div>
-                <label className="text-[11px] font-semibold text-slate-700">Vehicle / Ref No.</label>
+                <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Vehicle / Ref No.</label>
                 <Input
                   placeholder="MH-04-FK-2041"
                   value={newEntryDraft.ref_number}
                   onChange={(e) => setNewEntryDraft((d) => ({ ...d, ref_number: e.target.value }))}
-                  className="mt-1 text-xs"
+                  className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
                 />
               </div>
-              <Button onClick={addPendingEntry} className="bg-[#2563EB] hover:bg-blue-700 text-white h-9 text-xs font-medium gap-1">
-                <Plus className="w-4 h-4" />
-                <span>Add Entry</span>
+              <Button
+                onClick={addPendingEntry}
+                className="h-9 text-xs font-bold rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Item</span>
               </Button>
             </div>
 
             <div>
-              <label className="text-[11px] font-semibold text-slate-700">Notes / Expense Description</label>
+              <label className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Expense Description / Remarks</label>
               <Input
-                placeholder="Diesel refill for Mumbai to Guwahati transport truck..."
+                placeholder="e.g. Diesel refill for Mumbai to Guwahati transport truck..."
                 value={newEntryDraft.description}
                 onChange={(e) => setNewEntryDraft((d) => ({ ...d, description: e.target.value }))}
-                className="mt-1 text-xs"
+                className="text-xs h-9 bg-slate-50/50 border-slate-200 rounded-xl focus:bg-white focus:border-[#0A2030]"
               />
             </div>
 
-            {createError && <p className="text-xs text-red-600 font-medium">{createError}</p>}
+            {createError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-600 shrink-0" />
+                <span>{createError}</span>
+              </div>
+            )}
 
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            {/* Pending Items Table */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white">
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-700">
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold uppercase text-[10px] tracking-wider">
                     <th className="p-3">Date</th>
                     <th className="p-3">Category</th>
-                    <th className="p-3">Vendor</th>
+                    <th className="p-3">Vendor / Payee</th>
                     <th className="p-3">Description</th>
-                    <th className="p-3">Ref No / Vehicle</th>
+                    <th className="p-3">Vehicle / Ref</th>
                     <th className="p-3">Payment Mode</th>
-                    <th className="p-3 text-right">Amount</th>
-                    <th className="p-3 w-10"></th>
+                    <th className="p-3 text-right">Amount (₹)</th>
+                    <th className="p-3 w-10 text-center"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {pendingEntries.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="p-6 text-center text-slate-400">
-                        No entries added yet.
+                      <td colSpan={8} className="p-8 text-center text-slate-400 text-xs">
+                        No line items added yet. Fill out the fields above and click &ldquo;Add Item&rdquo;.
                       </td>
                     </tr>
                   ) : (
                     pendingEntries.map((e, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50">
+                      <tr key={idx} className="hover:bg-slate-50/60">
                         <td className="p-3 font-mono text-slate-600">{e.date}</td>
                         <td className="p-3 font-semibold text-slate-900">{e.category}</td>
-                        <td className="p-3 text-slate-600">{e.vendor_name || '-'}</td>
-                        <td className="p-3 text-slate-600">{e.description || '-'}</td>
-                        <td className="p-3 font-mono text-slate-500">{e.ref_number || '-'}</td>
+                        <td className="p-3 text-slate-600">{e.vendor_name || '—'}</td>
+                        <td className="p-3 text-slate-600">{e.description || '—'}</td>
+                        <td className="p-3 font-mono text-slate-500">{e.ref_number || '—'}</td>
                         <td className="p-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 font-mono">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/60">
                             {e.payment_mode}
                           </span>
                         </td>
-                        <td className="p-3 text-right font-mono font-bold text-red-600">
-                          ₹{Number(e.amount).toLocaleString('en-IN')}
+                        <td className="p-3 text-right font-mono font-bold text-slate-900">
+                          ₹{Number(e.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="p-3 text-right">
+                        <td className="p-3 text-center">
                           <button
                             onClick={() => removePendingEntry(idx)}
-                            className="text-slate-400 hover:text-red-600 p-1 transition-colors"
+                            className="w-6 h-6 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition-colors cursor-pointer mx-auto"
+                            title="Remove line"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </td>
                       </tr>
@@ -1008,8 +1186,12 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
                 {pendingEntries.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-50 border-t border-slate-200 font-bold">
-                      <td colSpan={6} className="p-3 text-right text-slate-600">Total</td>
-                      <td className="p-3 text-right font-mono text-slate-900">₹{pendingTotal.toLocaleString('en-IN')}</td>
+                      <td colSpan={6} className="p-3 text-right text-slate-700 uppercase text-[10px] tracking-wider">
+                        Total Ledger Expense:
+                      </td>
+                      <td className="p-3 text-right font-mono text-slate-900 text-sm">
+                        ₹{pendingTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -1017,14 +1199,23 @@ export default function ExpensesView({ isAdmin: propIsAdmin, totalRevenue: propT
               </table>
             </div>
 
-            <div className="flex justify-end gap-2 pt-2">
+            {/* Bottom Actions */}
+            <div className="flex items-center justify-between pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setSubTab('history')}
+                className="h-10 px-4 text-xs font-semibold rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel & Return
+              </Button>
+
               <Button
                 onClick={handleCreateLedger}
                 disabled={creating}
-                className="bg-[#1F8A4C] hover:bg-green-700 text-white text-xs font-semibold gap-2"
+                className="h-10 px-5 gap-2 text-xs font-bold rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white shadow-saas cursor-pointer disabled:opacity-50"
               >
-                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                <span>{creating ? 'Creating...' : 'Create Ledger'}</span>
+                {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+                <span>{creating ? 'Creating Ledger...' : 'Create Expense Ledger'}</span>
               </Button>
             </div>
           </Card>

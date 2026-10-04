@@ -147,7 +147,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
                 Update Tracking Status
               </h3>
               <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                LR #{docket.docket_no} · {docket.from_city} → {docket.to_city}
+                {docket.docket_no} · {docket.from_city} → {docket.to_city}
               </p>
             </div>
           </div>

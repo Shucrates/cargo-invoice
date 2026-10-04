@@ -1,6 +1,8 @@
 export interface SavedPaymentQr {
   id: string;
   label: string;
+  /** Account holder or business name that appears in UPI apps (e.g. Google Pay, PhonePe) */
+  payeeName?: string;
   gpayNo: string;
   upiId: string;
   qrCodeUrl: string;
@@ -20,6 +22,8 @@ export interface CompanySettings {
   ifsc: string;
   gpayNo: string;
   upiId: string;
+  /** Default payee / account holder name for UPI payments */
+  payeeName?: string;
   qrCodeUrl: string;
   /** All QR codes the user has saved. The one matching activeQrCodeId is the
    *  one embedded in generated invoices (mirrored into gpayNo/upiId/qrCodeUrl). */
@@ -48,15 +52,17 @@ export const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
   accountNo: '610000000053400',
   ifsc: 'SRCB0000022',
   gpayNo: '9821541984',
-  upiId: '9821541984@upi',
-  qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?data=upi://pay?pa=9821541984@upi%26pn=RUDRA%20CARGO%20AND%20TRANSPORT%20NX%26cu=INR&size=200x200',
+  upiId: '9821541984@okbizaxis',
+  payeeName: 'RUDRA CARGO AND TRANSPORT NX',
+  qrCodeUrl: '',
   savedQrCodes: [
     {
       id: DEFAULT_QR_ID,
       label: 'Primary GPay',
+      payeeName: 'RUDRA CARGO AND TRANSPORT NX',
       gpayNo: '9821541984',
-      upiId: '9821541984@upi',
-      qrCodeUrl: 'https://api.qrserver.com/v1/create-qr-code/?data=upi://pay?pa=9821541984@upi%26pn=RUDRA%20CARGO%20AND%20TRANSPORT%20NX%26cu=INR&size=200x200',
+      upiId: '9821541984@okbizaxis',
+      qrCodeUrl: '',
     },
   ],
   activeQrCodeId: DEFAULT_QR_ID,
@@ -80,6 +86,35 @@ export const companyConfig = {
   jurisdiction: 'All Matter are Subject To Mumbai Jurisdiction Only',
 };
 
+/** Constructs an NPCI standard UPI Payment URI */
+export function buildUpiUri(upiId: string, payeeName?: string, tradeName?: string, note?: string): string {
+  const cleanId = (upiId || '').trim();
+  if (!cleanId) return '';
+  const cleanName = (payeeName || tradeName || 'RUDRA CARGO AND TRANSPORT NX').trim();
+  let uri = `upi://pay?pa=${cleanId}&pn=${encodeURIComponent(cleanName)}&cu=INR`;
+  if (note) {
+    uri += `&tn=${encodeURIComponent(note)}`;
+  }
+  return uri;
+}
+
+/** Resolves the currently active SavedPaymentQr configuration with safe fallbacks */
+export function getActivePaymentQr(settings: CompanySettings): SavedPaymentQr {
+  if (settings.savedQrCodes && settings.savedQrCodes.length > 0) {
+    const found = settings.savedQrCodes.find((q) => q.id === settings.activeQrCodeId);
+    if (found) return found;
+    return settings.savedQrCodes[0];
+  }
+  return {
+    id: DEFAULT_QR_ID,
+    label: 'Primary GPay',
+    payeeName: settings.payeeName || settings.tradeName,
+    gpayNo: settings.gpayNo,
+    upiId: settings.upiId,
+    qrCodeUrl: settings.qrCodeUrl,
+  };
+}
+
 export function getCompanySettings(): CompanySettings {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('cargoflow_company_settings');
@@ -92,12 +127,22 @@ export function getCompanySettings(): CompanySettings {
             {
               id: DEFAULT_QR_ID,
               label: 'Primary GPay',
+              payeeName: merged.payeeName || merged.tradeName,
               gpayNo: merged.gpayNo,
               upiId: merged.upiId,
               qrCodeUrl: merged.qrCodeUrl,
             },
           ];
           merged.activeQrCodeId = DEFAULT_QR_ID;
+        } else {
+          // Ensure every QR entry has a payeeName
+          merged.savedQrCodes = merged.savedQrCodes.map((q) => ({
+            ...q,
+            payeeName: q.payeeName || merged.payeeName || merged.tradeName || 'RUDRA CARGO AND TRANSPORT NX',
+          }));
+        }
+        if (!merged.payeeName) {
+          merged.payeeName = merged.tradeName || DEFAULT_COMPANY_SETTINGS.tradeName;
         }
         return merged;
       } catch (e) {

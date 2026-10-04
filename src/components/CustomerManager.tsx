@@ -32,10 +32,12 @@ import {
   ArrowUp,
   ArrowDown,
   Download,
-  Wallet
+  Wallet,
+  Loader2
 } from 'lucide-react';
 import { PAYMENT_METHODS } from '@/lib/paymentMethod';
 import { downloadCSV } from '@/lib/exportUtils';
+import { generateInvoicePDF } from '@/lib/pdfGenerator';
 
 export interface CustomerProfile {
   id: string;
@@ -55,6 +57,7 @@ export interface CustomerProfile {
   totalPaid?: number;
   outstandingAmount?: number;
   outstandingCredit?: number;
+  creditModeOutstanding?: number;
   outstandingToPay?: number;
   totalOutstanding?: number;
   totalLRCount?: number;
@@ -126,6 +129,18 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
   const [lrPayDate, setLrPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [submittingLrPay, setSubmittingLrPay] = useState(false);
   const [lrPayError, setLrPayError] = useState<string | null>(null);
+  const [downloadingDocketId, setDownloadingDocketId] = useState<string | null>(null);
+
+  const handleDownloadLrPDF = async (docket: any) => {
+    try {
+      setDownloadingDocketId(docket.id);
+      await generateInvoicePDF(docket);
+    } catch (err) {
+      console.error('Failed to generate LR PDF:', err);
+    } finally {
+      setDownloadingDocketId(null);
+    }
+  };
 
   // Form states for New/Edit customer
   const [name, setName] = useState('');
@@ -404,8 +419,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
       aVal = a.totalBilled || 0;
       bVal = b.totalBilled || 0;
     } else if (sortField === 'outstandingCredit') {
-      aVal = a.outstandingCredit || 0;
-      bVal = b.outstandingCredit || 0;
+      aVal = a.outstandingCredit !== undefined ? a.outstandingCredit : Math.max(0, (a.totalBilled || 0) - (a.totalPaid || 0));
+      bVal = b.outstandingCredit !== undefined ? b.outstandingCredit : Math.max(0, (b.totalBilled || 0) - (b.totalPaid || 0));
     } else if (sortField === 'totalPaid') {
       aVal = a.totalPaid || 0;
       bVal = b.totalPaid || 0;
@@ -450,7 +465,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
       c.totalLRCount || 0,
       (c.totalBilled || 0).toFixed(2),
       (c.totalPaid || 0).toFixed(2),
-      (c.outstandingCredit || 0).toFixed(2),
+      (c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, (c.totalBilled || 0) - (c.totalPaid || 0))).toFixed(2),
       c.notes || '',
     ]);
 
@@ -501,47 +516,47 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
     return (
       <div className="space-y-6 animate-in fade-in duration-200">
         {/* Full Page Top Navigation & Action Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-slate-200/80 shadow-saas rounded-2xl p-6">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200/80 shadow-saas rounded-2xl p-4 sm:p-6">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setSelectedCustomerId(null)}
-              className="gap-2 text-slate-700 hover:text-slate-900 border-slate-300 shadow-2xs cursor-pointer"
+              className="w-full sm:w-auto gap-2 text-slate-700 hover:text-slate-900 border-slate-300 shadow-2xs cursor-pointer justify-center sm:justify-start"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back to Customer Directory</span>
             </Button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
               size="sm"
               onClick={handleExportCustomerLedgerCSV}
-              className="gap-1.5 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+              className="flex-1 sm:flex-none gap-1.5 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer text-xs"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export LRs (CSV)</span>
             </Button>
-            {customerDetail && ((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 && (
+            {customerDetail && ((customerDetail.outstandingCredit || 0) > 0 || (customerDetail.outstandingToPay || 0) > 0 || ((customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)) > 0) && (
               <Button
                 size="sm"
                 onClick={() => {
-                  const totalOutstanding = (customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0);
+                  const totalOutstanding = customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0));
                   setPayAmount(totalOutstanding > 0 ? totalOutstanding.toFixed(2) : '');
                   setPayTargetMode('all');
                   setPayError(null);
                   setShowPaymentModal(true);
                 }}
-                className="bg-[#0A2030] hover:bg-[#071520] text-white font-semibold gap-1.5 shadow-saas"
+                className="flex-1 sm:flex-none bg-[#0A2030] hover:bg-[#071520] text-white font-semibold gap-1.5 shadow-saas text-xs"
               >
                 <CreditCard className="w-4 h-4" />
-                <span>Record Bulk Settlement</span>
+                <span>Bulk Settlement</span>
               </Button>
             )}
             {customerDetail && (
-              <Button variant="outline" size="sm" onClick={() => openEditForm(customerDetail)} className="gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => openEditForm(customerDetail)} className="flex-1 sm:flex-none gap-1.5 text-xs">
                 <Pencil className="w-3.5 h-3.5" />
                 <span>Edit Profile</span>
               </Button>
@@ -550,20 +565,20 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
         </div>
 
         {/* Customer Detail Full Page Main Content */}
-        <Card className="border border-slate-200/80 shadow-saas bg-white rounded-2xl p-6 md:p-8 space-y-6">
+        <Card className="border border-slate-200/80 shadow-saas bg-white rounded-2xl p-4 sm:p-6 md:p-8 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-100 gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-3 flex-wrap">
-                <h1 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight font-heading break-words">
                   {customerDetail?.name || 'Customer Account Profile'}
                 </h1>
-                <Badge variant="outline" className="font-mono text-sm text-[#0A2030] bg-[#0A2030]/5 border-[#0A2030]/20 px-2.5 py-0.5">
+                <Badge variant="outline" className="font-mono text-xs sm:text-sm text-[#0A2030] bg-[#0A2030]/5 border-[#0A2030]/20 px-2.5 py-0.5">
                   {customerDetail?.code}
                 </Badge>
-                {customerDetail && customerDetail.outstandingCredit! > 0 ? (
+                {customerDetail && (customerDetail.outstandingCredit! > 0 || ((customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)) > 0) ? (
                   <Badge variant="outline" className="font-semibold text-xs text-[#D14343] bg-red-50/50 border-red-200 flex items-center gap-1">
                     <AlertCircle className="w-3.5 h-3.5 text-[#D14343]" />
-                    Credit Outstanding: {formatCurrency(customerDetail.outstandingCredit)}
+                    Credit Outstanding: {formatCurrency(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)))}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="font-semibold text-xs text-slate-700 bg-slate-50 border-slate-200 flex items-center gap-1">
@@ -608,7 +623,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                     <div className="text-[11px] font-medium text-slate-500">
                       Expected / Pending:{' '}
                       <span className="font-semibold text-amber-600 font-mono">
-                        {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                        {formatCurrency(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)))}
                       </span>
                     </div>
                   </div>
@@ -619,20 +634,20 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   <div>
                     <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                       <span>Total Outstanding</span>
-                      <div className={`w-8 h-8 rounded-lg ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'bg-red-50 text-[#D14343]' : 'bg-slate-100 text-slate-500'} flex items-center justify-center font-bold`}>
+                      <div className={`w-8 h-8 rounded-lg ${(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0))) > 0 ? 'bg-red-50 text-[#D14343]' : 'bg-slate-100 text-slate-500'} flex items-center justify-center font-bold`}>
                         <AlertCircle className="w-4 h-4" />
                       </div>
                     </div>
-                    <div className={`text-2xl sm:text-3xl font-bold font-sans tracking-tight ${((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)) > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
-                      {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                    <div className={`text-2xl sm:text-3xl font-bold font-sans tracking-tight ${(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0))) > 0 ? 'text-[#D14343]' : 'text-slate-900'}`}>
+                      {formatCurrency(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)))}
                     </div>
                   </div>
                   <div className="mt-4 pt-3 border-t border-slate-100 space-y-0.5">
                     <div className="text-[11px] text-slate-500 font-medium truncate">
-                      Credit: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.outstandingCredit)}</span>
+                      Credit LRs: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.creditModeOutstanding ?? customerDetail.outstandingCredit)}</span>
                     </div>
                     <div className="text-[11px] text-slate-500 font-medium truncate">
-                      To Pay: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.outstandingToPay)}</span>
+                      To Pay LRs: <span className="font-semibold text-slate-700">{formatCurrency(customerDetail.outstandingToPay)}</span>
                     </div>
                   </div>
                 </div>
@@ -688,10 +703,10 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
               {/* Profile Tabs */}
               <div className="border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-6">
+                <div className="flex items-center gap-3 sm:gap-6 overflow-x-auto pb-1 scrollbar-none w-full sm:w-auto -mb-px">
                   <button
                     onClick={() => setActiveTab('lrs')}
-                    className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+                    className={`pb-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                       activeTab === 'lrs'
                         ? 'border-[#0A2030] text-[#0A2030]'
                         : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -702,7 +717,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </button>
                   <button
                     onClick={() => setActiveTab('payments')}
-                    className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+                    className={`pb-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                       activeTab === 'payments'
                         ? 'border-[#0A2030] text-[#0A2030]'
                         : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -713,7 +728,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </button>
                   <button
                     onClick={() => setActiveTab('info')}
-                    className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+                    className={`pb-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap shrink-0 ${
                       activeTab === 'info'
                         ? 'border-[#0A2030] text-[#0A2030]'
                         : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -725,12 +740,12 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                 </div>
 
                 {activeTab === 'lrs' && (
-                  <div className="flex items-center gap-1.5 pb-2">
+                  <div className="flex items-center gap-1.5 pb-2 overflow-x-auto scrollbar-none w-full sm:w-auto shrink-0">
                     {(['all', 'credit', 'unpaid', 'paid'] as const).map((f) => (
                       <button
                         key={f}
                         onClick={() => setLrFilter(f)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-saas cursor-pointer ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold capitalize transition-saas cursor-pointer whitespace-nowrap shrink-0 ${
                           lrFilter === f
                             ? 'bg-[#0A2030] text-white'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -751,89 +766,209 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                       No LRs have been issued for this customer yet.
                     </div>
                   ) : (
-                    <div className="border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left">
-                          <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                            <tr>
-                              <th className="px-4 py-3">LR Number</th>
-                              <th className="px-4 py-3">Booking Date</th>
-                              <th className="px-4 py-3">Route</th>
-                              <th className="px-4 py-3">Consignee</th>
-                              <th className="px-4 py-3">Mode</th>
-                              <th className="px-4 py-3">Payment Mode</th>
-                              <th className="px-4 py-3 text-right">Grand Total</th>
-                              <th className="px-4 py-3 text-right">Paid</th>
-                              <th className="px-4 py-3 text-right">Credit Balance</th>
-                              <th className="px-4 py-3 text-center">Action</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                            {customerDetail.dockets
-                              .filter((d) => {
-                                if (lrFilter === 'credit') return d.payment_mode === 'Credit';
-                                if (lrFilter === 'unpaid') return d.outstanding_amount > 0;
-                                if (lrFilter === 'paid') return d.outstanding_amount === 0;
-                                return true;
-                              })
-                              .map((d) => (
-                                <tr key={d.id} className="hover:bg-[#F8FAFC]">
-                                  <td className="px-4 py-3 font-bold text-[#0A2030] font-mono">{d.docket_no}</td>
-                                  <td className="px-4 py-3 text-slate-500 font-mono">
-                                    {new Date(d.booking_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                  </td>
-                                  <td className="px-4 py-3 text-slate-700 font-semibold">
-                                    {d.from_city} → {d.to_city}
-                                  </td>
-                                  <td className="px-4 py-3 text-slate-700">{d.consignee_name}</td>
-                                  <td className="px-4 py-3 text-slate-500">{d.transport_mode}</td>
-                                  <td className="px-4 py-3">
-                                    <span
-                                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                                        d.payment_mode === 'Credit'
-                                          ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                          : d.payment_mode === 'Paid'
-                                          ? 'bg-slate-100 text-slate-800 border border-slate-200'
-                                          : 'bg-blue-100 text-blue-900 border border-blue-200'
-                                      }`}
-                                    >
-                                      {d.payment_mode}
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(d.grand_total)}</td>
-                                  <td className="px-4 py-3 text-right font-semibold text-slate-800 font-mono">{formatCurrency(d.total_paid)}</td>
-                                  <td className={`px-4 py-3 text-right font-bold font-mono ${d.outstanding_amount > 0 ? 'text-[#D14343]' : 'text-slate-400'}`}>
-                                    {formatCurrency(d.outstanding_amount)}
-                                  </td>
-                                  <td className="px-4 py-3 text-center">
-                                    {d.outstanding_amount > 0 ? (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedLrForPayment({
-                                            id: d.id,
-                                            docket_no: d.docket_no,
-                                            outstanding_amount: d.outstanding_amount,
-                                          });
-                                          setLrPayAmount(String(d.outstanding_amount));
-                                          setLrPayError(null);
-                                        }}
-                                        className="h-7 text-[11px] px-3 bg-[#0A2030] hover:bg-[#071520] text-white font-semibold shadow-2xs whitespace-nowrap shrink-0"
-                                      >
-                                        Pay LR
-                                      </Button>
+                    <>
+                      {/* Mobile Card View for LRs */}
+                      <div className="block md:hidden space-y-3">
+                        {customerDetail.dockets
+                          .filter((d) => {
+                            if (lrFilter === 'credit') return d.payment_mode === 'Credit';
+                            if (lrFilter === 'unpaid') return d.outstanding_amount > 0;
+                            if (lrFilter === 'paid') return d.outstanding_amount === 0;
+                            return true;
+                          })
+                          .map((d) => (
+                            <div key={d.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-sm text-[#0A2030]">{d.docket_no}</span>
+                                  <span className="text-[11px] text-slate-400 font-mono">
+                                    {new Date(d.booking_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      d.payment_mode === 'Credit'
+                                        ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                        : d.payment_mode === 'Paid'
+                                        ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                                        : 'bg-blue-100 text-blue-900 border border-blue-200'
+                                    }`}
+                                  >
+                                    {d.payment_mode}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDownloadLrPDF(d)}
+                                    disabled={downloadingDocketId === d.id}
+                                    title={`Download PDF for ${d.docket_no}`}
+                                    aria-label={`Download PDF for ${d.docket_no}`}
+                                    className="p-1 rounded-md text-slate-500 hover:text-[#0A2030] hover:bg-slate-100 cursor-pointer disabled:opacity-50"
+                                  >
+                                    {downloadingDocketId === d.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0A2030]" />
                                     ) : (
-                                      <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                                        Settled
-                                      </span>
+                                      <Download className="w-3.5 h-3.5" />
                                     )}
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="bg-slate-50 border border-slate-200/70 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                                <div className="font-semibold text-slate-800">{d.from_city} &rarr; {d.to_city}</div>
+                                <div className="text-slate-500 text-[11px]">{d.transport_mode}</div>
+                              </div>
+
+                              <div className="text-xs text-slate-600">
+                                <span className="text-slate-400">Consignee:</span> <span className="font-medium text-slate-800">{d.consignee_name}</span>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-2 bg-slate-50/60 border border-slate-200/60 rounded-xl p-2 text-center text-xs">
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Total</div>
+                                  <div className="font-mono font-bold text-slate-900 mt-0.5">{formatCurrency(d.grand_total)}</div>
+                                </div>
+                                <div className="border-x border-slate-200/60 px-1">
+                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Paid</div>
+                                  <div className="font-mono font-bold text-emerald-700 mt-0.5">{formatCurrency(d.total_paid)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Balance</div>
+                                  <div className={`font-mono font-bold mt-0.5 ${d.outstanding_amount > 0 ? 'text-[#D14343]' : 'text-slate-400'}`}>
+                                    {formatCurrency(d.outstanding_amount)}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {d.outstanding_amount > 0 ? (
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedLrForPayment({
+                                      id: d.id,
+                                      docket_no: d.docket_no,
+                                      outstanding_amount: d.outstanding_amount,
+                                    });
+                                    setLrPayAmount(String(d.outstanding_amount));
+                                    setLrPayError(null);
+                                  }}
+                                  className="w-full h-8 text-xs bg-[#0A2030] hover:bg-[#071520] text-white font-semibold shadow-2xs cursor-pointer"
+                                >
+                                  Pay LR ({formatCurrency(d.outstanding_amount)})
+                                </Button>
+                              ) : (
+                                <div className="text-center py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 rounded-lg border border-emerald-200">
+                                  Fully Settled
+                                </div>
+                              )}
+                            </div>
+                          ))}
                       </div>
-                    </div>
+
+                      {/* Desktop Table for LRs */}
+                      <div className="hidden md:block border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                              <tr>
+                                <th className="px-4 py-3">LR Number</th>
+                                <th className="px-4 py-3">Booking Date</th>
+                                <th className="px-4 py-3">Route</th>
+                                <th className="px-4 py-3">Consignee</th>
+                                <th className="px-4 py-3">Mode</th>
+                                <th className="px-4 py-3">Payment Mode</th>
+                                <th className="px-4 py-3 text-right">Grand Total</th>
+                                <th className="px-4 py-3 text-right">Paid</th>
+                                <th className="px-4 py-3 text-right">Credit Balance</th>
+                                <th className="px-4 py-3 text-right">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                              {customerDetail.dockets
+                                .filter((d) => {
+                                  if (lrFilter === 'credit') return d.payment_mode === 'Credit';
+                                  if (lrFilter === 'unpaid') return d.outstanding_amount > 0;
+                                  if (lrFilter === 'paid') return d.outstanding_amount === 0;
+                                  return true;
+                                })
+                                .map((d) => (
+                                  <tr key={d.id} className="hover:bg-[#F8FAFC] group transition-colors">
+                                    <td className="px-4 py-3 font-bold text-[#0A2030] font-mono">{d.docket_no}</td>
+                                    <td className="px-4 py-3 text-slate-500 font-mono">
+                                      {new Date(d.booking_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                    </td>
+                                    <td className="px-4 py-3 text-slate-700 font-semibold">
+                                      {d.from_city} → {d.to_city}
+                                    </td>
+                                    <td className="px-4 py-3 text-slate-700">{d.consignee_name}</td>
+                                    <td className="px-4 py-3 text-slate-500">{d.transport_mode}</td>
+                                    <td className="px-4 py-3">
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                                          d.payment_mode === 'Credit'
+                                            ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                            : d.payment_mode === 'Paid'
+                                            ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                                            : 'bg-blue-100 text-blue-900 border border-blue-200'
+                                        }`}
+                                      >
+                                        {d.payment_mode}
+                                      </span>
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-bold font-mono">{formatCurrency(d.grand_total)}</td>
+                                    <td className="px-4 py-3 text-right font-semibold text-slate-800 font-mono">{formatCurrency(d.total_paid)}</td>
+                                    <td className={`px-4 py-3 text-right font-bold font-mono ${d.outstanding_amount > 0 ? 'text-[#D14343]' : 'text-slate-400'}`}>
+                                      {formatCurrency(d.outstanding_amount)}
+                                    </td>
+                                    <td className="px-4 py-3 text-right">
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {d.outstanding_amount > 0 ? (
+                                          <Button
+                                            size="sm"
+                                            onClick={() => {
+                                              setSelectedLrForPayment({
+                                                id: d.id,
+                                                docket_no: d.docket_no,
+                                                outstanding_amount: d.outstanding_amount,
+                                              });
+                                              setLrPayAmount(String(d.outstanding_amount));
+                                              setLrPayError(null);
+                                            }}
+                                            className="h-7 text-[11px] px-3 bg-[#0A2030] hover:bg-[#071520] text-white font-semibold shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
+                                          >
+                                            Pay LR
+                                          </Button>
+                                        ) : (
+                                          <span className="text-[11px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 shrink-0">
+                                            Settled
+                                          </span>
+                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDownloadLrPDF(d);
+                                          }}
+                                          disabled={downloadingDocketId === d.id}
+                                          title={`Download PDF for ${d.docket_no}`}
+                                          aria-label={`Download PDF for ${d.docket_no}`}
+                                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg text-slate-500 hover:text-[#0A2030] hover:bg-slate-200/80 cursor-pointer shrink-0 disabled:opacity-50"
+                                        >
+                                          {downloadingDocketId === d.id ? (
+                                            <Loader2 className="w-4 h-4 animate-spin text-[#0A2030]" />
+                                          ) : (
+                                            <Download className="w-4 h-4" />
+                                          )}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -846,38 +981,75 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                       No payments have been recorded for this customer yet.
                     </div>
                   ) : (
-                    <div className="border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                          <tr>
-                            <th className="px-4 py-3">Date</th>
-                            <th className="px-4 py-3">LR Number</th>
-                            <th className="px-4 py-3">Method</th>
-                            <th className="px-4 py-3">Amount Paid</th>
-                            <th className="px-4 py-3">Recorded By</th>
-                            <th className="px-4 py-3">Notes</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                          {customerDetail.payments.map((p) => (
-                            <tr key={p.id} className="hover:bg-[#F8FAFC]">
-                              <td className="px-4 py-3 text-slate-500 font-mono">
+                    <>
+                      {/* Mobile Card View for Payments */}
+                      <div className="block md:hidden space-y-3">
+                        {customerDetail.payments.map((p) => (
+                          <div key={p.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold font-mono text-sm text-[#0A2030]">{p.docket_no}</span>
+                              <span className="font-mono font-bold text-sm text-emerald-700">{formatCurrency(p.amount)}</span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs text-slate-500">
+                              <span>
                                 {new Date(p.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                              </td>
-                              <td className="px-4 py-3 font-bold font-mono text-[#0A2030]">{p.docket_no}</td>
-                              <td className="px-4 py-3">
-                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold border border-slate-200 text-[11px]">
-                                  {p.method}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 font-bold text-slate-900 font-mono">{formatCurrency(p.amount)}</td>
-                              <td className="px-4 py-3 text-slate-600">{p.recorded_by_name || 'Staff'}</td>
-                              <td className="px-4 py-3 text-slate-500 italic">{p.notes || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                              </span>
+                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold border border-slate-200 text-[11px]">
+                                {p.method}
+                              </span>
+                            </div>
+
+                            {(p.recorded_by_name || p.notes) && (
+                              <div className="pt-2 border-t border-slate-100 text-xs text-slate-500 space-y-0.5">
+                                {p.recorded_by_name && (
+                                  <div>Recorded by: <span className="font-medium text-slate-700">{p.recorded_by_name}</span></div>
+                                )}
+                                {p.notes && (
+                                  <div className="italic text-slate-600 font-mono text-[11px]">{p.notes}</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Desktop Table for Payments */}
+                      <div className="hidden md:block border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs text-left">
+                            <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                              <tr>
+                                <th className="px-4 py-3">Date</th>
+                                <th className="px-4 py-3">LR Number</th>
+                                <th className="px-4 py-3">Method</th>
+                                <th className="px-4 py-3">Amount Paid</th>
+                                <th className="px-4 py-3">Recorded By</th>
+                                <th className="px-4 py-3">Notes</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                              {customerDetail.payments.map((p) => (
+                                <tr key={p.id} className="hover:bg-[#F8FAFC]">
+                                  <td className="px-4 py-3 text-slate-500 font-mono">
+                                    {new Date(p.paid_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                  </td>
+                                  <td className="px-4 py-3 font-bold font-mono text-[#0A2030]">{p.docket_no}</td>
+                                  <td className="px-4 py-3">
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold border border-slate-200 text-[11px]">
+                                      {p.method}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-bold text-slate-900 font-mono">{formatCurrency(p.amount)}</td>
+                                  <td className="px-4 py-3 text-slate-600">{p.recorded_by_name || 'Staff'}</td>
+                                  <td className="px-4 py-3 text-slate-500 italic">{p.notes || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -936,11 +1108,11 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                     <div className="flex items-center justify-between">
                       <span className="text-amber-900 font-semibold">Total Outstanding Balance:</span>
                       <span className="font-bold text-[#D14343] text-sm">
-                        {formatCurrency((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0))}
+                        {formatCurrency(customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0)))}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-[11px] text-amber-800/80 pt-1 border-t border-amber-200/60">
-                      <span>Credit LRs: {formatCurrency(customerDetail.outstandingCredit)}</span>
+                      <span>Credit LRs: {formatCurrency(customerDetail.creditModeOutstanding ?? customerDetail.outstandingCredit)}</span>
                       <span>To Pay LRs: {formatCurrency(customerDetail.outstandingToPay)}</span>
                     </div>
                   </div>
@@ -960,11 +1132,11 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                           onClick={() => {
                             setPayTargetMode(t.id as any);
                             if (t.id === 'credit') {
-                              setPayAmount((customerDetail.outstandingCredit || 0).toFixed(2));
+                              setPayAmount((customerDetail.creditModeOutstanding ?? customerDetail.outstandingCredit ?? 0).toFixed(2));
                             } else if (t.id === 'to_pay') {
                               setPayAmount((customerDetail.outstandingToPay || 0).toFixed(2));
                             } else {
-                              setPayAmount(((customerDetail.outstandingCredit || 0) + (customerDetail.outstandingToPay || 0)).toFixed(2));
+                              setPayAmount((customerDetail.outstandingCredit ?? Math.max(0, (customerDetail.totalBilled || 0) - (customerDetail.totalPaid || 0))).toFixed(2));
                             }
                           }}
                           className={`p-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
@@ -1152,11 +1324,11 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
   ───────────────────────────────────────────────────────────── */
   return (
     <div className="space-y-6">
-      <Card className="border border-slate-200/80 shadow-saas bg-white rounded-2xl p-6 md:p-8">
-        <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-6 border-b border-slate-100">
+      <Card className="border border-slate-200/80 shadow-saas bg-white rounded-2xl p-4 sm:p-6 md:p-8">
+        <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 p-0 mb-6 border-b border-slate-100">
           <div>
-            <div className="flex items-center gap-2.5">
-              <CardTitle className="text-2xl font-bold text-slate-900 tracking-tight font-heading">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <CardTitle className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight font-heading">
                 Customer Directory & Accounts
               </CardTitle>
               <Badge variant="info" className="font-mono text-xs">
@@ -1167,18 +1339,22 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
               Select any customer row to view their complete profile, credit ledger, and order breakdown.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <Button
               variant="outline"
               size="md"
               onClick={handleExportCustomersCSV}
               disabled={filteredCustomers.length === 0}
-              className="gap-2 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer"
+              className="flex-1 sm:flex-none gap-2 border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold cursor-pointer text-xs sm:text-sm h-9 sm:h-10"
             >
               <Download className="w-4 h-4" />
               <span>Export CSV</span>
             </Button>
-            <Button size="md" onClick={openNewForm} className="gap-2 shadow-saas bg-[#0A2030] hover:bg-[#071520] text-white">
+            <Button
+              size="md"
+              onClick={openNewForm}
+              className="flex-1 sm:flex-none gap-2 shadow-saas bg-[#0A2030] hover:bg-[#071520] text-white text-xs sm:text-sm h-9 sm:h-10"
+            >
               <Plus className="w-4 h-4" />
               <span>Add Customer</span>
             </Button>
@@ -1215,7 +1391,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   <span className="font-semibold text-amber-600 font-mono">
                     {formatCurrency(
                       customers.reduce(
-                        (sum, c) => sum + ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || c.outstandingAmount || 0),
+                        (sum, c) => sum + (c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, (c.totalBilled || 0) - (c.totalPaid || 0))),
                         0
                       )
                     )}
@@ -1236,7 +1412,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                 <div className="text-2xl sm:text-3xl font-bold text-[#D14343] font-sans tracking-tight">
                   {formatCurrency(
                     customers.reduce(
-                      (sum, c) => sum + ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || c.outstandingAmount || 0),
+                      (sum, c) => sum + (c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, (c.totalBilled || 0) - (c.totalPaid || 0))),
                       0
                     )
                   )}
@@ -1244,7 +1420,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
               </div>
               <div className="mt-4 pt-3 border-t border-slate-200/70 space-y-0.5">
                 <div className="text-xs font-medium text-slate-500">
-                  Across {customers.filter((c) => ((c.outstandingCredit || 0) + (c.outstandingToPay || 0) || (c.outstandingAmount || 0)) > 0).length} customer accounts
+                  Across {customers.filter((c) => (c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, (c.totalBilled || 0) - (c.totalPaid || 0))) > 0).length} customer accounts
                 </div>
                 <div className="text-[11px] text-slate-400 font-medium">
                   Active pending balances
@@ -1311,7 +1487,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
             <Search className="w-4 h-4 text-slate-400 absolute left-4 top-4 pointer-events-none" />
           </div>
 
-          {/* ── SIMPLE CLEAN CUSTOMER LIST TABLE ── */}
+          {/* ── SIMPLE CLEAN CUSTOMER LIST TABLE & MOBILE CARDS ── */}
           {loading ? (
             <div className="py-12 text-center text-xs text-slate-400 font-mono">Loading customer accounts...</div>
           ) : filteredCustomers.length === 0 ? (
@@ -1319,195 +1495,330 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
               No customer accounts found. Click "Add Customer" to create one.
             </div>
           ) : (
-            <div className="border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
-                    <tr>
-                      <th
-                        onClick={() => handleSort('name')}
-                        className="px-5 py-3.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span>Customer Name</span>
-                          {sortField === 'name' ? (
-                            sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </div>
-                      </th>
-                      <th className="px-4 py-3.5">Contact Person</th>
-                      <th className="px-4 py-3.5">City & Phone</th>
-                      <th
-                        onClick={() => handleSort('totalBilled')}
-                        className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      >
-                        <div className="flex items-center justify-end gap-1.5">
-                          <span>Total Billed</span>
-                          {sortField === 'totalBilled' ? (
-                            sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('outstandingCredit')}
-                        className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      >
-                        <div className="flex items-center justify-end gap-1.5 text-amber-950">
-                          <span>Accumulated Credit</span>
-                          {sortField === 'outstandingCredit' ? (
-                            sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#D14343]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#D14343]" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </div>
-                      </th>
-                      <th
-                        onClick={() => handleSort('totalPaid')}
-                        className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
-                      >
-                        <div className="flex items-center justify-end gap-1.5">
-                          <span>Total Paid</span>
-                          {sortField === 'totalPaid' ? (
-                            sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
-                          ) : (
-                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                          )}
-                        </div>
-                      </th>
-                      <th className="px-4 py-3.5 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
-                    {sortedCustomers.map((c) => {
-                      const credDue = c.outstandingCredit ?? 0;
-                      const totPaid = c.totalPaid ?? 0;
-                      const totBilled = c.totalBilled ?? 0;
-
-                      return (
-                        <tr
-                          key={c.id}
-                          onClick={() => setSelectedCustomerId(c.id)}
-                          className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
+            <>
+              {/* Desktop Table View */}
+              <div className="hidden md:block border border-slate-200/90 rounded-2xl overflow-hidden shadow-2xs bg-white">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-[#F8FAFC] border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                      <tr>
+                        <th
+                          onClick={() => handleSort('name')}
+                          className="px-5 py-3.5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
                         >
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-2.5">
-                              <span className="font-bold text-sm text-slate-900 group-hover:text-[#0A2030] transition-colors">
-                                {c.name}
-                              </span>
-                            </div>
-                            {c.gstin && (
-                              <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                                GST: {c.gstin}
-                              </div>
-                            )}
-                          </td>
-
-                          <td className="px-4 py-4 text-slate-700">
-                            {c.contactPerson ? (
-                              <div className="flex items-center gap-1.5">
-                                <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                <span>{c.contactPerson}</span>
-                              </div>
+                          <div className="flex items-center gap-1.5">
+                            <span>Customer Name</span>
+                            {sortField === 'name' ? (
+                              sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
                             ) : (
-                              <span className="text-slate-400 italic">Not set</span>
+                              <ArrowUpDown className="w-3 h-3 text-slate-400" />
                             )}
-                          </td>
+                          </div>
+                        </th>
+                        <th className="px-4 py-3.5">Contact Person</th>
+                        <th className="px-4 py-3.5">City & Phone</th>
+                        <th
+                          onClick={() => handleSort('totalBilled')}
+                          className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                        >
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span>Total Billed</span>
+                            {sortField === 'totalBilled' ? (
+                              sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
+                            ) : (
+                              <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                            )}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => handleSort('outstandingCredit')}
+                          className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                        >
+                          <div className="flex items-center justify-end gap-1.5 text-amber-950">
+                            <span>Outstanding Credit</span>
+                            {sortField === 'outstandingCredit' ? (
+                              sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#D14343]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#D14343]" />
+                            ) : (
+                              <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                            )}
+                          </div>
+                        </th>
+                        <th
+                          onClick={() => handleSort('totalPaid')}
+                          className="px-4 py-3.5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                        >
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span>Total Paid</span>
+                            {sortField === 'totalPaid' ? (
+                              sortOrder === 'asc' ? <ArrowUp className="w-3.5 h-3.5 text-[#0A2030]" /> : <ArrowDown className="w-3.5 h-3.5 text-[#0A2030]" />
+                            ) : (
+                              <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                            )}
+                          </div>
+                        </th>
+                        <th className="px-4 py-3.5 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-800">
+                      {sortedCustomers.map((c) => {
+                        const totBilled = c.totalBilled ?? 0;
+                        const totPaid = c.totalPaid ?? 0;
+                        const credDue = c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, totBilled - totPaid);
 
-                          <td className="px-4 py-4 text-slate-600">
-                            <div className="space-y-0.5">
-                              {c.city && (
-                                <div className="flex items-center gap-1.5 font-medium">
-                                  <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                                  <span>{c.city}</span>
+                        return (
+                          <tr
+                            key={c.id}
+                            onClick={() => setSelectedCustomerId(c.id)}
+                            className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
+                          >
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-2.5">
+                                <span className="font-bold text-sm text-slate-900 group-hover:text-[#0A2030] transition-colors">
+                                  {c.name}
+                                </span>
+                              </div>
+                              {c.gstin && (
+                                <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                  GST: {c.gstin}
                                 </div>
                               )}
-                              {c.phone && (
-                                <div className="flex items-center gap-1.5 font-medium text-slate-500">
-                                  <Phone className="w-3 h-3 text-slate-400 shrink-0" />
-                                  <span>{c.phone}</span>
+                            </td>
+
+                            <td className="px-4 py-4 text-slate-700">
+                              {c.contactPerson ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  <span>{c.contactPerson}</span>
                                 </div>
+                              ) : (
+                                <span className="text-slate-400 italic">Not set</span>
                               )}
-                            </div>
-                          </td>
+                            </td>
 
-                          <td className="px-4 py-4 text-right font-bold font-mono text-slate-900">
-                            {formatCurrency(totBilled)}
-                          </td>
+                            <td className="px-4 py-4 text-slate-600">
+                              <div className="space-y-0.5">
+                                {c.city && (
+                                  <div className="flex items-center gap-1.5 font-medium">
+                                    <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span>{c.city}</span>
+                                  </div>
+                                )}
+                                {c.phone && (
+                                  <div className="flex items-center gap-1.5 font-medium text-slate-500">
+                                    <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span>{c.phone}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
 
-                          <td className="px-4 py-4 text-right">
-                            {credDue > 0 ? (
-                              <span className="inline-flex items-center gap-1 font-bold text-[#D14343] font-mono bg-red-50 px-2 py-0.5 rounded border border-red-200/60">
-                                <AlertCircle className="w-3 h-3 shrink-0" />
-                                {formatCurrency(credDue)}
-                              </span>
-                            ) : (
-                              <span className="font-semibold text-slate-400 font-mono">₹0.00</span>
-                            )}
-                          </td>
+                            <td className="px-4 py-4 text-right font-bold font-mono text-slate-900">
+                              {formatCurrency(totBilled)}
+                            </td>
 
-                          <td className="px-4 py-4 text-right font-semibold text-slate-800 font-mono">
-                            {formatCurrency(totPaid)}
-                          </td>
+                            <td className="px-4 py-4 text-right">
+                              {credDue > 0 ? (
+                                <span className="inline-flex items-center gap-1 font-bold text-[#D14343] font-mono bg-red-50 px-2 py-0.5 rounded border border-red-200/60">
+                                  <AlertCircle className="w-3 h-3 shrink-0" />
+                                  {formatCurrency(credDue)}
+                                </span>
+                              ) : (
+                                <span className="font-semibold text-slate-400 font-mono">₹0.00</span>
+                              )}
+                            </td>
 
-                          <td className="px-4 py-4 text-center">
-                            <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                              {onSelectCustomer ? (
-                                <Button size="sm" variant="outline" onClick={() => onSelectCustomer(c)} className="text-xs shadow-saas">
-                                  Select
+                            <td className="px-4 py-4 text-right font-semibold text-slate-800 font-mono">
+                              {formatCurrency(totPaid)}
+                            </td>
+
+                            <td className="px-4 py-4 text-center">
+                              <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                {onSelectCustomer ? (
+                                  <Button size="sm" variant="outline" onClick={() => onSelectCustomer(c)} className="text-xs shadow-saas">
+                                    Select
+                                  </Button>
+                                ) : null}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setSelectedCustomerId(c.id)}
+                                  aria-label={`View details for ${c.name}`}
+                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                                >
+                                  <Eye className="w-4 h-4 text-slate-700" />
+                                  <span>Details</span>
                                 </Button>
-                              ) : null}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setSelectedCustomerId(c.id)}
-                                className="h-8 px-2.5 text-xs font-semibold gap-1.5 bg-[#0A2030]/5 text-[#0A2030] border-[#0A2030]/20 hover:bg-[#0A2030] hover:text-white transition-all shadow-2xs"
-                              >
-                                <Eye className="w-4 h-4" />
-                                <span>Details</span>
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => openEditForm(c)}
-                                aria-label={`Edit ${c.name}`}
-                                className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
-                              >
-                                <Pencil className="w-4 h-4 text-slate-700" />
-                                <span>Edit</span>
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
-                                aria-label={`Delete ${c.name}`}
-                                className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
-                              >
-                                <Trash2 className="w-4 h-4 text-red-600" />
-                                <span>Delete</span>
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => openEditForm(c)}
+                                  aria-label={`Edit ${c.name}`}
+                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                                >
+                                  <Pencil className="w-4 h-4 text-slate-700" />
+                                  <span>Edit</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
+                                  aria-label={`Delete ${c.name}`}
+                                  className="h-8 px-2.5 text-xs font-semibold gap-1.5 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-600" />
+                                  <span>Delete</span>
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+
+              {/* Mobile Cards List View */}
+              <div className="block md:hidden space-y-3">
+                {sortedCustomers.map((c) => {
+                  const totBilled = c.totalBilled ?? 0;
+                  const totPaid = c.totalPaid ?? 0;
+                  const credDue = c.outstandingCredit !== undefined ? c.outstandingCredit : Math.max(0, totBilled - totPaid);
+
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setSelectedCustomerId(c.id)}
+                      className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs hover:border-slate-300 transition-all cursor-pointer active:scale-[0.99] space-y-3"
+                    >
+                      {/* Top: Customer Name & Credit Badge */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-sm text-slate-900 truncate">
+                            {c.name}
+                          </div>
+                          {c.gstin && (
+                            <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
+                              GST: {c.gstin}
+                            </div>
+                          )}
+                        </div>
+                        {credDue > 0 ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-xs text-[#D14343] font-mono bg-red-50 px-2 py-0.5 rounded-full border border-red-200/60 shrink-0">
+                            <AlertCircle className="w-3 h-3 shrink-0" />
+                            Due {formatCurrency(credDue)}
+                          </span>
+                        ) : (
+                          <Badge variant="success" className="text-[10px] shrink-0 font-medium">
+                            Clear
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Contact & Location pill row */}
+                      {(c.contactPerson || c.city || c.phone) && (
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 bg-[#F8FAFC] p-2.5 rounded-xl border border-slate-100">
+                          {c.contactPerson && (
+                            <div className="flex items-center gap-1.5 truncate">
+                              <Users className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate">{c.contactPerson}</span>
+                            </div>
+                          )}
+                          {c.city && (
+                            <div className="flex items-center gap-1.5">
+                              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>{c.city}</span>
+                            </div>
+                          )}
+                          {c.phone && (
+                            <div className="flex items-center gap-1.5 text-slate-500 font-mono">
+                              <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>{c.phone}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 3-Metric Financial Box */}
+                      <div className="grid grid-cols-3 gap-2 bg-[#F8FAFC]/90 p-2.5 rounded-xl border border-slate-100 text-center">
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Billed</div>
+                          <div className="text-xs font-bold text-slate-800 font-mono mt-0.5 truncate">
+                            {formatCurrency(totBilled)}
+                          </div>
+                        </div>
+                        <div className="border-x border-slate-200/60 px-1">
+                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Paid</div>
+                          <div className="text-xs font-bold text-emerald-700 font-mono mt-0.5 truncate">
+                            {formatCurrency(totPaid)}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Outstanding</div>
+                          <div className={`text-xs font-bold font-mono mt-0.5 truncate ${credDue > 0 ? 'text-[#D14343]' : 'text-slate-500'}`}>
+                            {formatCurrency(credDue)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Mobile Action Buttons */}
+                      <div className="flex items-center gap-1.5 pt-0.5" onClick={(e) => e.stopPropagation()}>
+                        {onSelectCustomer && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onSelectCustomer(c)}
+                            className="flex-1 text-xs h-8 shadow-2xs font-semibold"
+                          >
+                            Select
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setSelectedCustomerId(c.id)}
+                          aria-label={`View details for ${c.name}`}
+                          className="flex-1 h-8 px-2 text-xs font-semibold gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-slate-700" />
+                          <span>Details</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openEditForm(c)}
+                          aria-label={`Edit ${c.name}`}
+                          className="h-8 px-2.5 text-xs font-semibold gap-1 border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-slate-700" />
+                          <span>Edit</span>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => { setDeleteTarget(c); setDeleteError(null); }}
+                          aria-label={`Delete ${c.name}`}
+                          className="h-8 px-2.5 text-xs font-semibold gap-1 border-red-200 text-red-600 hover:bg-red-50 shadow-2xs"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                          <span>Delete</span>
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
 
       {/* ── NEW / EDIT CUSTOMER MODAL ── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <Card className="w-full max-w-lg bg-white border border-slate-200/90 shadow-2xl rounded-3xl p-6">
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <Card className="w-full max-w-lg bg-white border border-slate-200/90 shadow-2xl rounded-2xl sm:rounded-3xl p-5 sm:p-6">
             <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
-              <CardTitle className="text-lg font-bold text-slate-900">
+              <CardTitle className="text-base sm:text-lg font-bold text-slate-900">
                 {editingCustomer ? 'Edit Customer Profile' : 'Add New Customer Account'}
               </CardTitle>
               <Button variant="ghost" size="icon" onClick={() => setShowModal(false)} aria-label="Close modal">
@@ -1528,7 +1839,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tata Consumer Products Ltd" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">Contact Person</label>
                     <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="e.g. Rajesh Sharma (Manager)" />
@@ -1539,7 +1850,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">GSTIN Number</label>
                     <Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="27AAACT2727Q1ZB" className="font-mono text-[11px]" />
@@ -1555,7 +1866,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Plot No. 12, Kagal Five Star MIDC" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block font-semibold text-slate-700 mb-1">City</label>
                     <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Kolhapur" />

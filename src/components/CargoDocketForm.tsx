@@ -5,7 +5,7 @@ import { generateInvoicePDF, QuotationRateItem } from '@/lib/pdfGenerator';
 import type { QuotationSheetDTO } from '@/components/QuotationView';
 import { computeDocketTotals, fromPaise } from '@/lib/money';
 import { PAYMENT_METHODS, type PaymentMethodLabel } from '@/lib/paymentMethod';
-import { getCompanySettings } from '@/lib/companyConfig';
+import { getCompanySettings, getActivePaymentQr } from '@/lib/companyConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CityInput } from '@/components/ui/city-input';
@@ -33,6 +33,18 @@ export interface CargoDocketFormHandle {
   isDirty: boolean;
   saveAsDraft: () => Promise<boolean>;
 }
+
+export type LRStep = 'consignor' | 'consignee' | 'route' | 'shipment' | 'transport' | 'charges' | 'payment';
+export const STEPS: LRStep[] = ['consignor', 'consignee', 'route', 'shipment', 'transport', 'charges', 'payment'];
+export const STEP_LABELS: Record<LRStep, string> = {
+  consignor: 'Consignor',
+  consignee: 'Consignee',
+  route: 'Route & Date',
+  shipment: 'Shipment',
+  transport: 'Transport',
+  charges: 'Charges',
+  payment: 'Payment',
+};
 
 const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(function CargoDocketForm(
   { onCreated, onBack, draftId, initialData, onDraftSaved, editDocketId },
@@ -75,9 +87,20 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     return cityMatch.find((s) => s.is_default) || cityMatch[0] || ofType.find((s) => s.is_default) || null;
   }
 
-  // Form State — lazily seeded from initialData when resuming a draft, so a
+  const parseInitialDate = (d?: string) => {
+    if (!d) return new Date().toISOString().split('T')[0];
+    if (d.includes('T')) return d.split('T')[0];
+    return d;
+  };
+
+  // Form State — lazily seeded from initialData when resuming a draft or editing an LR, so a
   // hydration effect (and its timing headaches) isn't needed.
-  const [bookingDate, setBookingDate] = useState(initialData?.booking_date || new Date().toISOString().split('T')[0]);
+  const [currentStep, setCurrentStep] = useState<LRStep>(
+    (initialData?.current_step && STEPS.includes(initialData.current_step))
+      ? (initialData.current_step as LRStep)
+      : 'consignor'
+  );
+  const [bookingDate, setBookingDate] = useState(parseInitialDate(initialData?.booking_date));
   const [transportMode, setTransportMode] = useState<'Road' | 'Air' | 'Train'>(initialData?.transport_mode || 'Road');
   const [isInternational, setIsInternational] = useState<boolean>(Boolean(initialData?.is_international));
   const [fromCity, setFromCity] = useState(initialData?.from_city || defaultOriginCity);
@@ -296,6 +319,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     physical_docket_no: physicalDocketNo,
     customer_code: customerCode,
     is_international: isInternational,
+    current_step: currentStep,
   });
 
   // Captured once on mount (from initialData, or blank defaults for a new LR)
@@ -444,22 +468,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
     }
   };
 
-  // ─── Step-based flow ─────────────────────────────────────────────────────
-  type LRStep = 'consignor' | 'consignee' | 'route' | 'shipment' | 'transport' | 'charges' | 'payment';
-  const STEPS: LRStep[] = ['consignor', 'consignee', 'route', 'shipment', 'transport', 'charges', 'payment'];
-  const STEP_LABELS: Record<LRStep, string> = {
-    consignor: 'Consignor',
-    consignee: 'Consignee',
-    route: 'Route & Date',
-    shipment: 'Shipment',
-    transport: 'Transport',
-    charges: 'Charges',
-    payment: 'Payment',
-  };
-
   const company = getCompanySettings();
 
-  const [currentStep, setCurrentStep] = useState<LRStep>('consignor');
   const [consignorMode, setConsignorMode] = useState<'select' | 'new'>('select');
   const [consigneeMode, setConsigneeMode] = useState<'select' | 'new'>('select');
   const [consignorOpen, setConsignorOpen] = useState(false);
@@ -603,7 +613,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
       : { transition: 'outline 0.25s' };
 
   const renderLRDocumentPreview = (customDocketNo?: string, noHighlight: boolean = false, disableZoom: boolean = false) => {
-    const docNo = customDocketNo || (isEditing ? (editDocketId?.slice(0, 8) ?? '—') : 'LR-2026-01053');
+    const docNo = customDocketNo || initialData?.docket_no || (isEditing ? (editDocketId?.slice(0, 8) ?? '—') : 'LR-2026-01053');
     const zoomTarget = (!disableZoom && autoZoom && !noHighlight) ? STEP_ZOOM_TARGETS[currentStep] : null;
 
     return (
@@ -972,40 +982,51 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
             </div>
 
             {/* QR & Signatures */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '2px 3px', gap: 2, minHeight: 28 }}>
-              {/* QR */}
-              <div style={{ fontSize: 4, color: labelCol, display: 'flex', gap: 2, alignItems: 'center' }}>
-                <div style={{ width: 22, height: 22, border: `0.4px solid ${borderCol}`, padding: 1, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
-                    <path fill={inkCol} d="M2,2H10V10H2V2M4,4V8H8V4H4M14,2H22V10H14V2M16,4V8H20V4H16M2,14H10V22H2V14M4,16V20H8V16H4M14,14H17V17H14V14M19,14H22V17H19V14M17,17H19V19H17V17M14,19H17V22H14V19M19,19H22V22H19V19Z" />
-                  </svg>
-                </div>
-                <div>
-                  <div style={{ fontWeight: 800, color: inkCol, fontSize: 4.5 }}>PAYMENT QR CODE</div>
-                  <div>GPay: {company.gpayNo}</div>
-                  <div>UPI: {company.gpayNo}@upi</div>
-                  <div style={{ fontWeight: 700, color: inkCol }}>Scan & Pay</div>
-                </div>
-              </div>
+            {(() => {
+              const activeQr = getActivePaymentQr(company);
+              const qrDisplayUpi = activeQr.upiId || company.upiId;
+              const qrDisplayGpay = activeQr.gpayNo || company.gpayNo;
+              return (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '2px 3px', gap: 2, minHeight: 28 }}>
+                  {/* QR */}
+                  <div style={{ fontSize: 4, color: labelCol, display: 'flex', gap: 2, alignItems: 'center' }}>
+                    <div style={{ width: 22, height: 22, border: `0.4px solid ${borderCol}`, padding: 1, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                      {activeQr.qrCodeUrl ? (
+                        <img src={activeQr.qrCodeUrl} alt="UPI QR" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      ) : (
+                        <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
+                          <path fill={inkCol} d="M2,2H10V10H2V2M4,4V8H8V4H4M14,2H22V10H14V2M16,4V8H20V4H16M2,14H10V22H2V14M4,16V20H8V16H4M14,14H17V17H14V14M19,14H22V17H19V14M17,17H19V19H17V17M14,19H17V22H14V19M19,19H22V22H19V19Z" />
+                        </svg>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 800, color: inkCol, fontSize: 4.5 }}>PAYMENT QR CODE</div>
+                      {qrDisplayGpay && <div>GPay: {qrDisplayGpay}</div>}
+                      {qrDisplayUpi && <div>UPI: {qrDisplayUpi}</div>}
+                      <div style={{ fontWeight: 700, color: inkCol }}>Scan & Pay</div>
+                    </div>
+                  </div>
 
-              {/* Staff Signature */}
-              <div style={{ fontSize: 4.5, textAlign: 'center', color: labelCol, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                <div style={{ height: 16, border: `0.4px solid ${borderCol}`, borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                  {includeStaffSignature && company.staffSignatureUrl ? (
-                    <img src={company.staffSignatureUrl} alt="Staff Sign" style={{ maxHeight: 14, maxWidth: '100%', objectFit: 'contain' }} />
-                  ) : null}
-                </div>
-                <div>SIGNATURE OF BOOKING STAFF</div>
-              </div>
+                  {/* Staff Signature */}
+                  <div style={{ fontSize: 4.5, textAlign: 'center', color: labelCol, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div style={{ height: 16, border: `0.4px solid ${borderCol}`, borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      {includeStaffSignature && company.staffSignatureUrl ? (
+                        <img src={company.staffSignatureUrl} alt="Staff Sign" style={{ maxHeight: 14, maxWidth: '100%', objectFit: 'contain' }} />
+                      ) : null}
+                    </div>
+                    <div>SIGNATURE OF BOOKING STAFF</div>
+                  </div>
 
-              {/* Received by RCS */}
-              <div style={{ fontSize: 4, color: labelCol, lineHeight: 1.2 }}>
-                <div style={{ fontWeight: 800, color: labelCol }}>Received by RCS</div>
-                <div>Name : ................................</div>
-                <div>Date : ................ Time : ........</div>
-                <div style={{ marginTop: 2 }}>Sign of Booking Staff</div>
-              </div>
-            </div>
+                  {/* Received by RCS */}
+                  <div style={{ fontSize: 4, color: labelCol, lineHeight: 1.2 }}>
+                    <div style={{ fontWeight: 800, color: labelCol }}>Received by RCS</div>
+                    <div>Name : ................................</div>
+                    <div>Date : ................ Time : ........</div>
+                    <div style={{ marginTop: 2 }}>Sign of Booking Staff</div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -2026,7 +2047,11 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
 
       {/* Header bar */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between shrink-0">
-        <h1 className="text-base font-bold text-slate-900 font-heading">{isEditing ? 'Edit Lorry Receipt' : 'New Lorry Receipt'}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-bold text-slate-900 font-heading">
+            {isEditing ? `Edit Lorry Receipt ${initialData?.docket_no || (editDocketId ? editDocketId.slice(0, 8) : '')}` : 'New Lorry Receipt'}
+          </h1>
+        </div>
 
         <div className="flex items-center gap-3">
           {/* Draft button */}
@@ -2095,7 +2120,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                     disabled={loading}
                     className="flex items-center gap-2 px-7 h-10 rounded-xl bg-[#0A2030] hover:bg-[#071520] text-white text-sm font-bold transition-colors disabled:opacity-50 cursor-pointer"
                   >
-                    {loading ? 'Issuing...' : 'Issue Docket'}
+                    {loading ? (isEditing ? 'Saving Changes...' : 'Issuing...') : (isEditing ? 'Save Changes' : 'Issue Docket')}
                     {!loading && <ArrowRight className="w-4 h-4" />}
                   </button>
                 ) : (

@@ -20,13 +20,18 @@ export async function GET() {
       where: { createdAt: { lt: thirtyDaysAgo } },
     });
 
-    const where: Prisma.DocketDraftWhereInput = {
-      createdAt: { gte: thirtyDaysAgo },
-      createdBy: user.id,
-    };
+    const isAdmin = user.role === 'admin';
+    const where: Prisma.DocketDraftWhereInput = isAdmin
+      ? { createdAt: { gte: thirtyDaysAgo } }
+      : { createdAt: { gte: thirtyDaysAgo }, createdBy: user.id };
 
     const drafts = await prisma.docketDraft.findMany({
       where,
+      include: {
+        creator: {
+          select: { fullName: true, email: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
     });
 

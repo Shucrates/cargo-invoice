@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import { rateLimit } from '@/lib/rateLimit';
+import { verifyCsrf } from '@/lib/csrf';
 
 function serializeUser(u: { id: string; email: string; fullName: string | null; role: string; createdAt: Date }) {
   return {
@@ -70,6 +72,15 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const csrf = verifyCsrf(req);
+  if (!csrf.ok) {
+    return NextResponse.json({ error: csrf.error }, { status: 403 });
+  }
+  const rl = rateLimit(req, { limit: 20, windowMs: 60_000, namespace: 'users-post' });
+  if (!rl.ok) {
+    return NextResponse.json({ error: 'Too many requests. Please slow down.' }, { status: 429 });
+  }
+
   const session = await auth();
   const user = session?.user as { role?: string } | undefined;
   if (!user) {

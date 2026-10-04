@@ -126,6 +126,8 @@ export type Profile = {
 export type DocketDraft = {
   id: string;
   created_by: string;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
   label: string;
   data: Record<string, any>;
   created_at: string;
@@ -188,6 +190,8 @@ export type Bill = {
 export type BillDraft = {
   id: string;
   created_by: string;
+  created_by_name?: string | null;
+  created_by_email?: string | null;
   label: string;
   data: Record<string, any>;
   created_at: string;

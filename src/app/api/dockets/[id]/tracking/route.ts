@@ -39,6 +39,20 @@ function maskName(name: string): string {
   return `${parts[0]} ${parts.slice(1).map((p) => `${p[0].toUpperCase()}.`).join(' ')}`;
 }
 
+function maskPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null;
+  const clean = phone.trim();
+  if (clean.length <= 4) return clean;
+  return clean.slice(0, 4) + ' ••••• ' + clean.slice(-2);
+}
+
+function calculateEstimatedDelivery(bookingDate: Date, transportMode: string): string {
+  const days = transportMode === 'Air' ? 2 : transportMode === 'Train' ? 4 : 5;
+  const est = new Date(bookingDate);
+  est.setDate(est.getDate() + days);
+  return est.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const ip =
@@ -54,15 +68,23 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     }
 
     const { id } = await params;
-    const reference = decodeURIComponent(id.trim());
+    const rawReference = decodeURIComponent(id.trim());
+    const cleanReference = rawReference.replace(/^#+\s*/, '').trim();
 
-    // Allow looking up by Docket Number (e.g. DOC-90812 or 1554), Tracking/Waybill Number, or UUID
+    // Allow looking up by Docket Number (e.g. LR-2026-01066, #LR-2026-01066, 1554), Tracking/Waybill Number, or UUID
     const docket = await prisma.cargoDocket.findFirst({
       where: {
         OR: [
-          { id: reference },
-          { docketNo: { equals: reference, mode: 'insensitive' } },
-          { trackingNo: { equals: reference, mode: 'insensitive' } },
+          { id: rawReference },
+          ...(cleanReference && cleanReference !== rawReference ? [{ id: cleanReference }] : []),
+          { docketNo: { equals: rawReference, mode: 'insensitive' as const } },
+          ...(cleanReference && cleanReference !== rawReference
+            ? [{ docketNo: { equals: cleanReference, mode: 'insensitive' as const } }]
+            : []),
+          { trackingNo: { equals: rawReference, mode: 'insensitive' as const } },
+          ...(cleanReference && cleanReference !== rawReference
+            ? [{ trackingNo: { equals: cleanReference, mode: 'insensitive' as const } }]
+            : []),
         ],
       },
     });
@@ -162,16 +184,28 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         // `false` tells the UI to label the timeline as booking-record only.
         is_live_feed: checkpoints.length > (docket.status === 'voided' ? 2 : 1),
         booking_date: docket.bookingDate.toISOString().split('T')[0],
+        estimated_delivery: calculateEstimatedDelivery(docket.bookingDate, docket.transportMode),
         transport_mode: docket.transportMode,
         courier_partner: docket.courierPartner || 'Self Network',
         tracking_no: docket.trackingNo || 'N/A',
         from_city: docket.fromCity,
         to_city: docket.toCity,
         consignor_name: maskName(docket.consignorName),
+        consignor_address: docket.consignorAddress || `${docket.fromCity} Industrial Area`,
+        consignor_pin: docket.consignorPin || null,
+        consignor_phone: maskPhone(docket.consignorPhone),
         consignee_name: maskName(docket.consigneeName),
+        consignee_address: docket.consigneeAddress || `${docket.toCity} Commercial Depot`,
+        consignee_pin: docket.consigneePin || null,
+        consignee_phone: maskPhone(docket.consigneePhone),
         package_count: docket.packageCount,
+        packing_method: docket.packingMethod || 'Standard Cargo Packaging',
+        actual_weight_kg: Number(docket.actualWeightKg ?? 0),
         charged_weight_kg: Number(docket.chargedWeightKg ?? 0),
-        goods_description: docket.goodsDescription || 'General Cargo',
+        goods_description: docket.goodsDescription || 'General Commercial Freight',
+        payment_mode: docket.paymentMode || 'To Pay',
+        eway_bill_no: docket.ewayBillNo || null,
+        invoice_no: docket.invoiceNo || null,
         checkpoints,
       },
       { headers: { 'Cache-Control': 'no-store' } }
