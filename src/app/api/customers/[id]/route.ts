@@ -174,18 +174,33 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    if (!session?.user) {
+    const user = session?.user as { id?: string; role?: string } | undefined;
+    if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { id } = await params;
     const body = await req.json();
 
+    if (
+      user.role !== 'admin' &&
+      (body.creditLimit !== undefined || body.paymentTermsDays !== undefined)
+    ) {
+      return NextResponse.json(
+        { error: 'Only admins can change credit limit or payment terms.' },
+        { status: 403 }
+      );
+    }
+
+    // Fields left out of the request keep their current value.
+    const hasContactPerson = body.contactPerson !== undefined;
+    const hasNotes = body.notes !== undefined;
+
     const [updated] = await prisma.$queryRaw<any[]>`
       UPDATE "customers"
       SET 
         name = COALESCE(${body.name?.trim() || null}, name),
-        contact_person = ${body.contactPerson !== undefined ? body.contactPerson?.trim() || null : null},
+        contact_person = CASE WHEN ${hasContactPerson} THEN ${body.contactPerson?.trim() || null} ELSE contact_person END,
         address = COALESCE(${body.address?.trim() || null}, address),
         city = COALESCE(${body.city?.trim() || null}, city),
         pin_code = COALESCE(${body.pinCode?.trim() || body.pin_code?.trim() || null}, pin_code),
@@ -194,11 +209,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
         email = COALESCE(${body.email?.trim() || null}, email),
         payment_terms_days = COALESCE(${body.paymentTermsDays ? Number(body.paymentTermsDays) : null}, payment_terms_days),
         credit_limit = COALESCE(${body.creditLimit !== undefined ? Number(body.creditLimit) : null}, credit_limit),
-        notes = ${body.notes !== undefined ? body.notes?.trim() || null : null},
+        notes = CASE WHEN ${hasNotes} THEN ${body.notes?.trim() || null} ELSE notes END,
         updated_at = NOW()
       WHERE id = ${id}
       RETURNING id, code, name, contact_person as "contactPerson", address, city, pin_code as "pinCode", phone, gstin, email, payment_terms_days as "paymentTermsDays", credit_limit::float8 as "creditLimit", notes;
     `;
+
+    if (!updated) {
+      return NextResponse.json({ error: 'Customer not found.' }, { status: 404 });
+    }
 
     return NextResponse.json(updated);
   } catch (error: any) {

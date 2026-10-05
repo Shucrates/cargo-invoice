@@ -46,14 +46,16 @@ export function verifyCsrf(req: Request): CsrfResult {
     return { ok: true };
   }
 
-  const allowedHost = getAllowedHost();
-  if (!allowedHost) {
-    // If NEXTAUTH_URL is not configured at all, skip the check and log a warning
-    // so the developer is alerted rather than silently breaking the app.
-    console.warn(
-      '[CSRF] NEXTAUTH_URL is not set — cannot verify request origin. ' +
-        'Set NEXTAUTH_URL in your environment to enable CSRF protection.'
-    );
+  // Same-origin requests are always allowed: a browser will not let a
+  // third-party page set the Host header, so Origin === Host means the request
+  // came from a page on this deployment (admin.*, a vercel.app URL, localhost).
+  const allowedHosts = new Set<string>();
+  const configuredHost = getAllowedHost();
+  if (configuredHost) allowedHosts.add(configuredHost);
+  const requestHost = (req.headers as Headers).get('x-forwarded-host') || (req.headers as Headers).get('host');
+  if (requestHost) allowedHosts.add(requestHost.split(',')[0].trim());
+  if (allowedHosts.size === 0) {
+    console.warn('[CSRF] Neither NEXTAUTH_URL nor a Host header is available — cannot verify request origin.');
     return { ok: true };
   }
 
@@ -63,7 +65,7 @@ export function verifyCsrf(req: Request): CsrfResult {
   if (originHeader) {
     try {
       const originHost = new URL(originHeader).host;
-      if (originHost !== allowedHost) {
+      if (!allowedHosts.has(originHost)) {
         return { ok: false, error: `Forbidden: request origin "${originHost}" is not allowed.` };
       }
       return { ok: true };
@@ -75,7 +77,7 @@ export function verifyCsrf(req: Request): CsrfResult {
   if (refererHeader) {
     try {
       const refererHost = new URL(refererHeader).host;
-      if (refererHost !== allowedHost) {
+      if (!allowedHosts.has(refererHost)) {
         return { ok: false, error: `Forbidden: request referer "${refererHost}" is not allowed.` };
       }
       return { ok: true };

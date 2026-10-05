@@ -46,6 +46,14 @@ interface AuditEntry {
   created_at: string;
 }
 
+const AUDIT_ACTION_LABELS: Record<string, string> = {
+  created: 'LR Created',
+  edited: 'LR Edited',
+  voided: 'LR Voided',
+  tracking_edited: 'Tracking Update Edited',
+  tracking_deleted: 'Tracking Update Deleted',
+};
+
 /** Turns snake_case audit field keys into the labels shown on the form. */
 const FIELD_LABELS: Record<string, string> = {
   booking_date: 'Booking Date',
@@ -490,7 +498,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
                     <div key={entry.id} className="text-xs space-y-0.5 py-1">
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-bold text-slate-800 flex items-center gap-1">
-                          {entry.action === 'created' ? 'LR Created' : entry.action === 'edited' ? 'LR Edited' : 'LR Voided'}
+                          {AUDIT_ACTION_LABELS[entry.action] ?? entry.action}
                         </span>
                         <span className="text-[10px] text-slate-400 font-mono">
                           {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}

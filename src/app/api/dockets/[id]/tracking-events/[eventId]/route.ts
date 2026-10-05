@@ -36,7 +36,7 @@ export async function PATCH(
 ) {
   try {
     const session = await auth();
-    const user = session?.user as { id?: string } | undefined;
+    const user = session?.user as { id?: string; role?: string } | undefined;
     if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -51,6 +51,12 @@ export async function PATCH(
     }
     if (existing.docket.status === 'voided') {
       return NextResponse.json({ error: 'Voided LRs cannot be updated.' }, { status: 409 });
+    }
+    if (existing.createdBy !== user.id && user.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Only the person who added this update or an admin can change it.' },
+        { status: 403 }
+      );
     }
 
     const body = await req.json();
@@ -80,10 +86,25 @@ export async function PATCH(
       data.eventAt = eventAt;
     }
 
-    const updated = await prisma.docketTrackingEvent.update({
-      where: { id: eventId },
-      data,
-      include: { creator: { select: { fullName: true, email: true } } },
+    const updated = await prisma.$transaction(async (tx) => {
+      const row = await tx.docketTrackingEvent.update({
+        where: { id: eventId },
+        data,
+        include: { creator: { select: { fullName: true, email: true } } },
+      });
+      await tx.docketAuditLog.create({
+        data: {
+          docketId: id,
+          action: 'tracking_edited',
+          changes: [
+            { field: 'tracking_status', from: existing.status, to: row.status },
+            { field: 'tracking_location', from: existing.location, to: row.location },
+            { field: 'tracking_event_at', from: existing.eventAt.toISOString(), to: row.eventAt.toISOString() },
+          ],
+          performedBy: user.id!,
+        },
+      });
+      return row;
     });
     // event_at may have changed too, which can change which event is latest.
     await syncDeliveryStatus(id);
@@ -101,7 +122,7 @@ export async function DELETE(
 ) {
   try {
     const session = await auth();
-    const user = session?.user as { id?: string } | undefined;
+    const user = session?.user as { id?: string; role?: string } | undefined;
     if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -117,8 +138,28 @@ export async function DELETE(
     if (existing.docket.status === 'voided') {
       return NextResponse.json({ error: 'Voided LRs cannot be updated.' }, { status: 409 });
     }
+    if (existing.createdBy !== user.id && user.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Only the person who added this update or an admin can change it.' },
+        { status: 403 }
+      );
+    }
 
-    await prisma.docketTrackingEvent.delete({ where: { id: eventId } });
+    await prisma.$transaction([
+      prisma.docketTrackingEvent.delete({ where: { id: eventId } }),
+      prisma.docketAuditLog.create({
+        data: {
+          docketId: id,
+          action: 'tracking_deleted',
+          changes: [
+            { field: 'tracking_status', from: existing.status, to: null },
+            { field: 'tracking_location', from: existing.location, to: null },
+            { field: 'tracking_event_at', from: existing.eventAt.toISOString(), to: null },
+          ],
+          performedBy: user.id!,
+        },
+      }),
+    ]);
     await syncDeliveryStatus(id);
 
     return NextResponse.json({ success: true });

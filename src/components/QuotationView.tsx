@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import {
   FileSpreadsheet,
   Download,
@@ -66,6 +67,8 @@ const SEED_NOTES: Record<SheetType, string[]> = {
 };
 
 export default function QuotationView() {
+  const { data: session } = useSession();
+  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
   const settings = getCompanySettings();
   const [activeType, setActiveType] = useState<SheetType>('ROAD_RAIL');
   const [activeCity, setActiveCity] = useState<string>(settings.defaultOriginCity || 'Mumbai');
@@ -990,6 +993,7 @@ export default function QuotationView() {
                 </label>
               </div>
 
+              {isAdmin && (
               <div className="flex items-center gap-2">
                 <Button
                   onClick={handleDeleteSheet}
@@ -1000,6 +1004,7 @@ export default function QuotationView() {
                   <span className="text-red-600 font-semibold">Delete Sheet</span>
                 </Button>
               </div>
+              )}
             </div>
 
             {/* Quick Metrics Bar */}

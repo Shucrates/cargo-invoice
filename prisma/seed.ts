@@ -4,11 +4,17 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  const hashedPassword = await bcrypt.hash('password123', 10);
+  // Never ship a known password. The seed only creates these accounts if they
+  // are missing; it does not reset passwords on existing ones.
+  const seedPassword = process.env.SEED_USER_PASSWORD;
+  if (!seedPassword || seedPassword.length < 12) {
+    throw new Error('Set SEED_USER_PASSWORD (at least 12 characters) before running the seed.');
+  }
+  const hashedPassword = await bcrypt.hash(seedPassword, 10);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@rudracargo.com' },
-    update: { hashedPassword },
+    update: {},
     create: {
       email: 'admin@rudracargo.com',
       hashedPassword,
@@ -19,7 +25,7 @@ async function main() {
 
   const staff = await prisma.user.upsert({
     where: { email: 'test@rudracargo.com' },
-    update: { hashedPassword },
+    update: {},
     create: {
       email: 'test@rudracargo.com',
       hashedPassword,

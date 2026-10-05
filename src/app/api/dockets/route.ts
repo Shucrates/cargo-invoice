@@ -355,7 +355,6 @@ export async function POST(req: Request) {
     );
   } catch (error: unknown) {
     console.error('Error creating docket:', error);
-    const message = error instanceof Error ? error.message : 'Failed to create docket';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create docket' }, { status: 500 });
   }
 }

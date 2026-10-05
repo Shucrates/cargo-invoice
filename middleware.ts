@@ -1,10 +1,21 @@
 import NextAuth from 'next-auth';
 import { NextResponse } from 'next/server';
 import { authConfig } from '@/auth.config';
+import { verifyCsrf } from '@/lib/csrf';
 
 const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
+  // API routes check their own sessions; here we only reject cross-site
+  // mutating requests. NextAuth's own endpoints carry their own CSRF token.
+  if (req.nextUrl.pathname.startsWith('/api/')) {
+    if (!req.nextUrl.pathname.startsWith('/api/auth/')) {
+      const csrf = verifyCsrf(req);
+      if (!csrf.ok) return NextResponse.json({ error: csrf.error }, { status: 403 });
+    }
+    return;
+  }
+
   const host = req.headers.get('host') || '';
   const url = req.nextUrl.clone();
 
@@ -48,11 +59,10 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except for:
-     * - api routes
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico, images, fonts
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

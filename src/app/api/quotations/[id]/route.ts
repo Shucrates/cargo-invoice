@@ -94,9 +94,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const session = await auth();
-    const user = session?.user as { id?: string } | undefined;
+    const user = session?.user as { id?: string; role?: string } | undefined;
     if (!user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    if (user.role !== 'admin') {
+      return NextResponse.json({ error: 'Only admins can delete quotation sheets.' }, { status: 403 });
     }
 
     const { id } = await params;

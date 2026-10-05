@@ -13,6 +13,28 @@ const DUMMY_HASH = '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
+  callbacks: {
+    ...authConfig.callbacks,
+    // The edge middleware uses authConfig's jwt callback and only checks that a
+    // session exists. Server-side reads (API routes, pages) go through this one,
+    // which re-reads the user so a deleted or demoted account loses access
+    // immediately instead of keeping its sign-in role until the token expires.
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id;
+        token.role = (user as { role?: string }).role || 'staff';
+        return token;
+      }
+      if (!token.id) return null;
+      const current = await prisma.user.findUnique({
+        where: { id: token.id as string },
+        select: { role: true },
+      });
+      if (!current) return null;
+      token.role = current.role;
+      return token;
+    },
+  },
   providers: [
     Credentials({
       name: 'Credentials',

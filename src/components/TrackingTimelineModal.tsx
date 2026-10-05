@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
 import { X, Plus, Pencil, Trash2, MapPin, Truck } from 'lucide-react';
 import { CargoDocket } from '@/types/cargo';
 import { DELIVERY_STATUSES } from '@/lib/deliveryStatus';
+import { notify } from '@/lib/notify';
 
 interface TrackingEvent {
   id: string;
@@ -12,6 +14,7 @@ interface TrackingEvent {
   location: string;
   description: string;
   event_at: string;
+  created_by: string;
   created_by_name: string;
 }
 
@@ -28,6 +31,10 @@ interface Props {
 }
 
 export default function TrackingTimelineModal({ docket, onClose }: Props) {
+  const { data: session } = useSession();
+  const sessionUser = session?.user as { id?: string; role?: string } | undefined;
+  const canModify = (ev: TrackingEvent) =>
+    sessionUser?.role === 'admin' || ev.created_by === sessionUser?.id;
   const [events, setEvents] = useState<TrackingEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,12 +129,16 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
       const res = await fetch(`/api/dockets/${docket.id}/tracking-events/${deleteTarget.id}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
-        setEvents((prev) => prev.filter((e) => e.id !== deleteTarget.id));
-        setDeleteTarget(null);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to delete checkpoint');
       }
+      setEvents((prev) => prev.filter((e) => e.id !== deleteTarget.id));
+      setDeleteTarget(null);
     } catch (err) {
       console.error('Failed to delete tracking event:', err);
+      notify(err instanceof Error ? err.message : 'Failed to delete checkpoint');
+      setDeleteTarget(null);
     } finally {
       setDeleting(false);
     }
@@ -195,6 +206,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
                         <span className="font-semibold text-slate-600">{ev.created_by_name}</span>
                       </div>
                     </div>
+                    {canModify(ev) && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => openEditForm(ev)}
@@ -211,6 +223,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    )}
                   </div>
                 </div>
               ))}
