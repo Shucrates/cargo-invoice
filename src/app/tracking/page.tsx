@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import {
   Search,
   Truck,
@@ -152,24 +151,24 @@ function TrackingContent() {
         <img
           src="/images/tracking-hero.jpg"
           alt=""
-          className="absolute inset-0 w-full h-full object-cover object-[60%_100%]"
+          className="absolute inset-0 w-full h-full object-cover object-[76%_100%] sm:object-[60%_100%]"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/45 via-slate-950/10 to-transparent" />
 
         <header className="relative z-10 w-full px-4 sm:px-10 py-5 sm:py-6">
           <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-            <Link href="/" className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0">
               <span className="bg-white rounded-xl p-1.5 shadow-sm shrink-0">
                 <img src="/rudra-logo.png" alt="Rudra Cargo" className="h-8 sm:h-9 w-auto object-contain" />
               </span>
               <span className="text-white text-sm sm:text-lg font-semibold tracking-tight truncate">
                 Rudra Cargo<span className="hidden sm:inline"> &amp; Transport Nx</span>
               </span>
-            </Link>
+            </div>
             <button
               type="button"
               onClick={() => setShowContactModal(true)}
-              className="shrink-0 h-10 px-4 rounded-xl bg-white/15 hover:bg-white/25 border border-white/30 backdrop-blur-sm text-white text-sm font-medium transition-colors cursor-pointer"
+              className="shrink-0 text-white text-sm font-medium underline underline-offset-4 hover:text-white/80 transition-colors cursor-pointer"
             >
               Contact Us
             </button>
