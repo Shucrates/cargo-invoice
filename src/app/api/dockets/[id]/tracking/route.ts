@@ -2,13 +2,12 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { fromPaymentModeEnum } from '@/lib/paymentMethod';
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * Best-effort per-IP rate limit. This is per serverless instance and therefore
  * not a hard guarantee — it exists to blunt bulk scraping, not to be an
- * authorisation boundary. The real protection is that the reference must be a
- * UUID or a carrier waybill, neither of which is enumerable.
+ * authorisation boundary. LR numbers are sequential and therefore guessable,
+ * so the response below is limited to what a customer needs to follow their
+ * shipment: no addresses, phones, PINs, e-way bill or invoice numbers.
  */
 const RATE_LIMIT = { windowMs: 60_000, max: 20 };
 const hits = new Map<string, { count: number; resetAt: number }>();
@@ -36,15 +35,8 @@ function rateLimited(ip: string): boolean {
  */
 function maskName(name: string): string {
   const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
+  if (parts.length === 1) return `${parts[0].slice(0, 3)}•••`;
   return `${parts[0]} ${parts.slice(1).map((p) => `${p[0].toUpperCase()}.`).join(' ')}`;
-}
-
-function maskPhone(phone: string | null | undefined): string | null {
-  if (!phone) return null;
-  const clean = phone.trim();
-  if (clean.length <= 4) return clean;
-  return clean.slice(0, 4) + ' ••••• ' + clean.slice(-2);
 }
 
 function calculateEstimatedDelivery(bookingDate: Date, transportMode: string): string {
@@ -168,7 +160,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         status: 'Shipment voided',
         location: 'Central audit desk',
         datetime: (docket.voidedAt ?? docket.updatedAt).toISOString(),
-        description: `Docket voided. Reason: ${docket.voidReason || 'Not specified'}`,
+        description: 'This LR has been cancelled. Please contact us for details.',
       });
     }
 
@@ -192,21 +184,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
         from_city: docket.fromCity,
         to_city: docket.toCity,
         consignor_name: maskName(docket.consignorName),
-        consignor_address: docket.consignorAddress || `${docket.fromCity} Industrial Area`,
-        consignor_pin: docket.consignorPin || null,
-        consignor_phone: maskPhone(docket.consignorPhone),
         consignee_name: maskName(docket.consigneeName),
-        consignee_address: docket.consigneeAddress || `${docket.toCity} Commercial Depot`,
-        consignee_pin: docket.consigneePin || null,
-        consignee_phone: maskPhone(docket.consigneePhone),
         package_count: docket.packageCount,
-        packing_method: docket.packingMethod || 'Standard Cargo Packaging',
-        actual_weight_kg: Number(docket.actualWeightKg ?? 0),
         charged_weight_kg: Number(docket.chargedWeightKg ?? 0),
         goods_description: docket.goodsDescription || 'General Commercial Freight',
         payment_mode: fromPaymentModeEnum(docket.paymentMode),
-        eway_bill_no: docket.ewayBillNo || null,
-        invoice_no: docket.invoiceNo || null,
         checkpoints,
       },
       { headers: { 'Cache-Control': 'no-store' } }

@@ -42,9 +42,15 @@ export async function PATCH(
     }
 
     const { id, eventId } = await params;
-    const existing = await prisma.docketTrackingEvent.findUnique({ where: { id: eventId } });
+    const existing = await prisma.docketTrackingEvent.findUnique({
+      where: { id: eventId },
+      include: { docket: { select: { status: true } } },
+    });
     if (!existing || existing.docketId !== id) {
       return NextResponse.json({ error: 'Tracking event not found.' }, { status: 404 });
+    }
+    if (existing.docket.status === 'voided') {
+      return NextResponse.json({ error: 'Voided LRs cannot be updated.' }, { status: 409 });
     }
 
     const body = await req.json();
@@ -101,9 +107,15 @@ export async function DELETE(
     }
 
     const { id, eventId } = await params;
-    const existing = await prisma.docketTrackingEvent.findUnique({ where: { id: eventId } });
+    const existing = await prisma.docketTrackingEvent.findUnique({
+      where: { id: eventId },
+      include: { docket: { select: { status: true } } },
+    });
     if (!existing || existing.docketId !== id) {
       return NextResponse.json({ error: 'Tracking event not found.' }, { status: 404 });
+    }
+    if (existing.docket.status === 'voided') {
+      return NextResponse.json({ error: 'Voided LRs cannot be updated.' }, { status: 409 });
     }
 
     await prisma.docketTrackingEvent.delete({ where: { id: eventId } });

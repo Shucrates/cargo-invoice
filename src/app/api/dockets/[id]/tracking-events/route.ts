@@ -67,9 +67,12 @@ export async function POST(
     }
 
     const { id } = await params;
-    const docket = await prisma.cargoDocket.findUnique({ where: { id }, select: { id: true } });
+    const docket = await prisma.cargoDocket.findUnique({ where: { id }, select: { status: true } });
     if (!docket) {
       return NextResponse.json({ error: 'LR not found.' }, { status: 404 });
+    }
+    if (docket.status === 'voided') {
+      return NextResponse.json({ error: 'Voided LRs cannot be updated.' }, { status: 409 });
     }
 
     const body = await req.json();
