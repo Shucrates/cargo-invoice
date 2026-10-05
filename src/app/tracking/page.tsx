@@ -223,12 +223,11 @@ function TrackingContent() {
       </section>
 
       <main className="flex-1 w-full px-4 sm:px-6 py-10 sm:py-14 space-y-14 sm:space-y-20">
-        {trackingResult && (
+        {trackingResult ? (
           <div ref={resultsRef} className="max-w-3xl mx-auto scroll-mt-6">
             <ShipmentResult data={trackingResult} />
           </div>
-        )}
-
+        ) : (
         <section
           aria-labelledby="about-title"
           className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center"
@@ -277,6 +276,7 @@ function TrackingContent() {
             </div>
           </div>
         </section>
+        )}
       </main>
 
       <footer className="border-t border-slate-200 bg-white">
