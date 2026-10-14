@@ -247,14 +247,18 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   setDataStyle(9.5);
   doc.text(docket.consignor_name || '', marginX + 24, curY + 4);
 
-  setTemplateStyle();
-  doc.setFontSize(7.5);
-  doc.setFont('helvetica', 'normal');
-  if (docket.consignor_address) {
-    setDataStyle(8);
-    doc.text(docket.consignor_address, marginX + 2, curY + 9);
-    setTemplateStyle();
+  // CONSIGNOR ADDRESS – wrap to fit left of PIN column
+  const addrMaxW = 65; // mm available before PIN label at +70
+  const addrLineH = 3.5; // mm per extra line at 8pt
+  setDataStyle(8);
+  const addr1Lines: string[] = docket.consignor_address
+    ? doc.splitTextToSize(docket.consignor_address, addrMaxW).slice(0, 2)
+    : [];
+  if (addr1Lines.length > 0) {
+    doc.text(addr1Lines, marginX + 2, curY + 9);
   }
+  setTemplateStyle();
+  const addr1Extra = Math.max(0, addr1Lines.length - 1) * addrLineH;
 
   // PIN boxes
   const extractPinCode = (pin?: string | null, address?: string | null): string => {
@@ -266,38 +270,42 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     return pin ? pin.trim() : '';
   };
 
+  const pinRow1 = curY + 9 + addr1Extra;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.text('PIN :', marginX + 70, curY + 9);
+  doc.text('PIN :', marginX + 70, pinRow1);
   const pin1 = extractPinCode(docket.consignor_pin, docket.consignor_address).padEnd(6, ' ');
   for (let i = 0; i < 6; i++) {
     const px = marginX + 80 + i * 3.5;
-    doc.rect(px, curY + 6.5, 3.2, 3.2);
+    doc.rect(px, pinRow1 - 2.5, 3.2, 3.2);
     if (pin1[i] && pin1[i] !== ' ') {
       setDataStyle(8);
-      doc.text(pin1[i], px + 0.8, curY + 9);
+      doc.text(pin1[i], px + 0.8, pinRow1);
       setTemplateStyle();
     }
   }
 
-  doc.text('PH. :', marginX + 70, curY + 14);
+  const cstRow1 = curY + 14 + addr1Extra;
+  doc.text('PH. :', marginX + 70, cstRow1);
   if (docket.consignor_phone) {
     setDataStyle(8);
-    doc.text(docket.consignor_phone, marginX + 77, curY + 14);
+    doc.text(docket.consignor_phone, marginX + 77, cstRow1);
     setTemplateStyle();
   }
 
-  doc.text('CST/LST No./TIN No. :', marginX + 2, curY + 14);
+  doc.text('CST/LST No./TIN No. :', marginX + 2, cstRow1);
   if (docket.consignor_gstin) {
     setDataStyle(8);
-    doc.text(docket.consignor_gstin, marginX + 32, curY + 14);
+    doc.text(docket.consignor_gstin, marginX + 32, cstRow1);
     setTemplateStyle();
   }
 
-  doc.line(marginX, curY + 16, rightColX, curY + 16);
+  const sec1H = 16 + addr1Extra;
+  doc.line(marginX, curY + sec1H, rightColX, curY + sec1H);
 
   // --- 2. CONSIGNEE BOX ---
-  curY += 16;
+  curY += sec1H;
+
   setTemplateStyle();
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
@@ -307,47 +315,54 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   setDataStyle(9.5);
   doc.text(docket.consignee_name || '', marginX + 24, curY + 4);
 
-  setTemplateStyle();
-  doc.setFontSize(7.5);
-  if (docket.consignee_address) {
-    setDataStyle(8);
-    doc.text(docket.consignee_address, marginX + 2, curY + 9);
-    setTemplateStyle();
+  // CONSIGNEE ADDRESS – wrap to fit left of PIN column
+  setDataStyle(8);
+  const addr2Lines: string[] = docket.consignee_address
+    ? doc.splitTextToSize(docket.consignee_address, addrMaxW).slice(0, 2)
+    : [];
+  if (addr2Lines.length > 0) {
+    doc.text(addr2Lines, marginX + 2, curY + 9);
   }
+  setTemplateStyle();
+  const addr2Extra = Math.max(0, addr2Lines.length - 1) * addrLineH;
 
   // PIN boxes
+  const pinRow2 = curY + 9 + addr2Extra;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
-  doc.text('PIN :', marginX + 70, curY + 9);
+  doc.text('PIN :', marginX + 70, pinRow2);
   const pin2 = extractPinCode(docket.consignee_pin, docket.consignee_address).padEnd(6, ' ');
   for (let i = 0; i < 6; i++) {
     const px = marginX + 80 + i * 3.5;
-    doc.rect(px, curY + 6.5, 3.2, 3.2);
+    doc.rect(px, pinRow2 - 2.5, 3.2, 3.2);
     if (pin2[i] && pin2[i] !== ' ') {
       setDataStyle(8);
-      doc.text(pin2[i], px + 0.8, curY + 9);
+      doc.text(pin2[i], px + 0.8, pinRow2);
       setTemplateStyle();
     }
   }
 
-  doc.text('PH. :', marginX + 70, curY + 14);
+  const cstRow2 = curY + 14 + addr2Extra;
+  doc.text('PH. :', marginX + 70, cstRow2);
   if (docket.consignee_phone) {
     setDataStyle(8);
-    doc.text(docket.consignee_phone, marginX + 77, curY + 14);
+    doc.text(docket.consignee_phone, marginX + 77, cstRow2);
     setTemplateStyle();
   }
 
-  doc.text('CST/LST No./TIN No. :', marginX + 2, curY + 14);
+  doc.text('CST/LST No./TIN No. :', marginX + 2, cstRow2);
   if (docket.consignee_gstin) {
     setDataStyle(8);
-    doc.text(docket.consignee_gstin, marginX + 32, curY + 14);
+    doc.text(docket.consignee_gstin, marginX + 32, cstRow2);
     setTemplateStyle();
   }
 
-  doc.line(marginX, curY + 16, rightColX, curY + 16);
+  const sec2H = 16 + addr2Extra;
+  doc.line(marginX, curY + sec2H, rightColX, curY + sec2H);
 
   // --- 3. MODE OF DESPATCH & OCTROI GRID ---
-  curY += 16;
+  curY += sec2H;
+
   setTemplateStyle();
   doc.setFontSize(7);
   doc.setFont('helvetica', 'bold');

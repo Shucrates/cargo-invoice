@@ -765,16 +765,16 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
         {/* BODY (Split Left / Right) */}
         <div style={{ display: 'grid', gridTemplateColumns: '46% 54%', flex: 1 }}>
           {/* LEFT COLUMN */}
-          <div style={{ borderRight: `0.4px solid ${borderCol}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ borderRight: `0.4px solid ${borderCol}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
             {/* Consignor */}
             <div style={{ borderBottom: `0.4px solid ${borderCol}`, padding: '2px 4px', minHeight: 25, ...(noHighlight ? {} : highlight('consignor')) }}>
               <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
                 <span style={{ fontSize: 6, fontWeight: 800, color: labelCol, minWidth: 44 }}>CONSIGNOR</span>
                 <DV v={consignorName} size={7.5} />
               </div>
-              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600 }}>{consignorAddress || <Skel w={90} />}</div>
-              <div style={{ fontSize: 5, color: labelCol, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
-                <span>PIN : {renderPinBoxes(consignorPin)}</span>
+              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consignorAddress || <Skel w={90} />}</div>
+              <div style={{ fontSize: 5, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>PIN : {renderPinBoxes(consignorPin)}</span>
                 <span>PH. : <span style={{ color: inkCol, fontWeight: 700 }}>{consignorPhone || '-'}</span></span>
               </div>
               <div style={{ fontSize: 4.5, color: labelCol, marginTop: 0.5 }}>
@@ -788,9 +788,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 <span style={{ fontSize: 6, fontWeight: 800, color: labelCol, minWidth: 44 }}>CONSIGNEE</span>
                 <DV v={consigneeName} size={7.5} />
               </div>
-              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600 }}>{consigneeAddress || <Skel w={90} />}</div>
-              <div style={{ fontSize: 5, color: labelCol, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
-                <span>PIN : {renderPinBoxes(consigneePin)}</span>
+              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consigneeAddress || <Skel w={90} />}</div>
+              <div style={{ fontSize: 5, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>PIN : {renderPinBoxes(consigneePin)}</span>
                 <span>PH. : <span style={{ color: inkCol, fontWeight: 700 }}>{consigneePhone || '-'}</span></span>
               </div>
               <div style={{ fontSize: 4.5, color: labelCol, marginTop: 0.5 }}>
