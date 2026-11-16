@@ -707,12 +707,12 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 76px 96px', borderBottom: `0.4px solid ${borderCol}` }}>
           {/* Logo & Company info */}
           <div style={{ padding: '2px 4px', borderRight: `0.4px solid ${borderCol}`, display: 'flex', gap: 4, alignItems: 'center' }}>
-            <img src={RUDRA_LOGO_BASE64} alt="logo" style={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }} />
+            <img src={RUDRA_LOGO_BASE64} alt="logo" style={{ width: 30, height: 30, objectFit: 'contain', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 7.5, color: inkCol, fontWeight: 800, textTransform: 'uppercase', lineHeight: 1.1 }}>{company.tradeName}</div>
-              <div style={{ fontSize: 5, color: labelCol, marginTop: 0.5 }}>GSTIN : {company.gstin}</div>
-              <div style={{ fontSize: 4.5, color: labelCol, lineHeight: 1.2 }}>{company.address}</div>
-              <div style={{ fontSize: 4.5, color: labelCol }}>Ph: {company.phone1} | Email: {company.email}</div>
+              <div style={{ fontSize: 9.5, color: inkCol, fontWeight: 800, textTransform: 'uppercase', lineHeight: 1.1 }}>{company.tradeName}</div>
+              <div style={{ fontSize: 5.8, color: labelCol, marginTop: 0.5 }}>GSTIN : {company.gstin}</div>
+              <div style={{ fontSize: 5.3, color: labelCol, lineHeight: 1.2 }}>{company.address}</div>
+              <div style={{ fontSize: 5.3, color: labelCol }}>Ph: {company.phone1} | Email: {company.email}</div>
             </div>
           </div>
 
@@ -767,33 +767,33 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
           {/* LEFT COLUMN */}
           <div style={{ borderRight: `0.4px solid ${borderCol}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
             {/* Consignor */}
-            <div style={{ borderBottom: `0.4px solid ${borderCol}`, padding: '2px 4px', minHeight: 25, ...(noHighlight ? {} : highlight('consignor')) }}>
+            <div style={{ borderBottom: `0.4px solid ${borderCol}`, padding: '2px 4px', minHeight: 30, ...(noHighlight ? {} : highlight('consignor')) }}>
               <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
-                <span style={{ fontSize: 6, fontWeight: 800, color: labelCol, minWidth: 44 }}>CONSIGNOR</span>
-                <DV v={consignorName} size={7.5} />
+                <span style={{ fontSize: 7, fontWeight: 800, color: labelCol, minWidth: 50 }}>CONSIGNOR</span>
+                <DV v={consignorName} size={9.5} />
               </div>
-              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consignorAddress || <Skel w={90} />}</div>
-              <div style={{ fontSize: 5, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
+              <div style={{ fontSize: 6.8, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consignorAddress || <Skel w={90} />}</div>
+              <div style={{ fontSize: 6, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>PIN : {renderPinBoxes(consignorPin)}</span>
                 <span>PH. : <span style={{ color: inkCol, fontWeight: 700 }}>{consignorPhone || '-'}</span></span>
               </div>
-              <div style={{ fontSize: 4.5, color: labelCol, marginTop: 0.5 }}>
+              <div style={{ fontSize: 5.5, color: labelCol, marginTop: 0.5 }}>
                 CST/LST No./TIN No. : <span style={{ color: inkCol, fontWeight: 700 }}>{consignorGstin || '-'}</span>
               </div>
             </div>
 
             {/* Consignee */}
-            <div style={{ borderBottom: `0.4px solid ${borderCol}`, padding: '2px 4px', minHeight: 25, ...(noHighlight ? {} : highlight('consignee')) }}>
+            <div style={{ borderBottom: `0.4px solid ${borderCol}`, padding: '2px 4px', minHeight: 30, ...(noHighlight ? {} : highlight('consignee')) }}>
               <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
-                <span style={{ fontSize: 6, fontWeight: 800, color: labelCol, minWidth: 44 }}>CONSIGNEE</span>
-                <DV v={consigneeName} size={7.5} />
+                <span style={{ fontSize: 7, fontWeight: 800, color: labelCol, minWidth: 50 }}>CONSIGNEE</span>
+                <DV v={consigneeName} size={9.5} />
               </div>
-              <div style={{ fontSize: 5.5, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consigneeAddress || <Skel w={90} />}</div>
-              <div style={{ fontSize: 5, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
+              <div style={{ fontSize: 6.8, marginTop: 0.5, color: inkCol, fontWeight: 600, wordBreak: 'break-word', overflowWrap: 'break-word' }}>{consigneeAddress || <Skel w={90} />}</div>
+              <div style={{ fontSize: 6, color: labelCol, display: 'flex', flexWrap: 'wrap', gap: '2px 6px', alignItems: 'center', marginTop: 1 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 2 }}>PIN : {renderPinBoxes(consigneePin)}</span>
                 <span>PH. : <span style={{ color: inkCol, fontWeight: 700 }}>{consigneePhone || '-'}</span></span>
               </div>
-              <div style={{ fontSize: 4.5, color: labelCol, marginTop: 0.5 }}>
+              <div style={{ fontSize: 5.5, color: labelCol, marginTop: 0.5 }}>
                 CST/LST No./TIN No. : <span style={{ color: inkCol, fontWeight: 700 }}>{consigneeGstin || '-'}</span>
               </div>
             </div>
@@ -846,8 +846,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
             </div>
 
             {/* Condition of Carriage */}
-            <div style={{ padding: '2px 4px', fontSize: 4.5, color: labelCol, lineHeight: 1.4, marginTop: 'auto' }}>
-              <div style={{ fontWeight: 800, fontSize: 5, marginBottom: 0.5 }}>CONDITION OF CARRIAGE</div>
+            <div style={{ padding: '3px 4px', fontSize: 6, color: labelCol, lineHeight: 1.45, marginTop: 'auto' }}>
+              <div style={{ fontWeight: 800, fontSize: 7, marginBottom: 1 }}>CONDITION OF CARRIAGE</div>
               <div>[X] This is a Non-Negotiable Docket</div>
               <div>[X] Standard Conditions of Carriage are given on reverse</div>
               <div>[X] Liability limited to Rs. 1,000/- only</div>

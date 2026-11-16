@@ -121,23 +121,49 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   // Left Company Logo Graphic
   try {
-    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', marginX + 2, marginY + 8, 19, 18);
+    doc.addImage(RUDRA_LOGO_BASE64, 'PNG', marginX + 1, marginY + 8, 25, 24);
   } catch (e) {
     console.error('Failed to render company logo on PDF:', e);
   }
 
-  // Left Company Title (Dark Black) - Shifted to marginX + 23 to sit beside logo
-  doc.setFontSize(11);
+  // Shrink a font size until text fits the given width (keeps long values on one line)
+  const fitFontSize = (text: string, maxW: number, size: number, min: number = 6) => {
+    let s = size;
+    doc.setFontSize(s);
+    while (s > min && doc.getTextWidth(text) > maxW) {
+      s -= 0.25;
+      doc.setFontSize(s);
+    }
+    return s;
+  };
+
+  // Left Company Title (Dark Black) - beside the logo, up to the FROM/TO divider at x=130
+  const headTextX = marginX + 28;
+  const headTextW = 130 - headTextX - 1.5;
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(15, 23, 42);
-  doc.text(settings.tradeName, marginX + 23, marginY + 12);
+  fitFontSize(settings.tradeName, headTextW, 14);
+  doc.text(settings.tradeName, headTextX, marginY + 13);
 
   setTemplateStyle();
-  doc.setFontSize(7.5);
-  doc.text(`GSTIN : ${settings.gstin}`, marginX + 23, marginY + 16);
+  doc.setFontSize(8.5);
+  doc.text(`GSTIN : ${settings.gstin}`, headTextX, marginY + 17.5);
+
+  // Address + phone wrap over two lines at a larger size; email gets its own line
   doc.setFont('helvetica', 'normal');
-  doc.text(settings.address, marginX + 23, marginY + 20);
-  doc.text(`Ph: ${settings.phone1} | Email: ${settings.email}`, marginX + 23, marginY + 24);
+  const addrPhone = `${settings.address} | Ph: ${settings.phone1}`;
+  let addrSize = 9.5;
+  doc.setFontSize(addrSize);
+  let addrPhoneLines: string[] = doc.splitTextToSize(addrPhone, headTextW);
+  while (addrPhoneLines.length > 2 && addrSize > 7) {
+    addrSize -= 0.25;
+    doc.setFontSize(addrSize);
+    addrPhoneLines = doc.splitTextToSize(addrPhone, headTextW);
+  }
+  doc.text(addrPhoneLines.slice(0, 2), headTextX, marginY + 22, { lineHeightFactor: 1.2 });
+  const emailLine = `Email: ${settings.email}`;
+  fitFontSize(emailLine, headTextW, addrSize);
+  doc.text(emailLine, headTextX, marginY + 30.5);
 
   // Middle FROM / TO Box
   setTemplateStyle();
@@ -236,31 +262,7 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   doc.line(rightColX, headerBottomY, rightColX, marginY + 178); // extended later
 
-  // --- 1. CONSIGNOR BOX ---
-  let curY = headerBottomY;
-  setTemplateStyle();
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('CONSIGNOR', marginX + 2, curY + 4);
-
-  // CONSIGNOR NAME (Royal Blue Ink)
-  setDataStyle(9.5);
-  doc.text(docket.consignor_name || '', marginX + 24, curY + 4);
-
-  // CONSIGNOR ADDRESS – wrap to fit left of PIN column
-  const addrMaxW = 65; // mm available before PIN label at +70
-  const addrLineH = 3.5; // mm per extra line at 8pt
-  setDataStyle(8);
-  const addr1Lines: string[] = docket.consignor_address
-    ? doc.splitTextToSize(docket.consignor_address, addrMaxW).slice(0, 2)
-    : [];
-  if (addr1Lines.length > 0) {
-    doc.text(addr1Lines, marginX + 2, curY + 9);
-  }
-  setTemplateStyle();
-  const addr1Extra = Math.max(0, addr1Lines.length - 1) * addrLineH;
-
-  // PIN boxes
+  // --- 1 & 2. CONSIGNOR / CONSIGNEE BOXES ---
   const extractPinCode = (pin?: string | null, address?: string | null): string => {
     if (pin && pin.trim().length >= 6) return pin.trim();
     if (address) {
@@ -270,98 +272,92 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     return pin ? pin.trim() : '';
   };
 
-  const pinRow1 = curY + 9 + addr1Extra;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.text('PIN :', marginX + 70, pinRow1);
-  const pin1 = extractPinCode(docket.consignor_pin, docket.consignor_address).padEnd(6, ' ');
-  for (let i = 0; i < 6; i++) {
-    const px = marginX + 80 + i * 3.5;
-    doc.rect(px, pinRow1 - 2.5, 3.2, 3.2);
-    if (pin1[i] && pin1[i] !== ' ') {
-      setDataStyle(8);
-      doc.text(pin1[i], px + 0.8, pinRow1);
+  const addrMaxW = 65; // mm available before PIN label at +70
+  const addrLineH = 4.2; // mm per extra line at 9.5pt
+
+  // Draws one party block starting at y and returns its height
+  const drawParty = (
+    label: string,
+    p: { name?: string | null; address?: string | null; pin?: string | null; phone?: string | null; gstin?: string | null },
+    y: number,
+  ): number => {
+    setTemplateStyle();
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.text(label, marginX + 2, y + 5);
+
+    // NAME (Royal Blue Ink) – shrink if very long so it stays inside the column
+    setDataStyle(12);
+    const nameX = marginX + 27;
+    fitFontSize(p.name || '', rightColX - nameX - 2, 12, 8);
+    doc.text(p.name || '', nameX, y + 5);
+
+    // ADDRESS – wrap to fit left of PIN column
+    setDataStyle(9.5);
+    const addrLines: string[] = p.address ? doc.splitTextToSize(p.address, addrMaxW).slice(0, 3) : [];
+    if (addrLines.length > 0) {
+      doc.text(addrLines, marginX + 2, y + 10.5);
+    }
+    setTemplateStyle();
+    const addrExtra = Math.max(0, addrLines.length - 1) * addrLineH;
+
+    // PIN boxes
+    const pinRow = y + 10.5 + addrExtra;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.text('PIN :', marginX + 70, pinRow);
+    const pin = extractPinCode(p.pin, p.address).padEnd(6, ' ');
+    for (let i = 0; i < 6; i++) {
+      const px = marginX + 79 + i * 4.2;
+      doc.rect(px, pinRow - 3, 3.8, 3.8);
+      if (pin[i] && pin[i] !== ' ') {
+        setDataStyle(9.5);
+        doc.text(pin[i], px + 0.95, pinRow);
+        setTemplateStyle();
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+      }
+    }
+
+    const cstRow = y + 16.5 + addrExtra;
+    doc.text('PH. :', marginX + 70, cstRow);
+    if (p.phone) {
+      setDataStyle(9.5);
+      doc.text(p.phone, marginX + 78, cstRow);
+      setTemplateStyle();
+      doc.setFont('helvetica', 'bold');
+    }
+
+    doc.setFontSize(8);
+    doc.text('CST/LST No./TIN No. :', marginX + 2, cstRow);
+    if (p.gstin) {
+      setDataStyle(9.5);
+      doc.text(p.gstin, marginX + 34, cstRow);
       setTemplateStyle();
     }
-  }
 
-  const cstRow1 = curY + 14 + addr1Extra;
-  doc.text('PH. :', marginX + 70, cstRow1);
-  if (docket.consignor_phone) {
-    setDataStyle(8);
-    doc.text(docket.consignor_phone, marginX + 77, cstRow1);
-    setTemplateStyle();
-  }
+    const h = 19 + addrExtra;
+    doc.line(marginX, y + h, rightColX, y + h);
+    return h;
+  };
 
-  doc.text('CST/LST No./TIN No. :', marginX + 2, cstRow1);
-  if (docket.consignor_gstin) {
-    setDataStyle(8);
-    doc.text(docket.consignor_gstin, marginX + 32, cstRow1);
-    setTemplateStyle();
-  }
-
-  const sec1H = 16 + addr1Extra;
-  doc.line(marginX, curY + sec1H, rightColX, curY + sec1H);
-
-  // --- 2. CONSIGNEE BOX ---
-  curY += sec1H;
-
-  setTemplateStyle();
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'bold');
-  doc.text('CONSIGNEE', marginX + 2, curY + 4);
-
-  // CONSIGNEE NAME (Royal Blue Ink)
-  setDataStyle(9.5);
-  doc.text(docket.consignee_name || '', marginX + 24, curY + 4);
-
-  // CONSIGNEE ADDRESS – wrap to fit left of PIN column
-  setDataStyle(8);
-  const addr2Lines: string[] = docket.consignee_address
-    ? doc.splitTextToSize(docket.consignee_address, addrMaxW).slice(0, 2)
-    : [];
-  if (addr2Lines.length > 0) {
-    doc.text(addr2Lines, marginX + 2, curY + 9);
-  }
-  setTemplateStyle();
-  const addr2Extra = Math.max(0, addr2Lines.length - 1) * addrLineH;
-
-  // PIN boxes
-  const pinRow2 = curY + 9 + addr2Extra;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.text('PIN :', marginX + 70, pinRow2);
-  const pin2 = extractPinCode(docket.consignee_pin, docket.consignee_address).padEnd(6, ' ');
-  for (let i = 0; i < 6; i++) {
-    const px = marginX + 80 + i * 3.5;
-    doc.rect(px, pinRow2 - 2.5, 3.2, 3.2);
-    if (pin2[i] && pin2[i] !== ' ') {
-      setDataStyle(8);
-      doc.text(pin2[i], px + 0.8, pinRow2);
-      setTemplateStyle();
-    }
-  }
-
-  const cstRow2 = curY + 14 + addr2Extra;
-  doc.text('PH. :', marginX + 70, cstRow2);
-  if (docket.consignee_phone) {
-    setDataStyle(8);
-    doc.text(docket.consignee_phone, marginX + 77, cstRow2);
-    setTemplateStyle();
-  }
-
-  doc.text('CST/LST No./TIN No. :', marginX + 2, cstRow2);
-  if (docket.consignee_gstin) {
-    setDataStyle(8);
-    doc.text(docket.consignee_gstin, marginX + 32, cstRow2);
-    setTemplateStyle();
-  }
-
-  const sec2H = 16 + addr2Extra;
-  doc.line(marginX, curY + sec2H, rightColX, curY + sec2H);
+  let curY = headerBottomY;
+  curY += drawParty('CONSIGNOR', {
+    name: docket.consignor_name,
+    address: docket.consignor_address,
+    pin: docket.consignor_pin,
+    phone: docket.consignor_phone,
+    gstin: docket.consignor_gstin,
+  }, curY);
+  curY += drawParty('CONSIGNEE', {
+    name: docket.consignee_name,
+    address: docket.consignee_address,
+    pin: docket.consignee_pin,
+    phone: docket.consignee_phone,
+    gstin: docket.consignee_gstin,
+  }, curY);
 
   // --- 3. MODE OF DESPATCH & OCTROI GRID ---
-  curY += sec2H;
 
   setTemplateStyle();
   doc.setFontSize(7);
@@ -455,16 +451,16 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
   // --- 5. CONDITION OF CARRIAGE BOX ---
   curY += 38;
   setTemplateStyle();
-  doc.setFontSize(6.5);
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
-  doc.text('CONDITION OF CARRIAGE', marginX + 2, curY + 3.5);
+  doc.text('CONDITION OF CARRIAGE', marginX + 2, curY + 5.5);
 
-  doc.setFontSize(6);
+  doc.setFontSize(9.5);
   doc.setFont('helvetica', 'normal');
-  doc.text('[X] This is a Non-Negotiable Docket', marginX + 2, curY + 7);
-  doc.text('[X] Standard Conditions of Carriage are given on reverse', marginX + 2, curY + 10.5);
-  doc.text('[X] Liability limited to Rs. 1,000/- only', marginX + 2, curY + 14);
-  doc.text("[X] We Carry under the carrier's Act", marginX + 2, curY + 17.5);
+  doc.text('[X] This is a Non-Negotiable Docket', marginX + 2, curY + 11.5);
+  doc.text('[X] Standard Conditions of Carriage are given on reverse', marginX + 2, curY + 17);
+  doc.text('[X] Liability limited to Rs. 1,000/- only', marginX + 2, curY + 22.5);
+  doc.text("[X] We Carry under the carrier's Act", marginX + 2, curY + 28);
 
   // ==========================================
   // RIGHT COLUMN: PACKAGES, WEIGHT, CHARGES GRID & SIGNATURES

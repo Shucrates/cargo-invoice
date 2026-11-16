@@ -151,7 +151,7 @@ function TrackingContent() {
         <img
           src="/images/tracking-hero.jpg"
           alt=""
-          className="absolute inset-0 w-full h-full object-cover object-[76%_100%] sm:object-[60%_100%]"
+          className="absolute inset-0 w-full h-full object-cover object-[88%_100%] sm:object-[60%_100%]"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/45 via-slate-950/10 to-transparent" />
 
