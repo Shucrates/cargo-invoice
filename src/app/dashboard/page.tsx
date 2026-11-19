@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -23,7 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { CargoDocket, Customer, DocketDraft } from '@/types/cargo';
-import { deliveryStatusBadgeVariant } from '@/lib/deliveryStatus';
+import { deliveryStatusBadgeVariant, paymentModeBadgeVariant } from '@/lib/deliveryStatus';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
 import { exportToCSV, downloadCSV } from '@/lib/exportUtils';
 import {
@@ -56,6 +57,8 @@ import {
 } from 'lucide-react';
 import { formatRupees } from '@/lib/money';
 import { formatDay } from '@/lib/formatDate';
+import { notify } from '@/lib/notify';
+import { fetchAllPages } from '@/lib/fetchAll';
 
 /** How many dockets the shipments table loads at a time. */
 const DOCKET_PAGE_SIZE = 100;
@@ -101,6 +104,41 @@ interface DashboardKpis {
   myCashCollectedThisWeek: number;
   customerCount: number;
   customersThisMonth: number;
+  /** Figures scoped to the selected dashboard timeframe. Money fields are admin-only. */
+  period: {
+    timeframe: DashboardTimeframe;
+    startDate: string;
+    endDate: string;
+    activeCount: number;
+    voidedCount: number;
+    pendingDeliveries: number;
+    completedDeliveries: number;
+    inTransit: number;
+    myCashCollected: number;
+    revenue?: number;
+    subtotal?: number;
+    gst?: number;
+    outstanding?: number;
+    unpaidCount?: number;
+    cashExpected?: number;
+    cashCollected?: number;
+    /** Sparkline series: equal time slices across the period, oldest first. */
+    trends: {
+      pending: number[];
+      completed: number[];
+      inTransit: number[];
+      myCash: number[];
+      outstanding?: number[];
+      cash?: number[];
+    };
+  };
+  revenueByMonth?: Record<string, number>;
+  bookingsByDay: Record<string, number>;
+}
+
+/** Today's date in IST as YYYY-MM-DD. */
+function todayIST(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
 }
 
 /** Compact Indian-format currency: ₹1.2L above a lakh, grouped digits below. */
@@ -132,7 +170,7 @@ function formatDelta(current: number, previous: number, unit: 'count' | 'percent
 }
 
 function KpiSparkline({
-  data = [10, 14, 18, 15, 22, 28, 35],
+  data = [],
   color = '#0A2030',
   gradientId = 'spark-grad-default',
   width = 96,
@@ -185,47 +223,6 @@ function KpiSparkline({
   );
 }
 
-function getTrendBuckets<T>(
-  items: T[],
-  getDate: (item: T) => string | undefined,
-  getValue: (item: T) => number,
-  bucketCount = 7
-): number[] {
-  if (!items || items.length === 0) return [0, 0, 0, 0, 0, 0, 0];
-  const sorted = [...items]
-    .filter((i) => getDate(i))
-    .sort((a, b) => (getDate(a)! > getDate(b)! ? 1 : -1));
-
-  if (sorted.length === 0) return [0, 0, 0, 0, 0, 0, 0];
-
-  const bucketSize = Math.max(1, Math.ceil(sorted.length / bucketCount));
-  const buckets: number[] = [];
-  for (let i = 0; i < bucketCount; i++) {
-    const chunk = sorted.slice(i * bucketSize, (i + 1) * bucketSize);
-    const sum = chunk.reduce((acc, curr) => acc + getValue(curr), 0);
-    buckets.push(sum);
-  }
-  if (buckets.every((v) => v === 0) && sorted.length > 0) {
-    return [2, 5, 8, 12, 16, 20, 25];
-  }
-  return buckets;
-}
-
-function getGrowthPercentage(buckets: number[]): { text: string; isPositive: boolean } {
-  if (buckets.length < 2) return { text: '+0.0%', isPositive: true };
-  const mid = Math.floor(buckets.length / 2);
-  const firstHalf = buckets.slice(0, mid).reduce((a, b) => a + b, 0);
-  const secondHalf = buckets.slice(mid).reduce((a, b) => a + b, 0);
-  if (firstHalf === 0 && secondHalf === 0) return { text: '+0.0%', isPositive: true };
-  if (firstHalf === 0) return { text: `+${Math.min(99, secondHalf * 8)}%`, isPositive: true };
-  const pct = ((secondHalf - firstHalf) / (firstHalf || 1)) * 100;
-  const isPositive = pct >= 0;
-  return {
-    text: `${isPositive ? '+' : ''}${pct.toFixed(1)}%`,
-    isPositive,
-  };
-}
-
 function formatActivityTimeAgo(date: Date): string {
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -238,6 +235,48 @@ function formatActivityTimeAgo(date: Date): string {
   const diffDays = Math.floor(diffHours / 24);
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+}
+
+/** Enter/Space on a focused clickable row acts like a click (ignores keys from inner buttons). */
+function openOnKey(e: React.KeyboardEvent, open: () => void) {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    open();
+  }
+}
+
+type ShipmentSortKey = 'created' | 'docket' | 'date' | 'amount';
+type ShipmentSort = { key: ShipmentSortKey; dir: 'asc' | 'desc' };
+
+/** Table header that sorts the shipments list server-side when clicked. */
+function SortableTh({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: ShipmentSortKey;
+  sort: ShipmentSort;
+  onSort: (next: ShipmentSort) => void;
+}) {
+  const active = sort.key === sortKey;
+  const nextDir = active && sort.dir === 'desc' ? 'asc' : 'desc';
+  return (
+    <th className="px-5 py-4" aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        onClick={() => onSort({ key: sortKey, dir: nextDir })}
+        className={`inline-flex items-center gap-1 cursor-pointer hover:text-slate-900 ${active ? 'text-slate-900' : ''}`}
+      >
+        {label}
+        <span aria-hidden="true" className={active ? '' : 'opacity-30'}>
+          {active && sort.dir === 'asc' ? '↑' : '↓'}
+        </span>
+      </button>
+    </th>
+  );
 }
 
 export type DashboardTimeframe = 'week' | 'month' | 'year' | 'all';
@@ -316,6 +355,31 @@ export default function DashboardPage() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  // Browser tab title follows the open section.
+  useEffect(() => {
+    const titles: Record<NavTab, string> = {
+      dashboard: 'Dashboard',
+      shipments: 'Shipments',
+      drafts: 'Drafts',
+      customers: 'Customers',
+      billing: 'Billing',
+      quotation: 'Quotation',
+      expenses: 'Expenses',
+      reports: 'Reports',
+      cash_book: 'Cash Book',
+      settings: 'Company Settings',
+      staff: 'Staff Management',
+      new_lr: 'New LR',
+    };
+    const title = `${titles[activeTab]} · Rudra Cargo`;
+    document.title = title;
+    // Next applies the route's static metadata title after hydration; re-assert ours.
+    const t = setTimeout(() => {
+      document.title = title;
+    }, 500);
+    return () => clearTimeout(t);
+  }, [activeTab, status]);
   const [dashboardTimeframe, setDashboardTimeframe] = useState<DashboardTimeframe>('month');
   const [refreshKey, setRefreshKey] = useState(0);
   const cargoFormRef = useRef<CargoDocketFormHandle>(null);
@@ -325,6 +389,12 @@ export default function DashboardPage() {
   const [editingDocket, setEditingDocket] = useState<CargoDocket | null>(null);
   const [pendingNav, setPendingNav] = useState<NavTab | null>(null);
   const [pendingNavSource, setPendingNavSource] = useState<'lr' | 'bill' | 'settings' | null>(null);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const pendingNavDialog = useDialog(() => {
+    // Escape = "Keep editing": stay on the current form.
+    setPendingNav(null);
+    setPendingNavSource(null);
+  });
   const [leaveSaving, setLeaveSaving] = useState(false);
   const [dockets, setDockets] = useState<CargoDocket[]>([]);
   const [docketTotal, setDocketTotal] = useState(0);
@@ -347,6 +417,22 @@ export default function DashboardPage() {
   const [shipmentViewMode, setShipmentViewMode] = useState<'cards' | 'table'>('table');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  // Shipments tab list: filtered and paged on the server so search covers every LR.
+  const [shipmentList, setShipmentList] = useState<CargoDocket[]>([]);
+  const [shipmentMatchTotal, setShipmentMatchTotal] = useState(0);
+  const [shipmentLoading, setShipmentLoading] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [exportingAll, setExportingAll] = useState(false);
+  const [batchPdfProgress, setBatchPdfProgress] = useState<string | null>(null);
+  const [shipmentSort, setShipmentSort] = useState<ShipmentSort>({
+    key: 'created',
+    dir: 'desc',
+  });
+  // Every LR, for views that aggregate or pick from the whole book (Billing,
+  // Reports). Loaded on first visit to those tabs and after any change.
+  const [allDockets, setAllDockets] = useState<CargoDocket[] | null>(null);
+  const allDocketsKey = useRef<number | null>(null);
+  const shipmentRequestId = useRef(0);
   const [activityFilter, setActivityFilter] = useState<'All' | 'LRs' | 'Payments' | 'Voids'>('All');
   const [activityLimit, setActivityLimit] = useState(8);
 
@@ -403,7 +489,7 @@ export default function DashboardPage() {
       items.push({
         id: `payment-${p.id}`,
         type: 'payment',
-        title: `Payment Collected (${p.method})`,
+        title: 'Cash Collected',
         docketNo: p.docket_no || relatedDocket?.docket_no || 'N/A',
         detail: p.notes ? p.notes : relatedDocket ? `Party: ${relatedDocket.consignor_name}` : 'Payment recorded',
         performer: p.recorded_by_name || 'Staff User',
@@ -440,9 +526,9 @@ export default function DashboardPage() {
     }
   };
 
-  const fetchKpis = async () => {
+  const fetchKpis = async (timeframe: DashboardTimeframe) => {
     try {
-      const res = await fetch('/api/dashboard/kpis');
+      const res = await fetch(`/api/dashboard/kpis?timeframe=${timeframe}`);
       if (res.ok) {
         const data = await res.json();
         setKpis(data);
@@ -454,11 +540,7 @@ export default function DashboardPage() {
 
   const fetchCashLog = async () => {
     try {
-      const res = await fetch('/api/payments?method=Cash');
-      if (res.ok) {
-        const data = await res.json();
-        setCashLog(data.payments ?? []);
-      }
+      setCashLog(await fetchAllPages<CashPayment>('/api/payments?method=Cash', 'payments'));
     } catch (err) {
       console.error('Failed to fetch cash log:', err);
     }
@@ -489,6 +571,75 @@ export default function DashboardPage() {
     }
   };
 
+  /** Query string for the Shipments tab's current search and filters. */
+  const shipmentQuery = (offset: number, limit: number) => {
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (debouncedSearch.trim()) params.set('q', debouncedSearch.trim());
+    if (statusFilter === 'Issued') params.set('status', 'issued');
+    if (statusFilter === 'Voided') params.set('status', 'voided');
+    if (statusFilter === 'To Pay' || statusFilter === 'Paid' || statusFilter === 'Credit') {
+      params.set('status', 'issued');
+      params.set('paymentMode', statusFilter);
+    }
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    if (shipmentSort.key !== 'created') params.set('sort', `${shipmentSort.key}_${shipmentSort.dir}`);
+    return params.toString();
+  };
+
+  const fetchShipments = async (offset: number) => {
+    const requestId = ++shipmentRequestId.current;
+    setShipmentLoading(true);
+    try {
+      const res = await fetch(`/api/dockets?${shipmentQuery(offset, DOCKET_PAGE_SIZE)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Ignore responses from a search the user has already moved past.
+      if (requestId !== shipmentRequestId.current) return;
+      setShipmentList((prev) => (offset === 0 ? data.dockets ?? [] : [...prev, ...(data.dockets ?? [])]));
+      // A fresh result set may hide previously selected rows; never act on what isn't shown.
+      if (offset === 0) setSelectedDocketIds([]);
+      setShipmentMatchTotal(data.total ?? 0);
+    } catch (err) {
+      console.error('Failed to fetch shipments:', err);
+      if (requestId === shipmentRequestId.current) notify('Could not load shipments. Please try again.');
+    } finally {
+      if (requestId === shipmentRequestId.current) setShipmentLoading(false);
+    }
+  };
+
+  /** Downloads every LR matching the current filters, not just the loaded page. */
+  const handleExportAll = async () => {
+    setExportingAll(true);
+    try {
+      const all: CargoDocket[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const res = await fetch(`/api/dockets?${shipmentQuery(offset, pageSize)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        all.push(...(data.dockets ?? []));
+        if (!data.hasMore) break;
+      }
+      exportToCSV(all, `cargo_shipments_${todayIST()}.csv`);
+    } catch (err) {
+      console.error('Failed to export shipments:', err);
+      notify('Export failed. Please try again.');
+    } finally {
+      setExportingAll(false);
+    }
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(shipmentSearch), 300);
+    return () => clearTimeout(t);
+  }, [shipmentSearch]);
+
+  useEffect(() => {
+    if (status !== 'authenticated' || activeTab !== 'shipments') return;
+    fetchShipments(0);
+  }, [status, activeTab, debouncedSearch, statusFilter, dateFrom, dateTo, shipmentSort, refreshKey]);
+
   useEffect(() => {
     if (status === 'unauthenticated') {
       router.push('/login');
@@ -498,63 +649,55 @@ export default function DashboardPage() {
     if (status === 'authenticated') {
       fetchDockets();
       fetchCustomers();
-      fetchKpis();
       fetchCashLog();
       fetchDraftCount();
     }
   }, [status, router, refreshKey]);
 
+  useEffect(() => {
+    if (status !== 'authenticated' || (activeTab !== 'billing' && activeTab !== 'reports')) return;
+    if (allDocketsKey.current === refreshKey) return;
+    allDocketsKey.current = refreshKey;
+    fetchAllPages<CargoDocket>('/api/dockets', 'dockets')
+      .then(setAllDockets)
+      .catch((err) => {
+        console.error('Failed to load all dockets:', err);
+        allDocketsKey.current = null;
+        notify('Could not load the full LR list. Please refresh.');
+      });
+  }, [status, activeTab, refreshKey]);
+
+  useEffect(() => {
+    if (status === 'authenticated') fetchKpis(dashboardTimeframe);
+  }, [status, refreshKey, dashboardTimeframe]);
+
   if (status === 'loading' || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F8FAFC] text-slate-500 text-xs font-mono">
-        Loading Rudra Cargo interface...
+      <div className="min-h-screen bg-[#F6F8FB] p-6 md:p-8" aria-busy="true" aria-label="Loading dashboard">
+        <div className="max-w-7xl mx-auto space-y-6 animate-pulse">
+          <div className="h-8 w-56 rounded-lg bg-slate-200" />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-32 rounded-2xl bg-white border border-slate-200/80" />
+            ))}
+          </div>
+          <div className="h-72 rounded-2xl bg-white border border-slate-200/80" />
+        </div>
       </div>
     );
   }
 
   // Timeframe date filtering & dynamic KPI computations
-  const { startDate: timeframeStartDate, label: timeframeLabel, shortLabel: timeframeShortLabel } = getISTDateRange(dashboardTimeframe);
+  const { label: timeframeLabel, shortLabel: timeframeShortLabel } = getISTDateRange(dashboardTimeframe);
 
-  const timeframeDockets = dockets.filter((d) => {
-    if (dashboardTimeframe === 'all') return true;
-    const dateStr = d.booking_date || d.created_at?.slice(0, 10);
-    return dateStr ? dateStr >= timeframeStartDate : true;
-  });
-
-  const activeTimeDockets = timeframeDockets.filter((d) => d.status === 'issued');
-  const activeTimeCount = activeTimeDockets.length;
-  const voidedTimeCount = timeframeDockets.filter((d) => d.status === 'voided').length;
-
-  const timeframePendingDeliveries = activeTimeDockets.filter((d) => d.delivery_status !== 'Delivered').length;
-  const timeframeCompletedDeliveries = activeTimeDockets.filter((d) => d.delivery_status === 'Delivered').length;
-  const timeframeInTransit = activeTimeDockets.filter((d) =>
-    ['In Transit', 'Out for Delivery'].includes(d.delivery_status || '')
-  ).length;
-  const timeframeNeedsAttention = activeTimeDockets.filter((d) =>
-    ['Delayed', 'Exception'].includes(d.delivery_status || '')
-  ).length;
-
-  const timeframeTotalRevenue = activeTimeDockets.reduce((sum, d) => sum + Number(d.grand_total || 0), 0);
-  const timeframeTotalSubtotal = activeTimeDockets.reduce((sum, d) => sum + Number(d.subtotal || 0), 0);
-  const timeframeTotalGST = activeTimeDockets.reduce((sum, d) => sum + Number(d.gst_amount || 0), 0);
-
-  const timeframeUnpaidDockets = activeTimeDockets.filter((d) => {
-    const due = d.amount_due ?? (d.payment_mode === 'Paid' ? 0 : Number(d.grand_total || 0));
-    return due > 0.01;
-  });
-  const timeframeUnpaidCount = timeframeUnpaidDockets.length;
-  const timeframeOutstandingDue = timeframeUnpaidDockets.reduce((sum, d) => {
-    return sum + (d.amount_due ?? (d.payment_mode === 'Paid' ? 0 : Number(d.grand_total || 0)));
-  }, 0);
-
-  const timeframeCashPayments = cashLog.filter((c) => {
-    if (dashboardTimeframe === 'all') return true;
-    const dateStr = c.paid_at?.slice(0, 10);
-    return dateStr ? dateStr >= timeframeStartDate : true;
-  });
-  const timeframeCashCollected = timeframeCashPayments.length > 0
-    ? timeframeCashPayments.reduce((sum, c) => sum + Number(c.amount || 0), 0)
-    : activeTimeDockets.filter((d) => d.payment_mode === 'Paid').reduce((sum, d) => sum + Number(d.grand_total || 0), 0);
+  // Timeframe figures come from the server, aggregated over every LR — not
+  // just the page of dockets loaded into this view.
+  const period = kpis?.period;
+  const emptyTrend = [0, 0, 0, 0, 0, 0, 0];
+  const activeTimeCount = period?.activeCount ?? 0;
+  const voidedTimeCount = period?.voidedCount ?? 0;
+  const timeframeTotalSubtotal = period?.subtotal ?? 0;
+  const timeframeTotalGST = period?.gst ?? 0;
 
   // Global active dockets for fallback / reference & Reports tab
   const activeDockets = dockets.filter((d) => d.status === 'issued');
@@ -574,9 +717,6 @@ export default function DashboardPage() {
       .filter((d) => d.payment_mode === 'To Pay' || d.payment_mode === 'Credit')
       .reduce((sum, d) => sum + Number(d.grand_total || 0), 0);
 
-  // "Today" in IST
-  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-
   const todayLabel = new Date().toLocaleDateString('en-IN', {
     timeZone: 'Asia/Kolkata',
     weekday: 'long',
@@ -586,33 +726,7 @@ export default function DashboardPage() {
   });
 
   // Filtered dockets for Shipments tab
-  const filteredDockets = dockets.filter((d) => {
-    const matchesSearch =
-      d.docket_no.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      d.consignor_name.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      d.consignee_name.toLowerCase().includes(shipmentSearch.toLowerCase()) ||
-      d.to_city.toLowerCase().includes(shipmentSearch.toLowerCase());
-
-    if (!matchesSearch) return false;
-
-    if (dateFrom && d.booking_date < dateFrom) return false;
-    if (dateTo && d.booking_date > dateTo) return false;
-
-    switch (statusFilter) {
-      case 'Issued':
-        return d.status === 'issued';
-      case 'Voided':
-        return d.status === 'voided';
-      case 'To Pay':
-        return d.status === 'issued' && d.payment_mode === 'To Pay';
-      case 'Paid':
-        return d.status === 'issued' && d.payment_mode === 'Paid';
-      case 'Credit':
-        return d.status === 'issued' && (d.payment_mode === 'To Pay' || d.payment_mode === 'Credit');
-      default:
-        return true;
-    }
-  });
+  const filteredDockets = shipmentList;
 
   // Checkbox Batch Handlers
   const toggleSelectAll = () => {
@@ -630,16 +744,37 @@ export default function DashboardPage() {
     );
   };
 
-  const handleBatchPDFDownload = () => {
-    const selected = dockets.filter((d) => selectedDocketIds.includes(d.id));
-    selected.forEach((d) => generateInvoicePDF(d));
+  const handleBatchPDFDownload = async () => {
+    const selected = shipmentList.filter((d) => selectedDocketIds.includes(d.id));
+    // One at a time with a short gap — browsers block a burst of simultaneous downloads.
+    for (let i = 0; i < selected.length; i++) {
+      setBatchPdfProgress(`${i + 1}/${selected.length}`);
+      await generateInvoicePDF(selected[i]);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    setBatchPdfProgress(null);
+    if (selected.length > 1) {
+      notify(`Downloaded ${selected.length} PDFs. If some are missing, allow multiple downloads for this site.`, 'info');
+    }
   };
 
   const handleBatchCSVExport = () => {
-    const selected = dockets.filter((d) => selectedDocketIds.includes(d.id));
+    const selected = shipmentList.filter((d) => selectedDocketIds.includes(d.id));
     exportToCSV(selected, `Selected_Shipments_${selectedDocketIds.length}_Invoices.csv`);
   };
 
+
+  /** Switches tab and records it in the URL so Back/refresh land in the same place. */
+  const goToTab = (tab: NavTab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('tab') !== tab) {
+        url.searchParams.set('tab', tab);
+        window.history.pushState({}, '', url.toString());
+      }
+    }
+  };
 
   const handleTabChange = (tab: NavTab) => {
     if (activeTab === 'new_lr' && tab !== 'new_lr' && cargoFormRef.current?.isDirty) {
@@ -660,13 +795,7 @@ export default function DashboardPage() {
     setSelectedDocketForDetail(null);
     setEditingDraft(null);
     setEditingDocket(null);
-    setActiveTab(tab);
-
-    if (typeof window !== 'undefined') {
-      const url = new URL(window.location.href);
-      url.searchParams.set('tab', tab);
-      window.history.pushState({}, '', url.toString());
-    }
+    goToTab(tab);
   };
 
   const resolvePendingNav = async (action: 'save' | 'discard' | 'cancel') => {
@@ -687,7 +816,7 @@ export default function DashboardPage() {
     setSelectedDocketForDetail(null);
     setEditingDraft(null);
     setEditingDocket(null);
-    if (pendingNav) setActiveTab(pendingNav);
+    if (pendingNav) goToTab(pendingNav);
     setPendingNav(null);
     setPendingNavSource(null);
   };
@@ -697,13 +826,19 @@ export default function DashboardPage() {
     setEditingDocket(docket);
     setEditingDraft(null);
     setSelectedDocketForDetail(null);
-    setActiveTab('new_lr');
+    goToTab('new_lr');
   };
 
 
 
   return (
-    <AppShell activeTab={activeTab} onTabChange={handleTabChange} navCounts={{ shipments: docketTotal, drafts: draftTotal }}>
+    <AppShell
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+      navCounts={{ shipments: docketTotal, drafts: draftTotal }}
+      searchValue={shipmentSearch}
+      onSearchChange={setShipmentSearch}
+    >
       {/* 1. DASHBOARD OVERVIEW TAB */}
       {activeTab === 'dashboard' && (
         <div className="space-y-8">
@@ -729,6 +864,7 @@ export default function DashboardPage() {
                     key={t.id}
                     type="button"
                     onClick={() => setDashboardTimeframe(t.id)}
+                    aria-pressed={dashboardTimeframe === t.id}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                       dashboardTimeframe === t.id
                         ? 'bg-white text-[#0A2030] shadow-xs'
@@ -744,93 +880,43 @@ export default function DashboardPage() {
 
           {/* Essential KPI Cards (Dynamically Filtered by Timeframe with Sparklines & Growth) */}
           {(() => {
-            // Trend Buckets for KPI Sparklines & Growth
-            const pendingBuckets = getTrendBuckets(
-              activeTimeDockets.filter((d) => d.delivery_status !== 'Delivered'),
-              (d) => d.booking_date,
-              () => 1
-            );
-            const pendingGrowth = getGrowthPercentage(pendingBuckets);
-
-            const completedBuckets = getTrendBuckets(
-              activeTimeDockets.filter((d) => d.delivery_status === 'Delivered'),
-              (d) => d.booking_date,
-              () => 1
-            );
-            const completedGrowth = getGrowthPercentage(completedBuckets);
-
-            const cashBuckets = getTrendBuckets(
-              timeframeCashPayments.length > 0
-                ? timeframeCashPayments
-                : activeTimeDockets.filter((d) => d.payment_mode === 'Paid'),
-              (item: any) => item.paid_at || item.booking_date,
-              (item: any) => Number(item.amount || item.grand_total || 0)
-            );
-            const cashGrowth = getGrowthPercentage(cashBuckets);
-
-            const outstandingBuckets = getTrendBuckets(
-              timeframeUnpaidDockets,
-              (d) => d.booking_date,
-              (d) => Number(d.amount_due ?? (d.payment_mode === 'Paid' ? 0 : d.grand_total || 0))
-            );
-            const outstandingGrowth = getGrowthPercentage(outstandingBuckets);
-
-            const inTransitBuckets = getTrendBuckets(
-              activeTimeDockets.filter((d) => ['In Transit', 'Out for Delivery'].includes(d.delivery_status || '')),
-              (d) => d.booking_date,
-              () => 1
-            );
-            const inTransitGrowth = getGrowthPercentage(inTransitBuckets);
-
-            const staffCashBuckets = getTrendBuckets(
-              timeframeCashPayments,
-              (c) => c.paid_at,
-              (c) => Number(c.amount || 0)
-            );
-            const staffCashGrowth = getGrowthPercentage(staffCashBuckets);
+            const trends = period?.trends;
+            const unpaidCount = period?.unpaidCount ?? 0;
 
             const kpiCards = isAdmin
               ? [
                   {
                     key: 'pending',
                     label: 'PENDING LRs',
-                    value: String(timeframePendingDeliveries),
-                    growth: pendingGrowth.text,
-                    isPositive: pendingGrowth.isPositive,
-                    sub: `In progress`,
-                    sparklineData: pendingBuckets,
+                    value: String(period?.pendingDeliveries ?? 0),
+                    sub: `Not yet delivered`,
+                    sparklineData: trends?.pending ?? emptyTrend,
                     sparklineColor: '#B7791F',
                   },
                   {
                     key: 'completed',
                     label: 'COMPLETED DELIVERIES',
-                    value: String(timeframeCompletedDeliveries),
-                    growth: completedGrowth.text,
-                    isPositive: completedGrowth.isPositive,
+                    value: String(period?.completedDeliveries ?? 0),
                     sub: `Marked Delivered`,
-                    sparklineData: completedBuckets,
+                    sparklineData: trends?.completed ?? emptyTrend,
                     sparklineColor: '#1F8A4C',
                   },
                   {
                     key: 'cash',
                     label: `CASH COLLECTED (${timeframeShortLabel.toUpperCase()})`,
-                    value: formatINR(timeframeCashCollected),
-                    growth: cashGrowth.text,
-                    isPositive: cashGrowth.isPositive,
+                    value: formatINR(period?.cashCollected ?? 0),
                     sub: '',
-                    expected: formatINR(kpis?.cashExpectedThisMonth ?? 0),
-                    sparklineData: cashBuckets,
+                    expected: formatINR(period?.cashExpected ?? 0),
+                    sparklineData: trends?.cash ?? emptyTrend,
                     sparklineColor: '#0A2030',
                   },
                   {
                     key: 'outstanding',
                     label: 'OUTSTANDING DUE',
-                    value: formatINR(timeframeOutstandingDue),
-                    growth: outstandingGrowth.text,
-                    isPositive: !outstandingGrowth.isPositive,
-                    sub: `${timeframeUnpaidCount} unpaid ${timeframeUnpaidCount === 1 ? 'bill' : 'bills'}`,
+                    value: formatINR(period?.outstanding ?? 0),
+                    sub: `${unpaidCount} unpaid ${unpaidCount === 1 ? 'LR' : 'LRs'}`,
                     subColor: 'text-[#D14343]',
-                    sparklineData: outstandingBuckets,
+                    sparklineData: trends?.outstanding ?? emptyTrend,
                     sparklineColor: '#D14343',
                   },
                 ]
@@ -838,41 +924,33 @@ export default function DashboardPage() {
                   {
                     key: 'pending',
                     label: 'PENDING LRs',
-                    value: String(timeframePendingDeliveries),
-                    growth: pendingGrowth.text,
-                    isPositive: pendingGrowth.isPositive,
-                    sub: `In progress`,
-                    sparklineData: pendingBuckets,
+                    value: String(period?.pendingDeliveries ?? 0),
+                    sub: `Not yet delivered`,
+                    sparklineData: trends?.pending ?? emptyTrend,
                     sparklineColor: '#B7791F',
                   },
                   {
                     key: 'completed',
                     label: 'COMPLETED DELIVERIES',
-                    value: String(timeframeCompletedDeliveries),
-                    growth: completedGrowth.text,
-                    isPositive: completedGrowth.isPositive,
+                    value: String(period?.completedDeliveries ?? 0),
                     sub: `Marked Delivered`,
-                    sparklineData: completedBuckets,
+                    sparklineData: trends?.completed ?? emptyTrend,
                     sparklineColor: '#1F8A4C',
                   },
                   {
                     key: 'transit',
                     label: 'IN TRANSIT',
-                    value: String(timeframeInTransit),
-                    growth: inTransitGrowth.text,
-                    isPositive: inTransitGrowth.isPositive,
+                    value: String(period?.inTransit ?? 0),
                     sub: `Moving or out for delivery`,
-                    sparklineData: inTransitBuckets,
+                    sparklineData: trends?.inTransit ?? emptyTrend,
                     sparklineColor: '#0A2030',
                   },
                   {
                     key: 'my_cash',
-                    label: 'CASH COLLECTED BY YOU',
-                    value: formatINR(kpis?.myCashCollectedToday ?? 0),
-                    growth: staffCashGrowth.text,
-                    isPositive: staffCashGrowth.isPositive,
-                    sub: `Week: ${formatINR(kpis?.myCashCollectedThisWeek ?? 0)}`,
-                    sparklineData: staffCashBuckets,
+                    label: `CASH COLLECTED BY YOU (${timeframeShortLabel.toUpperCase()})`,
+                    value: formatINR(period?.myCashCollected ?? 0),
+                    sub: `Today: ${formatINR(kpis?.myCashCollectedToday ?? 0)}`,
+                    sparklineData: trends?.myCash ?? emptyTrend,
                     sparklineColor: '#0A2030',
                   },
                 ];
@@ -909,7 +987,10 @@ export default function DashboardPage() {
                           {card.sub}
                         </div>
                         {card.expected && (
-                          <div className="text-[11px] font-medium text-slate-500 truncate">
+                          <div
+                            className="text-[11px] font-medium text-slate-500 truncate"
+                            title={`Unpaid cash expected from LRs booked ${timeframeShortLabel === 'All Time' ? 'at any time' : `this ${timeframeShortLabel.toLowerCase()}`}`}
+                          >
                             Expected:{' '}
                             <span className="font-semibold text-amber-600 font-mono">{card.expected}</span>
                           </div>
@@ -937,11 +1018,11 @@ export default function DashboardPage() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Revenue Breakdown</h3>
                   <p className="text-xs text-slate-500 font-medium">
-                    Subtotal {formatRupees(timeframeTotalSubtotal)} + GST {formatRupees(timeframeTotalGST)} ({timeframeLabel})
+                    Last 6 months · {timeframeLabel}: Subtotal {formatRupees(timeframeTotalSubtotal)} + GST {formatRupees(timeframeTotalGST)}
                   </p>
                 </div>
 
-                <RevenueLineChart dockets={timeframeDockets} />
+                <RevenueLineChart revenueByMonth={kpis?.revenueByMonth ?? {}} />
               </Card>
             )}
 
@@ -951,7 +1032,7 @@ export default function DashboardPage() {
                 <p className="text-xs text-slate-500 font-medium">{activeTimeCount} active / {voidedTimeCount} voided ({timeframeLabel})</p>
               </div>
 
-              <ShipmentsBarChart dockets={timeframeDockets} />
+              <ShipmentsBarChart bookingsByDay={kpis?.bookingsByDay ?? {}} />
             </Card>
           </div>
 
@@ -961,10 +1042,10 @@ export default function DashboardPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <Activity className="w-4 h-4 text-[#0A2030]" />
-                  <h3 className="text-base font-bold text-slate-900">Recent Operations & Audit Log</h3>
+                  <h3 className="text-base font-bold text-slate-900">Recent Activity</h3>
                 </div>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Real-time operational stream — who created LRs, collected cash, or voided records
+                  Latest LRs issued, cash collected and LRs voided — refreshes when you reload
                 </p>
               </div>
 
@@ -975,6 +1056,7 @@ export default function DashboardPage() {
                     key={filter}
                     type="button"
                     onClick={() => setActivityFilter(filter)}
+                    aria-pressed={activityFilter === filter}
                     className={`px-3 py-1 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                       activityFilter === filter
                         ? 'bg-white text-[#0A2030] shadow-xs'
@@ -1003,6 +1085,8 @@ export default function DashboardPage() {
                       <div
                         key={act.id}
                         onClick={() => act.docketObj && setSelectedDocketForDetail(act.docketObj)}
+                        onKeyDown={(e) => act.docketObj && openOnKey(e, () => setSelectedDocketForDetail(act.docketObj!))}
+                        tabIndex={act.docketObj ? 0 : undefined}
                         className="py-3.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#F8FAFC] rounded-xl transition-saas cursor-pointer"
                       >
                         {/* Left: Type Icon + Title + Detail */}
@@ -1028,7 +1112,7 @@ export default function DashboardPage() {
                                 #{act.docketNo}
                               </span>
                               {isVoided && (
-                                <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                                <Badge variant="destructive" className="text-[11px] px-1.5 py-0">
                                   Voided
                                 </Badge>
                               )}
@@ -1054,7 +1138,7 @@ export default function DashboardPage() {
                               <User className="w-3 h-3 text-slate-400 shrink-0" />
                               <span className="truncate max-w-[140px]">{act.performer}</span>
                             </div>
-                            <div className="text-[10px] text-slate-400 font-medium mt-1">
+                            <div className="text-[11px] text-slate-400 font-medium mt-1">
                               {formatActivityTimeAgo(act.timestamp)}
                             </div>
                           </div>
@@ -1104,9 +1188,11 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Shipments</h1>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                {docketTotal > dockets.length
-                  ? `Showing ${dockets.length} most recent of ${docketTotal} records`
-                  : `${docketTotal} total records`}{' '}
+                {shipmentLoading && shipmentList.length === 0
+                  ? 'Loading…'
+                  : shipmentMatchTotal === docketTotal
+                  ? `${docketTotal} total records`
+                  : `${shipmentMatchTotal} of ${docketTotal} records match`}{' '}
                 · Click any row to open full details
               </p>
             </div>
@@ -1116,6 +1202,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setShipmentViewMode('table')}
+                  aria-pressed={shipmentViewMode === 'table'}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                     shipmentViewMode === 'table'
                       ? 'bg-white text-[#0A2030] shadow-xs'
@@ -1129,6 +1216,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setShipmentViewMode('cards')}
+                  aria-pressed={shipmentViewMode === 'cards'}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-saas cursor-pointer ${
                     shipmentViewMode === 'cards'
                       ? 'bg-white text-[#0A2030] shadow-xs'
@@ -1144,11 +1232,12 @@ export default function DashboardPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => exportToCSV(dockets, `cargo_shipments_all_${todayStr}.csv`)}
+                onClick={handleExportAll}
+                disabled={exportingAll || shipmentMatchTotal === 0}
                 className="gap-2 text-xs font-semibold shadow-saas"
               >
                 <Download className="w-4 h-4" />
-                <span>Export All CSV</span>
+                <span>{exportingAll ? 'Exporting…' : `Export ${shipmentMatchTotal === docketTotal ? 'All' : 'Matching'} CSV`}</span>
               </Button>
             </div>
           </div>
@@ -1161,9 +1250,9 @@ export default function DashboardPage() {
                 <span><strong className="text-white text-sm">{selectedDocketIds.length}</strong> invoices selected</span>
               </div>
               <div className="flex items-center gap-2.5">
-                <Button size="sm" variant="secondary" onClick={handleBatchPDFDownload} className="gap-1.5 text-xs font-semibold bg-white text-[#0A2030] hover:bg-[#0A2030]/10">
+                <Button size="sm" variant="secondary" onClick={handleBatchPDFDownload} disabled={!!batchPdfProgress} className="gap-1.5 text-xs font-semibold bg-white text-[#0A2030] hover:bg-[#0A2030]/10">
                   <Download className="w-3.5 h-3.5" />
-                  <span>Download PDFs ({selectedDocketIds.length})</span>
+                  <span>{batchPdfProgress ? `Downloading ${batchPdfProgress}…` : `Download PDFs (${selectedDocketIds.length})`}</span>
                 </Button>
                 <Button size="sm" variant="secondary" onClick={handleBatchCSVExport} className="gap-1.5 text-xs font-semibold bg-white text-slate-800 hover:bg-slate-100">
                   <FileSpreadsheet className="w-3.5 h-3.5" />
@@ -1181,7 +1270,7 @@ export default function DashboardPage() {
             <div className="relative">
               <Input
                 type="text"
-                placeholder="Search by LR number, customer, destination city..."
+                placeholder="Search by LR, paper LR, waybill, customer or city…"
                 value={shipmentSearch}
                 onChange={(e) => setShipmentSearch(e.target.value)}
                 className="pl-11 bg-white border-slate-200/90 shadow-saas h-12 text-sm"
@@ -1195,6 +1284,7 @@ export default function DashboardPage() {
                   <button
                     key={filter}
                     onClick={() => setStatusFilter(filter)}
+                    aria-pressed={statusFilter === filter}
                     className={`px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-saas cursor-pointer ${
                       statusFilter === filter
                         ? 'bg-[#0A2030] text-white shadow-saas'
@@ -1242,8 +1332,8 @@ export default function DashboardPage() {
           {/* Card View: Rendered on mobile screens always, and on desktop when shipmentViewMode === 'cards' */}
           <div className={shipmentViewMode === 'cards' ? 'block' : 'block md:hidden'}>
             {filteredDockets.length === 0 ? (
-              <Card className="p-8 text-center text-xs text-slate-400 font-medium shadow-saas">
-                No shipments found matching your criteria.
+              <Card className="p-8 text-center text-xs text-slate-500 font-medium shadow-saas">
+                {shipmentLoading ? 'Loading shipments…' : 'No shipments found matching your criteria.'}
               </Card>
             ) : (
               <div className="grid grid-cols-1 gap-4">
@@ -1252,10 +1342,10 @@ export default function DashboardPage() {
                   const isSelected = selectedDocketIds.includes(d.id);
                   const vehicleImage =
                     d.transport_mode === 'Air'
-                      ? '/images/plane.jpg'
+                      ? '/images/plane-blue.jpg'
                       : d.transport_mode === 'Train'
-                      ? '/images/train.jpg'
-                      : '/images/truck.jpg';
+                      ? '/images/train-blue.jpg'
+                      : '/images/truck-blue.jpg';
 
                   const statusLower = (d.delivery_status || 'Booked').toLowerCase();
                   const isDelivered = statusLower.includes('deliver');
@@ -1265,6 +1355,9 @@ export default function DashboardPage() {
                     <Card
                       key={d.id}
                       onClick={() => setSelectedDocketForDetail(d)}
+                      onKeyDown={(e) => openOnKey(e, () => setSelectedDocketForDetail(d))}
+                      tabIndex={0}
+                      aria-label={`Open LR ${d.docket_no}`}
                       className={`p-5 sm:p-6 border transition-all cursor-pointer relative overflow-hidden flex flex-col justify-between ${
                         isSelected
                           ? 'border-[#0A2030] bg-[#0A2030]/5 ring-2 ring-[#0A2030]/10 shadow-saas'
@@ -1284,7 +1377,8 @@ export default function DashboardPage() {
                                 toggleSelectDocket(d.id, e);
                               }}
                               className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5 shrink-0"
-                              aria-label="Select shipment"
+                              aria-label={`${isSelected ? 'Deselect' : 'Select'} ${d.docket_no}`}
+                              aria-pressed={isSelected}
                             >
                               {isSelected ? (
                                 <CheckSquare className="w-5 h-5 text-[#0A2030]" />
@@ -1298,10 +1392,10 @@ export default function DashboardPage() {
                           </div>
 
                           <Badge
-                            variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
-                            className="text-[10px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
+                            variant={paymentModeBadgeVariant(d.payment_mode, isVoided)}
+                            className="text-[11px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
                           >
-                            {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                            {isVoided ? 'Voided' : d.payment_mode || '—'}
                           </Badge>
                         </div>
 
@@ -1338,7 +1432,7 @@ export default function DashboardPage() {
                               <User className="w-4 h-4" />
                             </div>
                             <div>
-                              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
                               <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
                             </div>
                           </div>
@@ -1348,8 +1442,8 @@ export default function DashboardPage() {
                               <Calendar className="w-4 h-4" />
                             </div>
                             <div>
-                              <span className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
-                              <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                              <span className="text-xs font-bold text-slate-800">{formatDay(d.booking_date)}</span>
                             </div>
                           </div>
                         </div>
@@ -1359,7 +1453,7 @@ export default function DashboardPage() {
                         {/* Total Amount & Vehicle Image Row (Mobile) */}
                         <div className="flex items-center justify-between relative min-h-[70px]">
                           <div>
-                            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">TOTAL AMOUNT</span>
+                            <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase block">TOTAL AMOUNT</span>
                             <span className={`font-mono font-extrabold text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                               {formatRupees(Number(d.grand_total))}
                             </span>
@@ -1368,7 +1462,9 @@ export default function DashboardPage() {
                           <div className="w-44 h-24 relative pointer-events-none mix-blend-multiply flex items-center justify-end">
                             <img
                               src={vehicleImage}
-                              alt={d.transport_mode || 'Road'}
+                              alt=""
+                              loading="lazy"
+                              decoding="async"
                               className="w-full h-full object-contain object-right"
                             />
                           </div>
@@ -1376,7 +1472,7 @@ export default function DashboardPage() {
 
                         {/* Timeline Box (Mobile) */}
                         <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-3">
-                          <div className="flex items-center gap-1 w-full text-[9px] font-semibold">
+                          <div className="flex items-start gap-1 w-full text-[11px] font-semibold">
                             {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
                               const stepLower = stepName.toLowerCase();
                               const currentLower = (d.delivery_status || 'Booked').toLowerCase();
@@ -1431,7 +1527,7 @@ export default function DashboardPage() {
                                     )}
                                   </div>
 
-                                  <span className={`mt-1.5 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                                  <span className={`mt-1.5 max-w-[64px] text-center leading-tight text-[11px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
                                     {stepName}
                                   </span>
                                 </div>
@@ -1493,10 +1589,12 @@ export default function DashboardPage() {
                       {/* DESKTOP VIEW (Visible on md:flex / medium & large screens) */}
                       <div className="hidden md:flex flex-col justify-between space-y-6">
                         {/* Vehicle image clipped outside right border — larger size, mix-blend-multiply removes white background! */}
-                        <div className="absolute -right-6 top-10 w-64 md:w-80 lg:w-[380px] h-36 md:h-44 pointer-events-none opacity-85 flex items-center justify-end z-0 mix-blend-multiply">
+                        <div className="absolute -right-6 top-10 w-64 md:w-80 lg:w-[380px] h-36 md:h-44 pointer-events-none flex items-center justify-end z-0 mix-blend-multiply">
                           <img
                             src={vehicleImage}
-                            alt={d.transport_mode || 'Road'}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-contain object-right"
                           />
                         </div>
@@ -1510,7 +1608,8 @@ export default function DashboardPage() {
                                 toggleSelectDocket(d.id, e);
                               }}
                               className="text-slate-400 hover:text-slate-700 cursor-pointer p-0.5 shrink-0"
-                              aria-label="Select shipment"
+                              aria-label={`${isSelected ? 'Deselect' : 'Select'} ${d.docket_no}`}
+                              aria-pressed={isSelected}
                             >
                               {isSelected ? (
                                 <CheckSquare className="w-5 h-5 text-[#0A2030]" />
@@ -1525,10 +1624,10 @@ export default function DashboardPage() {
 
                             {/* Payment Badge Pill */}
                             <Badge
-                              variant={isVoided ? 'destructive' : d.payment_mode === 'Paid' ? 'success' : 'warning'}
+                              variant={paymentModeBadgeVariant(d.payment_mode, isVoided)}
                               className="text-[11px] font-bold px-3 py-0.5 rounded-full uppercase tracking-wider"
                             >
-                              {isVoided ? 'Voided' : d.payment_mode || 'Credit'}
+                              {isVoided ? 'Voided' : d.payment_mode || '—'}
                             </Badge>
 
                             {d.physical_docket_no && (
@@ -1540,7 +1639,7 @@ export default function DashboardPage() {
 
                           {/* TOTAL AMOUNT — ALIGNED TO FAR TOP RIGHT, DIRECTLY ABOVE TRUCK */}
                           <div className="text-right shrink-0">
-                            <span className="text-[10px] font-bold text-slate-400 tracking-wider uppercase block">Total Amount</span>
+                            <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase block">Total Amount</span>
                             <span className={`font-mono font-extrabold text-2xl sm:text-3xl ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                               {formatRupees(Number(d.grand_total))}
                             </span>
@@ -1571,7 +1670,7 @@ export default function DashboardPage() {
                                 <User className="w-4 h-4" />
                               </div>
                               <div>
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
+                                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Created by</span>
                                 <span className="text-xs font-bold text-slate-800">{d.created_by_name || 'Staff User'}</span>
                               </div>
                             </div>
@@ -1582,14 +1681,14 @@ export default function DashboardPage() {
                                 <Calendar className="w-4 h-4" />
                               </div>
                               <div>
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
-                                <span className="text-xs font-bold text-slate-800 font-mono">{d.booking_date}</span>
+                                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">Created on</span>
+                                <span className="text-xs font-bold text-slate-800">{formatDay(d.booking_date)}</span>
                               </div>
                             </div>
 
                             {/* Status Line in SAME Row! */}
                             <div className="flex-1 max-w-sm ml-2">
-                              <div className="flex items-center gap-1 w-full text-[10px] font-semibold">
+                              <div className="flex items-start gap-1 w-full text-[11px] font-semibold">
                                 {['Booked', 'Dispatched', 'In Transit', 'Out for Delivery', 'Delivered'].map((stepName, idx, arr) => {
                                   const stepLower = stepName.toLowerCase();
                                   const currentLower = (d.delivery_status || 'Booked').toLowerCase();
@@ -1644,7 +1743,7 @@ export default function DashboardPage() {
                                         )}
                                       </div>
 
-                                      <span className={`mt-1 truncate max-w-[55px] text-center text-[9px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
+                                      <span className={`mt-1 max-w-[64px] text-center leading-tight text-[11px] ${isCurrent ? 'text-slate-900 font-extrabold' : isPassed ? 'text-slate-700 font-semibold' : 'text-slate-400 font-normal'}`}>
                                         {stepName}
                                       </span>
                                     </div>
@@ -1725,26 +1824,37 @@ export default function DashboardPage() {
                 <thead className="bg-[#F8FAFC] border-b border-slate-200/80 text-slate-500 font-semibold tracking-wider text-xs">
                   <tr>
                     <th className="px-4 py-4 w-12 text-center">
-                      <button onClick={toggleSelectAll} className="cursor-pointer text-slate-500 hover:text-slate-900">
+                      <button
+                        onClick={toggleSelectAll}
+                        aria-label={selectedDocketIds.length === filteredDockets.length && filteredDockets.length > 0 ? 'Clear selection' : 'Select all shown shipments'}
+                        className="cursor-pointer text-slate-500 hover:text-slate-900"
+                      >
                         {selectedDocketIds.length === filteredDockets.length && filteredDockets.length > 0 ? (
-                          <CheckSquare className="w-4 h-4 text-[#2563EB]" />
+                          <CheckSquare className="w-4 h-4 text-[#0A2030]" />
                         ) : (
                           <Square className="w-4 h-4" />
                         )}
                       </button>
                     </th>
-                    <th className="px-5 py-4">LR NO.</th>
+                    <SortableTh label="LR NO." sortKey="docket" sort={shipmentSort} onSort={setShipmentSort} />
                     <th className="px-5 py-4">CUSTOMER</th>
                     <th className="px-5 py-4">ROUTE</th>
-                    <th className="px-5 py-4">DATE</th>
+                    <SortableTh label="DATE" sortKey="date" sort={shipmentSort} onSort={setShipmentSort} />
                     <th className="px-5 py-4">WEIGHT</th>
-                    <th className="px-5 py-4">AMOUNT</th>
+                    <SortableTh label="AMOUNT" sortKey="amount" sort={shipmentSort} onSort={setShipmentSort} />
                     <th className="px-5 py-4">STATUS / PAYMENT</th>
                     <th className="px-5 py-4">DELIVERY</th>
                     <th className="px-5 py-4 text-right">ACTION</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
+                  {filteredDockets.length === 0 && (
+                    <tr>
+                      <td colSpan={10} className="px-5 py-10 text-center text-xs text-slate-500">
+                        {shipmentLoading ? 'Loading shipments…' : 'No shipments found matching your criteria.'}
+                      </td>
+                    </tr>
+                  )}
                   {filteredDockets.map((d) => {
                     const isVoided = d.status === 'voided';
                     const isSelected = selectedDocketIds.includes(d.id);
@@ -1752,7 +1862,10 @@ export default function DashboardPage() {
                       <tr
                         key={d.id}
                         onClick={() => setSelectedDocketForDetail(d)}
-                        className={`transition-saas cursor-pointer h-16 ${
+                        onKeyDown={(e) => openOnKey(e, () => setSelectedDocketForDetail(d))}
+                        tabIndex={0}
+                        aria-label={`Open LR ${d.docket_no}`}
+                        className={`transition-saas cursor-pointer h-16 focus-visible:outline-2 focus-visible:outline-[#0A2030] focus-visible:-outline-offset-2 ${
                           isSelected
                             ? 'bg-[#EEF4FF]'
                             : isVoided
@@ -1761,9 +1874,15 @@ export default function DashboardPage() {
                         }`}
                       >
                         <td className="px-4 py-4 text-center" onClick={(e) => toggleSelectDocket(d.id, e)}>
-                          <button className="cursor-pointer">
+                          <button
+                            type="button"
+                            className="cursor-pointer"
+                            aria-label={`${isSelected ? 'Deselect' : 'Select'} ${d.docket_no}`}
+                            aria-pressed={isSelected}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
                             {isSelected ? (
-                              <CheckSquare className="w-4 h-4 text-[#2563EB]" />
+                              <CheckSquare className="w-4 h-4 text-[#0A2030]" />
                             ) : (
                               <Square className="w-4 h-4 text-slate-300 hover:text-slate-600" />
                             )}
@@ -1772,7 +1891,7 @@ export default function DashboardPage() {
                         <td className="px-5 py-4 font-mono font-semibold text-xs whitespace-nowrap">
                           <div className={isVoided ? 'line-through text-slate-400' : 'text-slate-900'}>{d.docket_no}</div>
                           {d.physical_docket_no && (
-                            <div className="text-[11px] text-slate-400 font-mono">
+                            <div className="text-[11px] text-slate-500 font-mono">
                               Paper LR: {d.physical_docket_no}
                             </div>
                           )}
@@ -1781,7 +1900,7 @@ export default function DashboardPage() {
                           <div className={`font-semibold text-sm ${isVoided ? 'line-through text-slate-400' : 'text-slate-900'}`}>
                             {d.consignor_name}
                           </div>
-                          <div className="text-xs text-slate-400">{d.consignee_name}</div>
+                          <div className="text-xs text-slate-500">{d.consignee_name}</div>
                         </td>
                         <td className={`px-5 py-4 text-xs whitespace-nowrap ${isVoided ? 'line-through text-slate-400' : 'text-slate-700'}`}>
                           {d.from_city} → {d.to_city}
@@ -1798,7 +1917,7 @@ export default function DashboardPage() {
                             </Badge>
                           ) : (
                             <Badge
-                              variant={d.payment_mode === 'Paid' ? 'success' : d.payment_mode === 'Credit' ? 'warning' : 'info'}
+                              variant={paymentModeBadgeVariant(d.payment_mode)}
                             >
                               {d.payment_mode}
                             </Badge>
@@ -1813,12 +1932,14 @@ export default function DashboardPage() {
                         </td>
                         <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => setTrackingModalDocket(d)} title="Edit tracking timeline" aria-label="Edit tracking timeline">
-                              <Truck className="w-4 h-4 text-slate-400 hover:text-[#2563EB]" />
-                            </Button>
+                            {!isVoided && (
+                              <Button variant="ghost" size="icon" onClick={() => setTrackingModalDocket(d)} title="Update tracking status" aria-label={`Update tracking status for ${d.docket_no}`}>
+                                <Truck className="w-4 h-4 text-slate-400 hover:text-[#0A2030]" />
+                              </Button>
+                            )}
                             {!isVoided && (
                               <Button variant="ghost" size="icon" onClick={() => setPaymentModalDocket(d)} title="Record payment" aria-label="Record payment">
-                                <Wallet className="w-4 h-4 text-slate-400 hover:text-[#2563EB]" />
+                                <Wallet className="w-4 h-4 text-slate-400 hover:text-[#0A2030]" />
                               </Button>
                             )}
                             {!isVoided && isAdmin && (
@@ -1839,6 +1960,24 @@ export default function DashboardPage() {
             </div>
           </Card>
           )}
+
+          {shipmentList.length > 0 && (
+            <div className="flex flex-col items-center gap-2 pt-2">
+              <p className="text-xs text-slate-500">
+                Showing {shipmentList.length} of {shipmentMatchTotal}
+              </p>
+              {shipmentList.length < shipmentMatchTotal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchShipments(shipmentList.length)}
+                  disabled={shipmentLoading}
+                >
+                  {shipmentLoading ? 'Loading…' : `Load ${Math.min(DOCKET_PAGE_SIZE, shipmentMatchTotal - shipmentList.length)} more`}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -1851,12 +1990,12 @@ export default function DashboardPage() {
         <DraftList
           onEdit={(draft) => {
             setEditingDraft(draft);
-            setActiveTab('new_lr');
+            goToTab('new_lr');
           }}
           onDraftsChanged={setDraftTotal}
           onNewLR={() => {
             setEditingDraft(null);
-            setActiveTab('new_lr');
+            goToTab('new_lr');
           }}
         />
       )}
@@ -1879,21 +2018,26 @@ export default function DashboardPage() {
             setRefreshKey((prev) => prev + 1);
             setEditingDocket(null);
             setEditingDraft(null);
-            setActiveTab('shipments');
+            goToTab('shipments');
           }}
           onDraftSaved={fetchDraftCount}
         />
       )}
 
       {/* 5. FINANCE TABS */}
-      {activeTab === 'billing' && <BillingView ref={billFormRef} dockets={dockets} customers={customersList} />}
+      {(activeTab === 'billing' || activeTab === 'reports') && !allDockets && (
+        <Card className="p-10 text-center text-sm text-slate-500">Loading all LRs…</Card>
+      )}
+      {activeTab === 'billing' && allDockets && (
+        <BillingView ref={billFormRef} dockets={allDockets} customers={customersList} />
+      )}
       {activeTab === 'quotation' && <QuotationView />}
       {activeTab === 'expenses' && <ExpensesView totalRevenue={totalRevenue} isAdmin={isAdmin} />}
 
       {/* 6. REPORTS TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
-      {activeTab === 'reports' && isAdmin && (
+      {activeTab === 'reports' && isAdmin && allDockets && (
         <ReportsView
-          dockets={dockets}
+          dockets={allDockets}
           cashLog={cashLog}
           customers={customersList}
           onNavigateToBilling={() => handleTabChange('billing')}
@@ -1904,7 +2048,7 @@ export default function DashboardPage() {
 
       {/* 6b. CASH BOOK TAB — admin-only; nav hides the tab for staff, this guards direct state access too */}
       {activeTab === 'cash_book' && isAdmin && (
-        <CashBookView customers={customersList} onNavigateToShipments={() => setActiveTab('shipments')} />
+        <CashBookView customers={customersList} onNavigateToShipments={() => handleTabChange('shipments')} />
       )}
 
       {/* 7. SETTINGS TAB */}
@@ -1932,7 +2076,7 @@ export default function DashboardPage() {
 
       {/* Unsaved-changes guard when navigating away from a dirty form */}
       {pendingNav && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+        <div ref={pendingNavDialog} role="dialog" aria-modal="true" aria-label="Unsaved changes" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
             <div className="flex items-start gap-4">
               <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">

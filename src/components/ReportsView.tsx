@@ -46,6 +46,7 @@ import { CargoDocket, Customer, ExpenseLedger, Bill } from '@/types/cargo';
 import { downloadCSV, exportSummaryPDF } from '@/lib/exportUtils';
 import { companyConfig } from '@/lib/companyConfig';
 import { formatRupees } from '@/lib/money';
+import { fetchAllPages } from '@/lib/fetchAll';
 import { notify } from '@/lib/notify';
 
 export interface CashPayment {
@@ -255,13 +256,11 @@ export default function ReportsView({
     }
 
     Promise.all([
-      fetch('/api/billing?limit=300').then((r) => (r.ok ? r.json() : { bills: [] })),
-      fetch('/api/expenses?limit=300').then((r) => (r.ok ? r.json() : { ledgers: [] })),
+      fetchAllPages<Bill>('/api/billing', 'bills'),
+      fetchAllPages<ExpenseLedger>('/api/expenses', 'ledgers'),
     ])
-      .then(([billsRes, expensesRes]) => {
+      .then(([loadedBills, loadedExpenses]) => {
         if (isMounted) {
-          const loadedBills = billsRes.bills || [];
-          const loadedExpenses = expensesRes.ledgers || [];
           cachedReportsBills = loadedBills;
           cachedReportsExpenses = loadedExpenses;
           cachedReportsTimestamp = Date.now();
@@ -1002,7 +1001,7 @@ export default function ReportsView({
                   <FileText className="w-4 h-4 text-slate-500" />
                   <div>
                     <div className="font-semibold text-slate-900">PDF Statement</div>
-                    <div className="text-[10px] text-slate-500">Summary statement PDF</div>
+                    <div className="text-[11px] text-slate-500">Summary statement PDF</div>
                   </div>
                 </button>
                 <button
@@ -1016,7 +1015,7 @@ export default function ReportsView({
                   <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
                   <div>
                     <div className="font-semibold text-slate-900">Full CSV Report</div>
-                    <div className="text-[10px] text-slate-500">Comprehensive dataset for tax/audit</div>
+                    <div className="text-[11px] text-slate-500">Comprehensive dataset for tax/audit</div>
                   </div>
                 </button>
                 <button
@@ -1030,7 +1029,7 @@ export default function ReportsView({
                   <Truck className="w-4 h-4 text-blue-600" />
                   <div>
                     <div className="font-semibold text-slate-900">Shipment Report</div>
-                    <div className="text-[10px] text-slate-500">Detailed LRs CSV report</div>
+                    <div className="text-[11px] text-slate-500">Detailed LRs CSV report</div>
                   </div>
                 </button>
                 <button
@@ -1044,7 +1043,7 @@ export default function ReportsView({
                   <Receipt className="w-4 h-4 text-indigo-600" />
                   <div>
                     <div className="font-semibold text-slate-900">Financial Report</div>
-                    <div className="text-[10px] text-slate-500">Tax invoices & billing ledger CSV</div>
+                    <div className="text-[11px] text-slate-500">Tax invoices & billing ledger CSV</div>
                   </div>
                 </button>
               </div>
@@ -1134,7 +1133,7 @@ export default function ReportsView({
               <span>{tab.label}</span>
               {tab.count !== undefined && tab.count > 0 && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
+                  className={`text-[11px] px-1.5 py-0.2 rounded-full font-mono font-bold ${
                     isActive ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/70 text-slate-600'
                   }`}
                 >
@@ -1255,7 +1254,7 @@ export default function ReportsView({
                     <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                       {lrMetrics.activeCount}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">
+                    <p className="text-[11px] text-slate-500 mt-0.5">
                       {lrMetrics.voidedCount > 0 ? `${lrMetrics.voidedCount} voided` : 'All issued'}
                     </p>
                   </div>
@@ -1266,7 +1265,7 @@ export default function ReportsView({
                       {lrMetrics.totalWeight.toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                       <span className="text-xs font-sans font-normal text-slate-500 ml-1">kg</span>
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Charged weight</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Charged weight</p>
                   </div>
 
                   <div>
@@ -1275,7 +1274,7 @@ export default function ReportsView({
                       {lrMetrics.activeCount > 0 ? (lrMetrics.totalWeight / lrMetrics.activeCount).toFixed(1) : 0}
                       <span className="text-xs font-sans font-normal text-slate-500 ml-1">kg/LR</span>
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Mean density</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Mean density</p>
                   </div>
                 </div>
               </div>
@@ -1322,7 +1321,7 @@ export default function ReportsView({
                     <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                       ₹{(billMetrics.totalSub > 0 ? billMetrics.totalSub : lrMetrics.totalSub).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Pre-tax subtotal</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Pre-tax subtotal</p>
                   </div>
 
                   <div>
@@ -1330,7 +1329,7 @@ export default function ReportsView({
                     <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                       ₹{(billMetrics.totalTax > 0 ? billMetrics.totalTax : lrMetrics.totalTax).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Tax liability</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Tax liability</p>
                   </div>
 
                   <div>
@@ -1338,7 +1337,7 @@ export default function ReportsView({
                     <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                       {billMetrics.totalCount}
                     </p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Tax invoices</p>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Tax invoices</p>
                   </div>
                 </div>
               </div>
@@ -1511,7 +1510,7 @@ export default function ReportsView({
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                  <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                     <tr>
                       <th className="px-3.5 py-2.5">Destination Hub</th>
                       <th className="px-3.5 py-2.5 text-center">Shipments</th>
@@ -1526,7 +1525,7 @@ export default function ReportsView({
                       <tr key={loc.key} className="hover:bg-slate-50/80 transition-colors">
                         <td className="px-3.5 py-2.5 font-bold text-slate-900">
                           <div className="flex items-center gap-2">
-                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-mono text-[11px] font-bold flex items-center justify-center shrink-0">
                               {idx + 1}
                             </span>
                             <span>{loc.name}</span>
@@ -1538,7 +1537,7 @@ export default function ReportsView({
                         </td>
                         <td className="px-3.5 py-2.5">
                           <div className="space-y-1">
-                            <div className="flex justify-between text-[10px] font-mono text-slate-400">
+                            <div className="flex justify-between text-[11px] font-mono text-slate-400">
                               <span>{loc.sharePct.toFixed(1)}%</span>
                             </div>
                             <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
@@ -1681,7 +1680,7 @@ export default function ReportsView({
               <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                    <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                       <tr>
                         <th className="px-4 py-3">LR / Ref</th>
                         <th className="px-4 py-3">Booking Date</th>
@@ -1777,7 +1776,7 @@ export default function ReportsView({
                     {locationData.totalChargedWeightAll.toLocaleString('en-IN')}
                     <span className="text-xs font-sans font-normal text-slate-500 ml-1">kg</span>
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">{locationData.totalShipmentsAll} total LRs</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{locationData.totalShipmentsAll} total LRs</p>
                 </div>
 
                 <div className="px-3 py-1">
@@ -1787,7 +1786,7 @@ export default function ReportsView({
                   <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                     {locationData.totalLocations}
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">Active Network</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Active Network</p>
                 </div>
 
                 <div className="px-3 py-1">
@@ -1795,7 +1794,7 @@ export default function ReportsView({
                   <p className="text-xl font-bold text-slate-900 font-heading mt-1 truncate">
                     {locationData.topLocation ? locationData.topLocation.name : '—'}
                   </p>
-                  <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+                  <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
                     {locationData.topLocation ? `${locationData.topLocation.sharePct.toFixed(0)}% weight share` : '0%'}
                   </p>
                 </div>
@@ -1806,7 +1805,7 @@ export default function ReportsView({
                     {locationData.avgWeightPerShipment.toFixed(1)}
                     <span className="text-xs font-sans font-normal text-slate-500 ml-1">kg</span>
                   </p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">{formatRupees(locationData.totalGrandAll)} freight</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{formatRupees(locationData.totalGrandAll)} freight</p>
                 </div>
               </div>
 
@@ -1862,7 +1861,7 @@ export default function ReportsView({
               <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                    <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                       <tr>
                         <th className="px-4 py-3">
                           {locationGrouping === 'destination'
@@ -1907,7 +1906,7 @@ export default function ReportsView({
                                     <div>
                                       <span className="font-bold text-slate-900 text-sm tracking-tight">{loc.name}</span>
                                       {loc.topConsignees.length > 0 && (
-                                        <p className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                                        <p className="text-[11px] text-slate-400 truncate max-w-[200px]">
                                           To: {loc.topConsignees.join(', ')}
                                         </p>
                                       )}
@@ -1943,17 +1942,17 @@ export default function ReportsView({
                                 <td className="px-4 py-3.5 text-center">
                                   <div className="inline-flex items-center gap-1.5 text-xs text-slate-500 font-mono">
                                     {loc.roadCount > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px]">
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px]">
                                         Road {loc.roadCount}
                                       </span>
                                     )}
                                     {loc.airCount > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">
+                                      <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[11px]">
                                         Air {loc.airCount}
                                       </span>
                                     )}
                                     {loc.trainCount > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-[10px]">
+                                      <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-[11px]">
                                         Train {loc.trainCount}
                                       </span>
                                     )}
@@ -1993,7 +1992,7 @@ export default function ReportsView({
                                           <span className="font-bold text-slate-900">
                                             Consignments related to <span className="text-[#0A2030]">{loc.name}</span>
                                           </span>
-                                          <Badge variant="outline" className="font-mono text-[10px]">
+                                          <Badge variant="outline" className="font-mono text-[11px]">
                                             {loc.dockets.length} Dockets
                                           </Badge>
                                         </div>
@@ -2037,7 +2036,7 @@ export default function ReportsView({
                                                   {formatRupees(Number(d.grand_total))}
                                                 </td>
                                                 <td className="px-3 py-2 text-center">
-                                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${getPaymentBadgeStyle(d.payment_mode)}`}>
+                                                  <span className={`text-[11px] font-bold px-1.5 py-0.5 rounded uppercase ${getPaymentBadgeStyle(d.payment_mode)}`}>
                                                     {d.payment_mode}
                                                   </span>
                                                 </td>
@@ -2075,7 +2074,7 @@ export default function ReportsView({
               <p className="text-xl font-bold font-mono text-slate-900 mt-1">
                 ₹{billMetrics.totalGrand.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">{billMetrics.totalCount} Tax Invoices</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">{billMetrics.totalCount} Tax Invoices</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2083,7 +2082,7 @@ export default function ReportsView({
               <p className="text-xl font-bold font-mono text-emerald-600 mt-1">
                 ₹{billMetrics.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-emerald-700 font-medium mt-0.5">
+              <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
                 {billMetrics.totalGrand > 0 ? ((billMetrics.totalReceived / billMetrics.totalGrand) * 100).toFixed(1) : 0}% Realized
               </p>
             </div>
@@ -2093,7 +2092,7 @@ export default function ReportsView({
               <p className="text-xl font-bold font-mono text-rose-600 mt-1">
                 ₹{billMetrics.totalPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-rose-600 font-medium mt-0.5">{billMetrics.pendingCount} Unsettled Bills</p>
+              <p className="text-[11px] text-rose-600 font-medium mt-0.5">{billMetrics.pendingCount} Unsettled Bills</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2105,7 +2104,7 @@ export default function ReportsView({
                 <span className="text-slate-300">·</span>
                 <span className="text-rose-600">{billMetrics.pendingCount} Pending</span>
               </div>
-              <p className="text-[10px] text-slate-500 mt-0.5">Payment distribution</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Payment distribution</p>
             </div>
           </div>
 
@@ -2151,7 +2150,7 @@ export default function ReportsView({
           <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3">Bill No</th>
                     <th className="px-4 py-3">Invoice Date</th>
@@ -2261,7 +2260,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-rose-600 font-mono mt-1">
                 ₹{expenseMetrics.totalExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Operational Outflow</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Operational Outflow</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2269,7 +2268,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-slate-900 font-mono mt-1">
                 {expenseMetrics.totalCount}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Logged ledgers</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Logged ledgers</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2277,7 +2276,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-slate-900 font-mono mt-1">
                 {expenseMetrics.totalEntries}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Recorded items</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Recorded items</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2285,7 +2284,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-slate-900 font-mono mt-1">
                 ₹{expenseMetrics.avgPerSheet.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Mean ledger spend</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Mean ledger spend</p>
             </div>
           </div>
 
@@ -2306,7 +2305,7 @@ export default function ReportsView({
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3">Sheet / Ledger No</th>
                     <th className="px-4 py-3">Period</th>
@@ -2376,7 +2375,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-emerald-600 font-mono mt-1">
                 ₹{totalInflowRealized.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Direct receipts & settled bills</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Direct receipts & settled bills</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2384,7 +2383,7 @@ export default function ReportsView({
               <p className="text-xl font-bold text-rose-600 font-mono mt-1">
                 ₹{totalOperationalExpenses.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Expenses paid</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Expenses paid</p>
             </div>
 
             <div className="px-3 py-1">
@@ -2392,7 +2391,7 @@ export default function ReportsView({
               <p className={`text-xl font-bold font-mono mt-1 ${netCashFlow >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                 ₹{netCashFlow.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Liquid balance</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Liquid balance</p>
             </div>
           </div>
 
@@ -2413,7 +2412,7 @@ export default function ReportsView({
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[10px] tracking-wider border-b border-slate-100">
+                <thead className="bg-slate-50/70 text-slate-400 font-medium uppercase text-[11px] tracking-wider border-b border-slate-100">
                   <tr>
                     <th className="px-4 py-3">LR / Docket No</th>
                     <th className="px-4 py-3">Payment Date</th>
@@ -2436,7 +2435,7 @@ export default function ReportsView({
                         <td className="px-4 py-3.5 font-mono font-bold text-[#0A2030]">{c.docket_no}</td>
                         <td className="px-4 py-3.5 font-mono text-slate-600">{c.paid_at.split('T')[0]}</td>
                         <td className="px-4 py-3.5">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-700">
                             {c.method}
                           </span>
                         </td>

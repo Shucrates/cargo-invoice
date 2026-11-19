@@ -1,26 +1,24 @@
 'use client';
 
 import { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import QRCode from 'qrcode';
 import {
   Building2,
   QrCode,
   FileText,
   Save,
   CheckCircle,
-  RefreshCw,
   Plus,
   Trash2,
   Edit3,
   X,
   Check,
   Upload,
-  ShieldCheck,
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { notify } from '@/lib/notify';
 import { Input } from '@/components/ui/input';
-import { CompanySettings, DEFAULT_COMPANY_SETTINGS, SavedPaymentQr, getCompanySettings, buildUpiUri, getActivePaymentQr } from '@/lib/companyConfig';
+import { CompanySettings, DEFAULT_COMPANY_SETTINGS, SavedPaymentQr, getCompanySettings, getActivePaymentQr } from '@/lib/companyConfig';
 
 const UPI_PROVIDERS = [
   { label: 'GPay Axis', handle: '@okaxis' },
@@ -92,21 +90,6 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
       return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, []);
 
-  const generateUpiQrDataUrl = async (upiId: string, payeeName?: string): Promise<string> => {
-    const uri = buildUpiUri(upiId, payeeName, draft.tradeName);
-    if (!uri) return '';
-    try {
-      return await QRCode.toDataURL(uri, {
-        margin: 1,
-        width: 300,
-        color: { dark: '#0A2030', light: '#ffffff' },
-      });
-    } catch (err) {
-      console.error('Failed to generate client-side QR:', err);
-      return '';
-    }
-  };
-
   const updateQrEntry = (id: string, patch: Partial<SavedPaymentQr>) => {
     const updatedList = draft.savedQrCodes.map((q) => {
       if (q.id !== id) return q;
@@ -175,24 +158,51 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
     setDraft(next);
   };
 
-  const generateQrForEntry = async (id: string) => {
-    const entry = draft.savedQrCodes.find((q) => q.id === id);
-    if (!entry || !entry.upiId) return;
-    const qrDataUrl = await generateUpiQrDataUrl(entry.upiId, entry.payeeName);
-    updateQrEntry(id, { qrCodeUrl: qrDataUrl });
+  /** Max size for an uploaded QR image; settings live in browser storage, which is small. */
+  const MAX_QR_BYTES = 1024 * 1024;
+
+  /**
+   * Sets or clears a QR image. While editing it goes into the draft like any
+   * other field; otherwise it is saved straight away, so uploading a QR never
+   * requires entering edit mode first.
+   */
+  const setQrImage = (id: string, qrCodeUrl: string) => {
+    if (isEditing) {
+      updateQrEntry(id, { qrCodeUrl });
+      return;
+    }
+    const savedQrCodes = settings.savedQrCodes.map((q) => (q.id === id ? { ...q, qrCodeUrl } : q));
+    const next: CompanySettings = { ...settings, savedQrCodes };
+    if (settings.activeQrCodeId === id) next.qrCodeUrl = qrCodeUrl;
+    try {
+      localStorage.setItem('cargoflow_company_settings', JSON.stringify(next));
+    } catch {
+      notify('Could not save the QR image — browser storage is full. Try a smaller image.');
+      return;
+    }
+    setSettings(next);
+    setDraft(next);
+    notify(qrCodeUrl ? 'QR code saved. It will print on new bills and LRs.' : 'QR code removed.', 'success');
   };
 
-  const handleQrImageUpload = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleQrFile = (id: string, file: File | undefined) => {
     if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/.test(file.type)) {
+      notify('Upload the QR code as a PNG, JPG or WebP image.');
+      return;
+    }
+    if (file.size > MAX_QR_BYTES) {
+      notify('That image is over 1 MB. Use a smaller screenshot or crop of the QR code.');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = (event) => {
-      if (event.target?.result) {
-        updateQrEntry(id, { qrCodeUrl: event.target.result as string });
-      }
+      if (typeof event.target?.result === 'string') setQrImage(id, event.target.result);
     };
     reader.readAsDataURL(file);
   };
+
+  const [dragOverQrId, setDragOverQrId] = useState<string | null>(null);
 
   const applyProviderHandle = (id: string, handle: string) => {
     const entry = draft.savedQrCodes.find((q) => q.id === id);
@@ -279,8 +289,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
 
           <div className="space-y-3">
             <div>
-              <label className="text-xs font-semibold text-slate-700">Trade / Display Name</label>
-              <Input
+              <label htmlFor="companysettingsview-trade-display-name" className="text-xs font-semibold text-slate-700">Trade / Display Name</label>
+              <Input id="companysettingsview-trade-display-name"
                 disabled={!isEditing}
                 value={activeState.tradeName}
                 onChange={(e) => setDraft({ ...draft, tradeName: e.target.value })}
@@ -293,8 +303,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700">Legal Entity Name</label>
-              <Input
+              <label htmlFor="companysettingsview-legal-entity-name" className="text-xs font-semibold text-slate-700">Legal Entity Name</label>
+              <Input id="companysettingsview-legal-entity-name"
                 disabled={!isEditing}
                 value={activeState.legalName}
                 onChange={(e) => setDraft({ ...draft, legalName: e.target.value })}
@@ -308,8 +318,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-700">GSTIN Number</label>
-                <Input
+                <label htmlFor="companysettingsview-gstin-number" className="text-xs font-semibold text-slate-700">GSTIN Number</label>
+                <Input id="companysettingsview-gstin-number"
                   disabled={!isEditing}
                   value={activeState.gstin}
                   onChange={(e) => setDraft({ ...draft, gstin: e.target.value })}
@@ -321,8 +331,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-700">Official Email</label>
-                <Input
+                <label htmlFor="companysettingsview-official-email" className="text-xs font-semibold text-slate-700">Official Email</label>
+                <Input id="companysettingsview-official-email"
                   disabled={!isEditing}
                   value={activeState.email}
                   onChange={(e) => setDraft({ ...draft, email: e.target.value })}
@@ -337,8 +347,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Primary Phone</label>
-                <Input
+                <label htmlFor="companysettingsview-primary-phone" className="text-xs font-semibold text-slate-700">Primary Phone</label>
+                <Input id="companysettingsview-primary-phone"
                   disabled={!isEditing}
                   value={activeState.phone1}
                   onChange={(e) => setDraft({ ...draft, phone1: e.target.value })}
@@ -350,8 +360,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-700">Secondary Phone</label>
-                <Input
+                <label htmlFor="companysettingsview-secondary-phone" className="text-xs font-semibold text-slate-700">Secondary Phone</label>
+                <Input id="companysettingsview-secondary-phone"
                   disabled={!isEditing}
                   value={activeState.phone2}
                   onChange={(e) => setDraft({ ...draft, phone2: e.target.value })}
@@ -365,8 +375,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700">Registered Office Address</label>
-              <textarea
+              <label htmlFor="companysettingsview-registered-office-address" className="text-xs font-semibold text-slate-700">Registered Office Address</label>
+              <textarea id="companysettingsview-registered-office-address"
                 disabled={!isEditing}
                 rows={3}
                 value={activeState.address}
@@ -380,8 +390,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-slate-700">Default Origin City</label>
-              <Input
+              <label htmlFor="companysettingsview-default-origin-city" className="text-xs font-semibold text-slate-700">Default Origin City</label>
+              <Input id="companysettingsview-default-origin-city"
                 disabled={!isEditing}
                 value={activeState.defaultOriginCity}
                 onChange={(e) => setDraft({ ...draft, defaultOriginCity: e.target.value })}
@@ -430,107 +440,127 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                     isActive ? 'bg-slate-50/90 border-slate-300 ring-1 ring-slate-300/80 shadow-xs' : 'bg-slate-50/40 border-slate-200'
                   }`}
                 >
-                  <div className="flex items-start gap-3.5">
-                    <div className="flex flex-col items-center gap-1.5 shrink-0">
-                      <div className="w-20 h-20 bg-white border border-slate-300 rounded-lg p-1 flex items-center justify-center shadow-xs overflow-hidden">
-                        {hasQrImage ? (
-                          <img src={qr.qrCodeUrl} alt={qr.label} className="w-full h-full object-contain" />
-                        ) : (
-                          <div className="text-[9px] text-slate-400 text-center font-mono leading-tight">
-                            No QR<br />Generated
-                          </div>
-                        )}
-                      </div>
-                      {isEditing && (
-                        <label className="cursor-pointer">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleQrImageUpload(qr.id, e)}
-                            className="hidden"
-                          />
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 px-2 py-0.5 rounded-md shadow-2xs">
-                            <Upload className="w-2.5 h-2.5" />
-                            Upload
-                          </span>
-                        </label>
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          disabled={!isEditing}
-                          value={qr.label}
-                          onChange={(e) => updateQrEntry(qr.id, { label: e.target.value })}
-                          placeholder="Label (e.g. Primary GPay / Branch QR)"
-                          className={`h-7 text-xs font-bold transition-all ${
-                            isEditing ? 'bg-white border-slate-300 text-slate-900' : 'bg-transparent border-transparent text-slate-800 cursor-default px-0'
-                          }`}
-                        />
-                        {isActive && (
-                          <span className="shrink-0 flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                            <Check className="w-3 h-3 text-emerald-600" />
-                            Active for Invoices
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        {!isActive && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => setActiveQr(qr.id)}
-                            className="h-6 text-[10px] font-bold bg-[#0A2030] hover:bg-[#071520] text-white rounded-md cursor-pointer"
-                          >
-                            Set Active
-                          </Button>
-                        )}
-                        {isEditing && (
-                          <>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => generateQrForEntry(qr.id)}
-                              className="h-6 text-[10px] font-bold gap-1 bg-white hover:bg-slate-100 border-slate-300 text-slate-800 cursor-pointer"
-                              title="Generate QR code from UPI Address & Payee Name"
-                            >
-                              <RefreshCw className="w-2.5 h-2.5" />
-                              Auto Generate
-                            </Button>
-                            {draft.savedQrCodes.length > 1 && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => removeQrEntry(qr.id)}
-                                title="Delete this QR"
-                                className="h-6 text-[10px] font-bold bg-red-50 border-red-200 hover:bg-red-100 hover:border-red-300 text-red-600 gap-1 cursor-pointer"
-                              >
-                                <Trash2 className="w-2.5 h-2.5" />
-                                Delete
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </div>
-
-                      <div className="text-[10px] text-slate-500 pt-0.5 flex items-center gap-1.5">
-                        <ShieldCheck className="w-3 h-3 text-emerald-600 shrink-0" />
-                        <span className="truncate">
-                          Scans as: <strong className="text-slate-800">{qr.payeeName || draft.tradeName}</strong>
-                          {qr.upiId ? ` (${qr.upiId})` : ''}
-                        </span>
-                      </div>
-                    </div>
+                  {/* Header: label, status and card actions */}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      disabled={!isEditing}
+                      value={qr.label}
+                      onChange={(e) => updateQrEntry(qr.id, { label: e.target.value })}
+                      placeholder="Label (e.g. Primary GPay / Branch QR)"
+                      aria-label="QR label"
+                      className={`h-8 text-sm font-bold transition-all disabled:opacity-100 ${
+                        isEditing ? 'bg-white border-slate-300 text-slate-900' : 'bg-transparent border-transparent text-slate-900 cursor-default px-0'
+                      }`}
+                    />
+                    {isActive ? (
+                      <span className="shrink-0 flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        Active
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setActiveQr(qr.id)}
+                        className="h-7 shrink-0 text-[11px] font-bold rounded-lg"
+                      >
+                        Set Active
+                      </Button>
+                    )}
+                    {isEditing && draft.savedQrCodes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeQrEntry(qr.id)}
+                        aria-label={`Delete ${qr.label}`}
+                        title="Delete this QR"
+                        className="shrink-0 w-7 h-7 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
+
+                  {/* QR image — the main action of this card */}
+                  {hasQrImage ? (
+                    <div className="flex items-center gap-4 p-3 bg-white border border-slate-200 rounded-xl">
+                      <div className="w-28 h-28 shrink-0 rounded-lg border border-slate-100 p-1.5 flex items-center justify-center">
+                        <img src={qr.qrCodeUrl} alt={`${qr.label} QR code`} className="w-full h-full object-contain" />
+                      </div>
+                      <div className="min-w-0 space-y-2.5">
+                        <p className="text-xs text-slate-600 leading-snug">
+                          {isActive
+                            ? 'Printed on new bills and LRs.'
+                            : 'Set this QR active to print it on bills and LRs.'}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-800 hover:bg-slate-50 cursor-pointer focus-within:ring-2 focus-within:ring-[#0A2030]/30">
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              onChange={(e) => {
+                                handleQrFile(qr.id, e.target.files?.[0]);
+                                e.target.value = '';
+                              }}
+                              className="sr-only"
+                            />
+                            <Upload className="w-3.5 h-3.5" />
+                            Replace
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setQrImage(qr.id, '')}
+                            className="h-8 px-3 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <label
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragOverQrId(qr.id);
+                      }}
+                      onDragLeave={() => setDragOverQrId(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverQrId(null);
+                        handleQrFile(qr.id, e.dataTransfer.files?.[0]);
+                      }}
+                      className={`flex flex-col items-center justify-center gap-2 px-4 py-6 text-center rounded-xl border-2 border-dashed cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-[#0A2030]/30 ${
+                        dragOverQrId === qr.id
+                          ? 'border-[#0A2030] bg-[#0A2030]/5'
+                          : 'border-slate-300 bg-white hover:border-[#0A2030]/60 hover:bg-slate-50'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        onChange={(e) => {
+                          handleQrFile(qr.id, e.target.files?.[0]);
+                          e.target.value = '';
+                        }}
+                        className="sr-only"
+                      />
+                      <span className="w-11 h-11 rounded-full bg-[#0A2030] text-white flex items-center justify-center">
+                        <Upload className="w-5 h-5" />
+                      </span>
+                      <span className="text-sm font-bold text-slate-900">Upload your payment QR code</span>
+                      <span className="text-xs text-slate-500 leading-snug max-w-xs">
+                        Click to choose, or drop the QR image from your bank or UPI app here. PNG, JPG or WebP, up to 1 MB.
+                      </span>
+                      <span className="mt-1 text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2 py-0.5">
+                        Bills and LRs print without a QR until you upload one
+                      </span>
+                    </label>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                     <div>
-                      <label className="text-[10px] font-bold text-slate-700">
-                        Account / Payee Name <span className="text-slate-400 font-normal">(Shown on Google Pay)</span>
+                      <label className="text-[11px] font-bold text-slate-700">
+                        Account / Payee Name <span className="text-slate-500 font-normal">(printed on bills)</span>
                       </label>
                       <Input
                         disabled={!isEditing}
@@ -546,8 +576,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-slate-700">Google Pay Mobile No.</label>
-                      <Input
+                      <label htmlFor="companysettingsview-google-pay-mobile-no" className="text-[11px] font-bold text-slate-700">Google Pay Mobile No.</label>
+                      <Input id="companysettingsview-google-pay-mobile-no"
                         disabled={!isEditing}
                         value={qr.gpayNo}
                         onChange={(e) => updateQrEntry(qr.id, { gpayNo: e.target.value })}
@@ -562,7 +592,7 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                   </div>
 
                   <div>
-                    <label className="text-[10px] font-bold text-slate-700">
+                    <label className="text-[11px] font-bold text-slate-700">
                       UPI VPA Address <span className="text-slate-400 font-normal">(e.g. 9821541984@okbizaxis, name@okhdfcbank)</span>
                     </label>
                     <Input
@@ -579,13 +609,13 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
 
                     {isEditing && (
                       <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                        <span className="text-[9px] font-bold text-slate-400 mr-0.5">Quick Handles:</span>
+                        <span className="text-[11px] font-bold text-slate-400 mr-0.5">Quick Handles:</span>
                         {UPI_PROVIDERS.map((p) => (
                           <button
                             key={p.handle}
                             type="button"
                             onClick={() => applyProviderHandle(qr.id, p.handle)}
-                            className="text-[9px] font-mono font-semibold px-1.5 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded text-slate-700 cursor-pointer transition-all"
+                            className="text-[11px] font-mono font-semibold px-1.5 py-0.5 bg-white hover:bg-slate-100 border border-slate-200 hover:border-slate-300 rounded text-slate-700 cursor-pointer transition-all"
                             title={`Append ${p.handle} (${p.label})`}
                           >
                             {p.handle}
@@ -602,8 +632,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
           <div className="space-y-4 pt-1">
             <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-100">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Bank Name</label>
-                <Input
+                <label htmlFor="companysettingsview-bank-name" className="text-xs font-semibold text-slate-700">Bank Name</label>
+                <Input id="companysettingsview-bank-name"
                   disabled={!isEditing}
                   value={activeState.bankName}
                   onChange={(e) => setDraft({ ...draft, bankName: e.target.value })}
@@ -615,8 +645,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-700">Branch</label>
-                <Input
+                <label htmlFor="companysettingsview-branch" className="text-xs font-semibold text-slate-700">Branch</label>
+                <Input id="companysettingsview-branch"
                   disabled={!isEditing}
                   value={activeState.branch}
                   onChange={(e) => setDraft({ ...draft, branch: e.target.value })}
@@ -631,8 +661,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-semibold text-slate-700">Account Number</label>
-                <Input
+                <label htmlFor="companysettingsview-account-number" className="text-xs font-semibold text-slate-700">Account Number</label>
+                <Input id="companysettingsview-account-number"
                   disabled={!isEditing}
                   value={activeState.accountNo}
                   onChange={(e) => setDraft({ ...draft, accountNo: e.target.value })}
@@ -644,8 +674,8 @@ const CompanySettingsView = forwardRef<CompanySettingsViewHandle, CompanySetting
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-slate-700">IFSC Code</label>
-                <Input
+                <label htmlFor="companysettingsview-ifsc-code" className="text-xs font-semibold text-slate-700">IFSC Code</label>
+                <Input id="companysettingsview-ifsc-code"
                   disabled={!isEditing}
                   value={activeState.ifsc}
                   onChange={(e) => setDraft({ ...draft, ifsc: e.target.value })}

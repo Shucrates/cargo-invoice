@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect, useMemo } from 'react';
 import { DocketDraft } from '@/types/cargo';
 import { FileText, Edit2, Trash2, Search, Plus, MapPin, User } from 'lucide-react';
@@ -71,6 +72,8 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
   const [deleteTarget, setDeleteTarget] = useState<DocketDraft | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const draftDeleteDialog = useDialog(() => setDeleteTarget(null));
 
   const fetchDrafts = async () => {
     setLoading(true);
@@ -259,15 +262,15 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
                 {/* Middle: Details (Weight, Packages, Freight) */}
                 <div className="flex items-center gap-6 text-xs text-slate-600 shrink-0">
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 block uppercase font-medium">Weight</span>
+                    <span className="text-[11px] text-slate-400 block uppercase font-medium">Weight</span>
                     <span className="font-semibold text-slate-900 text-sm">{weight ? `${weight} kg` : '—'}</span>
                   </div>
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 block uppercase font-medium">Packages</span>
+                    <span className="text-[11px] text-slate-400 block uppercase font-medium">Packages</span>
                     <span className="font-semibold text-slate-900 text-sm">{pkgs ? `${pkgs} pkgs` : '—'}</span>
                   </div>
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 block uppercase font-medium">Freight</span>
+                    <span className="text-[11px] text-slate-400 block uppercase font-medium">Freight</span>
                     <span className="font-semibold text-slate-900 text-sm">
                       {freight ? `${formatRupees(Number(freight))}` : '—'}
                     </span>
@@ -300,7 +303,7 @@ export default function DraftList({ onEdit, onDraftsChanged, onNewLR }: DraftLis
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+        <div ref={draftDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete draft" className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl p-5 max-w-sm w-full border border-slate-200 shadow-lg space-y-3">
             <h3 className="text-sm font-bold text-slate-900">Delete Draft</h3>
             <p className="text-xs text-slate-500">

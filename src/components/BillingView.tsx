@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle, Fragment, type ReactNode } from 'react';
 import {
   FileText,
@@ -45,6 +46,7 @@ import type { QuotationSheetDTO } from '@/components/QuotationView';
 import { invalidateReportsCache } from '@/components/ReportsView';
 import { formatRupees } from '@/lib/money';
 import { notify } from '@/lib/notify';
+import { fetchAllPages } from '@/lib/fetchAll';
 
 interface BillingViewProps {
   dockets: CargoDocket[];
@@ -166,6 +168,9 @@ function numberToWordsIndian(num: number): string {
   return `${result} Rupees Only.`;
 }
 
+/** Bill wizard step names, in order (step numbers are 1-based). */
+const BILL_STEP_LABELS = ['Customer', 'Invoice details', 'Line items', 'Financials & tax'];
+
 const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function BillingView(
   { dockets, customers },
   ref
@@ -257,7 +262,13 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const [issueError, setIssueError] = useState<string | null>(null);
   const [issuedBill, setIssuedBill] = useState<Bill | null>(null);
   const [isPreviewing, setIsPreviewing] = useState<boolean>(false);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const interruptedDraftDialog = useDialog(null);
+  const pendingSubTabDialog = useDialog(() => resolvePendingSubTab('cancel'));
+  const billDeleteDialog = useDialog(() => setDeleteTarget(null));
   const [billStep, setBillStep] = useState<number>(1);
+  // Furthest step reached; the step indicator only jumps back to steps already passed.
+  const [furthestBillStep, setFurthestBillStep] = useState<number>(1);
   const [autoZoom, setAutoZoom] = useState<boolean>(true);
 
   useEffect(() => {
@@ -393,14 +404,9 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const fetchBills = async () => {
     setLoadingBills(true);
     try {
-      const res = await fetch('/api/billing?limit=300');
-      if (res.ok) {
-        const data = await res.json();
-        const loadedBills = (data.bills ?? []) as Bill[];
-        setBills(loadedBills);
-        const ids = new Set<string>(loadedBills.flatMap((b) => b.docket_ids || []));
-        setBilledDocketIds(ids);
-      }
+      const loadedBills = await fetchAllPages<Bill>('/api/billing', 'bills');
+      setBills(loadedBills);
+      setBilledDocketIds(new Set<string>(loadedBills.flatMap((b) => b.docket_ids || [])));
     } catch (err) {
       console.error('Failed to fetch bills:', err);
     } finally {
@@ -410,12 +416,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
   const refreshBilledIds = async () => {
     try {
-      const res = await fetch('/api/billing?limit=500');
-      if (res.ok) {
-        const data = await res.json();
-        const ids = new Set<string>((data.bills ?? []).flatMap((b: Bill) => b.docket_ids || []));
-        setBilledDocketIds(ids);
-      }
+      const allBills = await fetchAllPages<Bill>('/api/billing', 'bills');
+      setBilledDocketIds(new Set<string>(allBills.flatMap((b) => b.docket_ids || [])));
     } catch (err) {
       console.error('Failed to load billed LR ids:', err);
     }
@@ -655,6 +657,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     setIssueError(null);
     setIsPreviewing(false);
     setBillStep(1);
+    setFurthestBillStep(1);
     pristineSnapshotRef.current = JSON.stringify(blank);
   };
 
@@ -707,6 +710,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
     setIssuedBill(null);
     setIssueError(null);
     setBillStep(1);
+    setFurthestBillStep(BILL_STEP_LABELS.length);
     setSubTab('new');
     pristineSnapshotRef.current = JSON.stringify(loaded);
   };
@@ -817,7 +821,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
   const renderInterruptedDraftModal = () => {
     if (!interruptedDraft) return null;
     return (
-      <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+      <div ref={interruptedDraftDialog} role="dialog" aria-modal="true" aria-label="Unsaved bill draft found" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
         <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
           <div className="flex items-start gap-4">
             <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
@@ -1314,8 +1318,19 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
   const handleBillNext = () => {
     if (validateBillStep(billStep)) {
-      if (billStep < 4) setBillStep(billStep + 1);
+      if (billStep < 4) {
+        setBillStep(billStep + 1);
+        setFurthestBillStep((s) => Math.max(s, billStep + 1));
+      }
     }
+  };
+
+  const goToBillStep = (step: number) => {
+    if (step === billStep || step > furthestBillStep) return;
+    // Moving forward still has to pass the current step's checks.
+    if (step > billStep && !validateBillStep(billStep)) return;
+    setIssueError(null);
+    setBillStep(step);
   };
 
   const handleBillPrev = () => {
@@ -1885,6 +1900,46 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
           <div className="flex flex-col bg-white border-r border-slate-200 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-8 md:px-12 lg:px-16 py-10">
               <div className="max-w-xl mx-auto w-full space-y-6">
+                <nav aria-label="Bill steps" className="mb-8">
+                  <p className="text-xs font-medium text-slate-500 mb-2">
+                    Step {billStep} of {BILL_STEP_LABELS.length}
+                  </p>
+                  <ol className="flex gap-1.5">
+                    {BILL_STEP_LABELS.map((label, idx) => {
+                      const step = idx + 1;
+                      const reachable = step <= furthestBillStep;
+                      const isCurrent = step === billStep;
+                      return (
+                        <li key={label} className="flex-1 min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => goToBillStep(step)}
+                            disabled={!reachable}
+                            aria-current={isCurrent ? 'step' : undefined}
+                            className="w-full text-left group disabled:cursor-not-allowed cursor-pointer"
+                          >
+                            <span
+                              className={`block h-1.5 rounded-full transition-colors ${
+                                step <= billStep ? 'bg-[#0A2030]' : reachable ? 'bg-[#0A2030]/30' : 'bg-slate-200'
+                              }`}
+                            />
+                            <span
+                              className={`mt-1.5 hidden sm:block truncate text-[11px] ${
+                                isCurrent
+                                  ? 'font-semibold text-slate-900'
+                                  : reachable
+                                  ? 'text-slate-600 group-hover:text-slate-900'
+                                  : 'text-slate-400'
+                              }`}
+                            >
+                              {label}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                </nav>
 
                 {/* Step 1: Customer Details */}
                 {billStep === 1 && (
@@ -2036,8 +2091,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                           </div>
 
                           <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
-                            <Input
+                            <label htmlFor="billingview-address" className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
+                            <Input id="billingview-address"
                               value={customerAddress}
                               onChange={(e) => setCustomerAddress(e.target.value)}
                               placeholder="Full billing address, city, state, pin"
@@ -2047,8 +2102,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                           <div className="grid grid-cols-2 gap-3">
                             <div>
-                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
-                              <Input
+                              <label htmlFor="billingview-gstin" className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
+                              <Input id="billingview-gstin"
                                 value={customerGstin}
                                 onChange={(e) => setCustomerGstin(e.target.value.toUpperCase())}
                                 placeholder="27AAAA..."
@@ -2056,8 +2111,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                               />
                             </div>
                             <div>
-                              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
-                              <Input
+                              <label htmlFor="billingview-phone" className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
+                              <Input id="billingview-phone"
                                 value={customerPhone}
                                 onChange={(e) => setCustomerPhone(e.target.value)}
                                 placeholder="+91 98765 43210"
@@ -2067,8 +2122,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                           </div>
 
                           <div>
-                            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email (for sending invoice)</label>
-                            <Input
+                            <label htmlFor="billingview-email-for-sending-invoice" className="block text-xs font-semibold text-slate-700 mb-1.5">Email (for sending invoice)</label>
+                            <Input id="billingview-email-for-sending-invoice"
                               value={customerEmail}
                               onChange={(e) => setCustomerEmail(e.target.value)}
                               placeholder="accounts@customer.com"
@@ -2101,8 +2156,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Bill / Invoice Number</label>
-                        <Input
+                        <label htmlFor="billingview-bill-invoice-number" className="block text-sm font-semibold text-slate-700 mb-1.5">Bill / Invoice Number</label>
+                        <Input id="billingview-bill-invoice-number"
                           value={billNo}
                           onChange={(e) => setBillNo(e.target.value)}
                           placeholder="Auto-generated (or type custom)"
@@ -2112,8 +2167,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                       </div>
 
                       <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Invoice Date</label>
-                        <Input
+                        <label htmlFor="billingview-invoice-date" className="block text-sm font-semibold text-slate-700 mb-1.5">Invoice Date</label>
+                        <Input id="billingview-invoice-date"
                           type="date"
                           value={invoiceDate}
                           onChange={(e) => setInvoiceDate(e.target.value)}
@@ -2123,8 +2178,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Category</label>
-                          <select
+                          <label htmlFor="billingview-category" className="block text-sm font-semibold text-slate-700 mb-1.5">Category</label>
+                          <select id="billingview-category"
                             value={category}
                             onChange={(e) => setCategory(e.target.value)}
                             className="w-full text-xs h-10 px-3 border border-slate-200 rounded-xl bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20 cursor-pointer shadow-2xs"
@@ -2137,8 +2192,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         </div>
 
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Doc Type</label>
-                          <select
+                          <label htmlFor="billingview-doc-type" className="block text-sm font-semibold text-slate-700 mb-1.5">Doc Type</label>
+                          <select id="billingview-doc-type"
                             value={docType}
                             onChange={(e) => setDocType(e.target.value)}
                             className="w-full text-xs h-10 px-3 border border-slate-200 rounded-xl bg-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0A2030]/20 cursor-pointer shadow-2xs"
@@ -2253,11 +2308,11 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                       <span className="font-mono font-bold text-[#0A2030]">{d.docket_no}</span>
                                       <span className="text-slate-500 text-[11px] font-mono">({d.booking_date})</span>
                                       {isCash ? (
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
                                           Cash
                                         </span>
                                       ) : d.expected_mode ? (
-                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600">
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600">
                                           {d.expected_mode}
                                         </span>
                                       ) : null}
@@ -2300,8 +2355,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                           <div className="grid grid-cols-2 gap-2.5">
                             <div>
-                              <label className="text-[10px] font-semibold text-slate-500">Particulars</label>
-                              <Input
+                              <label htmlFor="billingview-particulars" className="text-[11px] font-semibold text-slate-500">Particulars</label>
+                              <Input id="billingview-particulars"
                                 value={item.particulars || ''}
                                 onChange={(e) => handleUpdateCustomItem(idx, 'particulars', e.target.value)}
                                 placeholder="Freight charges"
@@ -2309,8 +2364,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                               />
                             </div>
                             <div>
-                              <label className="text-[10px] font-semibold text-slate-500">Amount (₹)</label>
-                              <Input
+                              <label htmlFor="billingview-amount" className="text-[11px] font-semibold text-slate-500">Amount (₹)</label>
+                              <Input id="billingview-amount"
                                 type="number"
                                 value={item.amount || ''}
                                 onChange={(e) => handleUpdateCustomItem(idx, 'amount', Number(e.target.value))}
@@ -2335,20 +2390,20 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                     <div className="space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Subtotal (₹)</label>
-                          <Input
+                          <label htmlFor="billingview-subtotal" className="block text-sm font-semibold text-slate-700 mb-1.5">Subtotal (₹)</label>
+                          <Input id="billingview-subtotal"
                             type="number"
                             value={manualSubtotal !== '' ? manualSubtotal : subtotal}
                             onChange={(e) => setManualSubtotal(e.target.value)}
                             placeholder={String(calculatedSubtotal)}
                             className="h-10 text-xs font-mono font-bold text-slate-900"
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">Sum of items: {formatRupees(calculatedSubtotal)}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">Sum of items: {formatRupees(calculatedSubtotal)}</p>
                         </div>
 
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Discount (₹)</label>
-                          <Input
+                          <label htmlFor="billingview-discount" className="block text-sm font-semibold text-slate-700 mb-1.5">Discount (₹)</label>
+                          <Input id="billingview-discount"
                             type="number"
                             value={discount}
                             onChange={(e) => setDiscount(Number(e.target.value))}
@@ -2357,8 +2412,8 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                         </div>
 
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">GST Rate (%)</label>
-                          <select
+                          <label htmlFor="billingview-gst-rate" className="block text-sm font-semibold text-slate-700 mb-1.5">GST Rate (%)</label>
+                          <select id="billingview-gst-rate"
                             value={gstPercentage}
                             onChange={(e) => {
                               setGstPercentage(Number(e.target.value));
@@ -2377,19 +2432,19 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">GST Amount (₹)</label>
-                          <Input
+                          <label htmlFor="billingview-gst-amount" className="block text-sm font-semibold text-slate-700 mb-1.5">GST Amount (₹)</label>
+                          <Input id="billingview-gst-amount"
                             type="number"
                             value={manualGstAmount !== '' ? manualGstAmount : gstAmount}
                             onChange={(e) => setManualGstAmount(e.target.value)}
                             className="h-10 text-xs font-mono font-bold text-slate-900"
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">Calculated: {formatRupees(calculatedGst)}</p>
+                          <p className="text-[11px] text-slate-400 mt-1">Calculated: {formatRupees(calculatedGst)}</p>
                         </div>
 
                         <div>
-                          <label className="block text-sm font-semibold text-slate-700 mb-1.5">Notes / Payment Terms</label>
-                          <Input
+                          <label htmlFor="billingview-notes-payment-terms" className="block text-sm font-semibold text-slate-700 mb-1.5">Notes / Payment Terms</label>
+                          <Input id="billingview-notes-payment-terms"
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             placeholder="e.g. Payment due within 15 days"
@@ -2518,7 +2573,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
         {/* Unsaved changes confirmation dialog if any */}
         {pendingSubTab && (
-          <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div ref={pendingSubTabDialog} role="dialog" aria-modal="true" aria-label="Unsaved bill changes" className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
               <div className="flex items-start gap-4">
                 <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0">
@@ -2839,7 +2894,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                               <td className="px-4 py-4 text-slate-600 whitespace-nowrap">{formatDay(b.invoice_date)}</td>
                               <td className="px-4 py-4">
                                 <div className="font-semibold text-slate-900">{b.customer_name}</div>
-                                <div className="text-[10px] text-slate-400 font-mono">
+                                <div className="text-[11px] text-slate-400 font-mono">
                                   {b.category} · {b.doc_type}
                                 </div>
                               </td>
@@ -2932,7 +2987,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                     <div className="space-y-3">
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white p-3.5 rounded-xl border border-slate-200">
                                         <div>
-                                          <div className="text-[10px] font-semibold text-slate-400 uppercase">Customer Billing Details</div>
+                                          <div className="text-[11px] font-semibold text-slate-400 uppercase">Customer Billing Details</div>
                                           <div className="font-bold text-slate-900 mt-0.5">{b.customer_name}</div>
                                           <div className="text-slate-600 font-mono text-[11px]">{b.customer_gstin ? `GSTIN: ${b.customer_gstin}` : 'Unregistered / B2C'}</div>
                                           <div className="text-slate-500 text-[11px]">{b.customer_address || 'No address specified'}</div>
@@ -2986,7 +3041,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
                                                     <div className="flex items-center gap-1.5 flex-wrap">
                                                       <span>{d.consignor_name}</span>
                                                       {isCash && (
-                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-bold bg-yellow-100 text-yellow-900 border border-yellow-300">
                                                           Cash
                                                         </span>
                                                       )}
@@ -3020,7 +3075,7 @@ const BillingView = forwardRef<BillingViewHandle, BillingViewProps>(function Bil
 
             {/* Delete Bill Modal */}
             {deleteTarget && (
-              <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+              <div ref={billDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete bill" className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
                 <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl">
                   <h3 className="text-base font-bold text-red-600 mb-2">Delete Bill</h3>
                   <p className="text-xs text-slate-600 mb-4 leading-relaxed">

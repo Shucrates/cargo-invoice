@@ -100,6 +100,11 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
       ? (initialData.current_step as LRStep)
       : 'consignor'
   );
+  // Furthest step reached, so the step indicator only lets staff jump back to
+  // steps they have already passed (an edited LR or resumed draft has them all).
+  const [furthestStepIndex, setFurthestStepIndex] = useState(() =>
+    editDocketId ? STEPS.length - 1 : Math.max(0, STEPS.indexOf(initialData?.current_step))
+  );
   const [bookingDate, setBookingDate] = useState(parseInitialDate(initialData?.booking_date));
   const [transportMode, setTransportMode] = useState<'Road' | 'Air' | 'Train'>(initialData?.transport_mode || 'Road');
   const [isInternational, setIsInternational] = useState<boolean>(Boolean(initialData?.is_international));
@@ -521,7 +526,18 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const goNext = () => {
     if (!validateCurrentStep()) return;
     const next = STEPS[stepIndex + 1];
-    if (next) setCurrentStep(next);
+    if (next) {
+      setCurrentStep(next);
+      setFurthestStepIndex((i) => Math.max(i, stepIndex + 1));
+    }
+  };
+
+  const goToStep = (index: number) => {
+    if (index === stepIndex || index > furthestStepIndex) return;
+    // Moving forward still has to pass the current step's checks.
+    if (index > stepIndex && !validateCurrentStep()) return;
+    setCurrentStep(STEPS[index]);
+    setMsg(null);
   };
 
   const goBack = () => {
@@ -994,16 +1010,14 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                       {activeQr.qrCodeUrl ? (
                         <img src={activeQr.qrCodeUrl} alt="UPI QR" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                       ) : (
-                        <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
-                          <path fill={inkCol} d="M2,2H10V10H2V2M4,4V8H8V4H4M14,2H22V10H14V2M16,4V8H20V4H16M2,14H10V22H2V14M4,16V20H8V16H4M14,14H17V17H14V14M19,14H22V17H19V14M17,17H19V19H17V17M14,19H17V22H14V19M19,19H22V22H19V19Z" />
-                        </svg>
+                        <span style={{ fontSize: 3.5, textAlign: 'center', lineHeight: 1.1 }}>No QR uploaded</span>
                       )}
                     </div>
                     <div>
                       <div style={{ fontWeight: 800, color: inkCol, fontSize: 4.5 }}>PAYMENT QR CODE</div>
                       {qrDisplayGpay && <div>GPay: {qrDisplayGpay}</div>}
                       {qrDisplayUpi && <div>UPI: {qrDisplayUpi}</div>}
-                      <div style={{ fontWeight: 700, color: inkCol }}>Scan & Pay</div>
+                      {activeQr.qrCodeUrl && <div style={{ fontWeight: 700, color: inkCol }}>Scan & Pay</div>}
                     </div>
                   </div>
 
@@ -1044,6 +1058,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
   const handleCreateAnother = () => {
     setIssuedDocket(null);
     setCurrentStep('consignor');
+    setFurthestStepIndex(0);
     setConsignorMode('select');
     setConsigneeMode('select');
     setConsignorOpen(false);
@@ -1244,31 +1259,31 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Name of Business / Customer *</label>
-                    <Input value={consignorName} onChange={(e) => setConsignorName(e.target.value)} placeholder="e.g. Shenzhen Logistics Co." />
+                    <label htmlFor="cargodocketform-name-of-business-customer" className="block text-xs font-semibold text-slate-700 mb-1.5">Name of Business / Customer *</label>
+                    <Input id="cargodocketform-name-of-business-customer" value={consignorName} onChange={(e) => setConsignorName(e.target.value)} placeholder="e.g. Shree Ganesh Traders" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
-                    <Input value={consignorAddress} onChange={(e) => setConsignorAddress(e.target.value)} placeholder="100 King Street West" />
+                    <label htmlFor="cargodocketform-address" className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
+                    <Input id="cargodocketform-address" value={consignorAddress} onChange={(e) => setConsignorAddress(e.target.value)} placeholder="e.g. 12, Ranade Road, Dadar West" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
-                      <CityInput value={fromCity} onChange={setFromCity} extraCities={knownCities} placeholder="Mumbai" />
+                      <label htmlFor="cargodocketform-city-town" className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
+                      <CityInput id="cargodocketform-city-town" value={fromCity} onChange={setFromCity} extraCities={knownCities} placeholder="Mumbai" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">PIN / Postal code</label>
-                      <Input value={consignorPin} onChange={(e) => setConsignorPin(e.target.value)} placeholder="400001" />
+                      <label htmlFor="cargodocketform-pin-postal-code" className="block text-xs font-semibold text-slate-700 mb-1.5">PIN / Postal code</label>
+                      <Input id="cargodocketform-pin-postal-code" value={consignorPin} onChange={(e) => setConsignorPin(e.target.value)} placeholder="400001" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
-                      <Input value={consignorPhone} onChange={(e) => setConsignorPhone(e.target.value)} placeholder="+91 98765 43210" />
+                      <label htmlFor="cargodocketform-phone" className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
+                      <Input id="cargodocketform-phone" value={consignorPhone} onChange={(e) => setConsignorPhone(e.target.value)} placeholder="+91 98765 43210" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
-                      <Input value={consignorGstin} onChange={(e) => setConsignorGstin(e.target.value)} placeholder="27AAAA..." />
+                      <label htmlFor="cargodocketform-gstin" className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
+                      <Input id="cargodocketform-gstin" value={consignorGstin} onChange={(e) => setConsignorGstin(e.target.value)} placeholder="27AAAA..." />
                     </div>
                   </div>
 
@@ -1291,7 +1306,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
         return (
           <div className="space-y-6">
             <div>
-              <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Select a cosignee</h2>
+              <h2 className="text-3xl font-bold text-slate-900 tracking-tight font-heading">Select a consignee</h2>
               <p className="text-sm text-slate-500 mt-1 font-normal">The receiver of this shipment</p>
             </div>
 
@@ -1311,7 +1326,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                     }`}
                   >
                     <span className={consigneeName ? 'text-sm font-medium text-slate-900' : 'text-sm text-slate-400'}>
-                      {consigneeName || 'Select a cosignee'}
+                      {consigneeName || 'Select a consignee'}
                     </span>
                     <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${consigneeOpen ? 'rotate-180 text-slate-700' : ''}`} />
                   </button>
@@ -1416,7 +1431,7 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 )}
               </div>
             ) : (
-              /* Add new cosignee form */
+              /* Add new consignee form */
               <div className="space-y-5 pt-2">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100">
                   <h3 className="text-lg font-bold text-slate-900 font-heading">Add new customer</h3>
@@ -1431,36 +1446,36 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Name of Business / Customer *</label>
-                    <Input value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} placeholder="e.g. Ritu Fabrics" />
+                    <label htmlFor="cargodocketform-name-of-business-customer-2" className="block text-xs font-semibold text-slate-700 mb-1.5">Name of Business / Customer *</label>
+                    <Input id="cargodocketform-name-of-business-customer-2" value={consigneeName} onChange={(e) => setConsigneeName(e.target.value)} placeholder="e.g. Ritu Fabrics" />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
-                    <Input value={consigneeAddress} onChange={(e) => setConsigneeAddress(e.target.value)} placeholder="456 King Street West" />
+                    <label htmlFor="cargodocketform-address-2" className="block text-xs font-semibold text-slate-700 mb-1.5">Address</label>
+                    <Input id="cargodocketform-address-2" value={consigneeAddress} onChange={(e) => setConsigneeAddress(e.target.value)} placeholder="e.g. 45, Chandni Chowk" />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
-                      <CityInput value={toCity} onChange={setToCity} extraCities={knownCities} placeholder="Delhi" />
+                      <label htmlFor="cargodocketform-city-town-2" className="block text-xs font-semibold text-slate-700 mb-1.5">City / Town</label>
+                      <CityInput id="cargodocketform-city-town-2" value={toCity} onChange={setToCity} extraCities={knownCities} placeholder="Delhi" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">PIN / Postal code</label>
-                      <Input value={consigneePin} onChange={(e) => setConsigneePin(e.target.value)} placeholder="110001" />
+                      <label htmlFor="cargodocketform-pin-postal-code-2" className="block text-xs font-semibold text-slate-700 mb-1.5">PIN / Postal code</label>
+                      <Input id="cargodocketform-pin-postal-code-2" value={consigneePin} onChange={(e) => setConsigneePin(e.target.value)} placeholder="110001" />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
-                      <Input value={consigneePhone} onChange={(e) => setConsigneePhone(e.target.value)} placeholder="+91 87654 32109" />
+                      <label htmlFor="cargodocketform-phone-2" className="block text-xs font-semibold text-slate-700 mb-1.5">Phone</label>
+                      <Input id="cargodocketform-phone-2" value={consigneePhone} onChange={(e) => setConsigneePhone(e.target.value)} placeholder="+91 87654 32109" />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
-                      <Input value={consigneeGstin} onChange={(e) => setConsigneeGstin(e.target.value)} placeholder="29AAAA..." />
+                      <label htmlFor="cargodocketform-gstin-2" className="block text-xs font-semibold text-slate-700 mb-1.5">GSTIN</label>
+                      <Input id="cargodocketform-gstin-2" value={consigneeGstin} onChange={(e) => setConsigneeGstin(e.target.value)} placeholder="29AAAA..." />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">Email (for sending LR)</label>
-                    <Input type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="customer@example.com" />
+                    <label htmlFor="cargodocketform-email-for-sending-lr" className="block text-xs font-semibold text-slate-700 mb-1.5">Email (for sending LR)</label>
+                    <Input id="cargodocketform-email-for-sending-lr" type="email" value={emailTo} onChange={(e) => setEmailTo(e.target.value)} placeholder="customer@example.com" />
                   </div>
 
                   <div className="pt-2">
@@ -1487,16 +1502,16 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">From city (origin) *</label>
-                <CityInput value={fromCity} onChange={setFromCity} extraCities={knownCities} placeholder="Mumbai" />
+                <label htmlFor="cargodocketform-from-city-origin" className="block text-sm font-semibold text-slate-700 mb-1.5">From city (origin) *</label>
+                <CityInput id="cargodocketform-from-city-origin" value={fromCity} onChange={setFromCity} extraCities={knownCities} placeholder="Mumbai" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">To city (destination) *</label>
-                <CityInput value={toCity} onChange={setToCity} extraCities={knownCities} placeholder="Delhi" />
+                <label htmlFor="cargodocketform-to-city-destination" className="block text-sm font-semibold text-slate-700 mb-1.5">To city (destination) *</label>
+                <CityInput id="cargodocketform-to-city-destination" value={toCity} onChange={setToCity} extraCities={knownCities} placeholder="Delhi" />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Booking date</label>
-                <Input type="date" value={bookingDate} onChange={(e) => setBookingDate(e.target.value)} className="w-full" />
+                <label htmlFor="cargodocketform-booking-date" className="block text-sm font-semibold text-slate-700 mb-1.5">Booking date</label>
+                <Input id="cargodocketform-booking-date" type="date" value={bookingDate} onChange={(e) => setBookingDate(e.target.value)} className="w-full" />
               </div>
             </div>
           </div>
@@ -1511,41 +1526,41 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Goods description</label>
-                <Input value={goodsDescription} onChange={(e) => setGoodsDescription(e.target.value)} placeholder="e.g. Cotton Fabrics & Garments" />
+                <label htmlFor="cargodocketform-goods-description" className="block text-sm font-semibold text-slate-700 mb-1.5">Goods description</label>
+                <Input id="cargodocketform-goods-description" value={goodsDescription} onChange={(e) => setGoodsDescription(e.target.value)} placeholder="e.g. Cotton Fabrics & Garments" />
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Packages</label>
-                  <Input type="number" min={1} value={packageCount} onChange={(e) => setPackageCount(Number(e.target.value))} />
+                  <label htmlFor="cargodocketform-packages" className="block text-xs font-semibold text-slate-700 mb-1">Packages</label>
+                  <Input id="cargodocketform-packages" type="number" min={1} value={packageCount} onChange={(e) => setPackageCount(Number(e.target.value))} />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Actual wt (kg)</label>
-                  <Input type="number" step="0.1" value={actualWeightKg || ''} onChange={(e) => setActualWeightKg(Number(e.target.value))} />
+                  <label htmlFor="cargodocketform-actual-wt-kg" className="block text-xs font-semibold text-slate-700 mb-1">Actual wt (kg)</label>
+                  <Input id="cargodocketform-actual-wt-kg" type="number" step="0.1" value={actualWeightKg || ''} onChange={(e) => setActualWeightKg(Number(e.target.value))} />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Charged wt (kg)</label>
-                  <Input type="number" step="0.1" value={chargedWeightKg || ''} onChange={(e) => setChargedWeightKg(Number(e.target.value))} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Method of packing</label>
-                  <Input value={packingMethod} onChange={(e) => setPackingMethod(e.target.value)} placeholder="Box" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice no.</label>
-                  <Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="INV-2026-001" />
+                  <label htmlFor="cargodocketform-charged-wt-kg" className="block text-xs font-semibold text-slate-700 mb-1">Charged wt (kg)</label>
+                  <Input id="cargodocketform-charged-wt-kg" type="number" step="0.1" value={chargedWeightKg || ''} onChange={(e) => setChargedWeightKg(Number(e.target.value))} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Invoice value (₹)</label>
-                  <Input type="number" value={invoiceValue || ''} onChange={(e) => setInvoiceValue(Number(e.target.value))} />
+                  <label htmlFor="cargodocketform-method-of-packing" className="block text-xs font-semibold text-slate-700 mb-1">Method of packing</label>
+                  <Input id="cargodocketform-method-of-packing" value={packingMethod} onChange={(e) => setPackingMethod(e.target.value)} placeholder="Box" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">E-Way Bill no.</label>
-                  <Input value={ewayBillNo} onChange={(e) => setEwayBillNo(e.target.value)} placeholder="optional" />
+                  <label htmlFor="cargodocketform-invoice-no" className="block text-xs font-semibold text-slate-700 mb-1">Invoice no.</label>
+                  <Input id="cargodocketform-invoice-no" value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="INV-2026-001" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cargodocketform-invoice-value" className="block text-xs font-semibold text-slate-700 mb-1">Invoice value (₹)</label>
+                  <Input id="cargodocketform-invoice-value" type="number" value={invoiceValue || ''} onChange={(e) => setInvoiceValue(Number(e.target.value))} />
+                </div>
+                <div>
+                  <label htmlFor="cargodocketform-e-way-bill-no" className="block text-xs font-semibold text-slate-700 mb-1">E-Way Bill no.</label>
+                  <Input id="cargodocketform-e-way-bill-no" value={ewayBillNo} onChange={(e) => setEwayBillNo(e.target.value)} placeholder="optional" />
                 </div>
               </div>
             </div>
@@ -1611,8 +1626,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Courier network</label>
-                <select
+                <label htmlFor="cargodocketform-courier-network" className="block text-sm font-semibold text-slate-700 mb-1.5">Courier network</label>
+                <select id="cargodocketform-courier-network"
                   value={courierPartner}
                   onChange={(e) => setCourierPartner(e.target.value)}
                   className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10"
@@ -1622,12 +1637,12 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Tracking / Waybill no.</label>
-                  <Input value={trackingNo} onChange={(e) => setTrackingNo(e.target.value)} placeholder="1Z5338FF..." />
+                  <label htmlFor="cargodocketform-tracking-waybill-no" className="block text-xs font-semibold text-slate-700 mb-1">Tracking / Waybill no.</label>
+                  <Input id="cargodocketform-tracking-waybill-no" value={trackingNo} onChange={(e) => setTrackingNo(e.target.value)} placeholder="1Z5338FF..." />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Paper LR no. (optional)</label>
-                  <Input value={physicalDocketNo} onChange={(e) => setPhysicalDocketNo(e.target.value)} placeholder="BOOKLET-9988" />
+                  <label htmlFor="cargodocketform-paper-lr-no-optional" className="block text-xs font-semibold text-slate-700 mb-1">Paper LR no. (optional)</label>
+                  <Input id="cargodocketform-paper-lr-no-optional" value={physicalDocketNo} onChange={(e) => setPhysicalDocketNo(e.target.value)} placeholder="BOOKLET-9988" />
                 </div>
               </div>
             </div>
@@ -1655,9 +1670,9 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                 { label: 'GST rate (%)', val: gstPercentage, set: setGstPercentage },
               ].map(({ label, val, set, hint }) => (
                 <div key={label}>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
-                  <Input type="number" value={val || ''} onChange={(e) => set(e.target.value === '' ? 0 : Number(e.target.value))} />
-                  {hint && <p className="text-[10px] text-blue-600 mt-0.5">{hint}</p>}
+                  <label htmlFor={`charge-${label}`} className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
+                  <Input id={`charge-${label}`} type="number" value={val || ''} onChange={(e) => set(e.target.value === '' ? 0 : Number(e.target.value))} />
+                  {hint && <p className="text-[11px] text-blue-600 mt-0.5">{hint}</p>}
                 </div>
               ))}
 
@@ -1959,8 +1974,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Status</label>
-                        <select
+                        <label htmlFor="cargodocketform-status" className="block text-[11px] font-semibold text-slate-600 mb-1">Status</label>
+                        <select id="cargodocketform-status"
                           value={checkpointStatus}
                           onChange={(e) => { setCheckpointStatus(e.target.value); setCheckpointSaved(false); }}
                           className="w-full h-8 px-2.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10"
@@ -1971,8 +1986,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-semibold text-slate-600 mb-1">Location / Hub</label>
-                        <input
+                        <label htmlFor="cargodocketform-location-hub" className="block text-[11px] font-semibold text-slate-600 mb-1">Location / Hub</label>
+                        <input id="cargodocketform-location-hub"
                           type="text"
                           value={checkpointLocation}
                           onChange={(e) => { setCheckpointLocation(e.target.value); setCheckpointSaved(false); }}
@@ -1983,8 +1998,8 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-semibold text-slate-600 mb-1">Remark / Notes (optional)</label>
-                      <input
+                      <label htmlFor="cargodocketform-remark-notes-optional" className="block text-[11px] font-semibold text-slate-600 mb-1">Remark / Notes (optional)</label>
+                      <input id="cargodocketform-remark-notes-optional"
                         type="text"
                         value={checkpointDesc}
                         onChange={(e) => { setCheckpointDesc(e.target.value); setCheckpointSaved(false); }}
@@ -2084,6 +2099,45 @@ const CargoDocketForm = forwardRef<CargoDocketFormHandle, CargoDocketFormProps>(
         <div className="flex flex-col bg-white border-r border-slate-200 overflow-hidden">
           <div className="flex-1 overflow-y-auto px-8 md:px-12 lg:px-16 py-10">
             <div className="max-w-xl mx-auto w-full">
+              <nav aria-label="LR steps" className="mb-8">
+                <p className="text-xs font-medium text-slate-500 mb-2">
+                  Step {stepIndex + 1} of {STEPS.length}
+                </p>
+                <ol className="flex gap-1.5">
+                  {STEPS.map((step, idx) => {
+                    const reachable = idx <= furthestStepIndex;
+                    const isCurrent = idx === stepIndex;
+                    return (
+                      <li key={step} className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => goToStep(idx)}
+                          disabled={!reachable}
+                          aria-current={isCurrent ? 'step' : undefined}
+                          className="w-full text-left group disabled:cursor-not-allowed cursor-pointer"
+                        >
+                          <span
+                            className={`block h-1.5 rounded-full transition-colors ${
+                              idx <= stepIndex ? 'bg-[#0A2030]' : reachable ? 'bg-[#0A2030]/30' : 'bg-slate-200'
+                            }`}
+                          />
+                          <span
+                            className={`mt-1.5 hidden sm:block truncate text-[11px] ${
+                              isCurrent
+                                ? 'font-semibold text-slate-900'
+                                : reachable
+                                ? 'text-slate-600 group-hover:text-slate-900'
+                                : 'text-slate-400'
+                            }`}
+                          >
+                            {STEP_LABELS[step]}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </nav>
               {renderStepContent(currentStep)}
             </div>
           </div>

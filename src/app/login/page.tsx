@@ -40,7 +40,7 @@ export default function LoginPage() {
         router.refresh();
       }
     } catch {
-      setError('Invalid email or password.');
+      setError('Could not reach the server. Check your connection and try again.');
       setLoading(false);
     }
   };

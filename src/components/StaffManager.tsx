@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
@@ -123,6 +124,9 @@ export default function StaffManager() {
   const [deleteTarget, setDeleteTarget] = useState<StaffAccount | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const staffFormDialog = useDialog(() => setShowModal(false));
+  const staffDeleteDialog = useDialog(() => setDeleteTarget(null));
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -596,7 +600,7 @@ export default function StaffManager() {
                     ) : (
                       <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
                         <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
                             <tr>
                               <th className="px-4 py-3">LR Number</th>
                               <th className="px-4 py-3">Date</th>
@@ -638,7 +642,7 @@ export default function StaffManager() {
                     ) : (
                       <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
                         <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
                             <tr>
                               <th className="px-4 py-3">Invoice No.</th>
                               <th className="px-4 py-3">Date</th>
@@ -678,7 +682,7 @@ export default function StaffManager() {
                     ) : (
                       <div className="border border-slate-200 rounded-2xl overflow-hidden bg-white">
                         <table className="w-full text-xs text-left">
-                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+                          <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
                             <tr>
                               <th className="px-4 py-3">Docket / LR</th>
                               <th className="px-4 py-3">Date</th>
@@ -765,7 +769,7 @@ export default function StaffManager() {
         ) : (
           <div className="border border-slate-200/80 rounded-2xl overflow-hidden">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[10px] tracking-wider">
+              <thead className="bg-slate-50/90 border-b border-slate-200 text-slate-600 font-semibold uppercase text-[11px] tracking-wider">
                 <tr>
                   <th
                     onClick={() => handleSort('name')}
@@ -867,13 +871,13 @@ export default function StaffManager() {
                           {u.role === 'admin' ? 'Admin' : 'Staff'}
                         </span>
                         {isCurrent && (
-                          <span className="ml-1.5 text-[10px] text-slate-400 font-mono">(You)</span>
+                          <span className="ml-1.5 text-[11px] text-slate-400 font-mono">(You)</span>
                         )}
                       </td>
 
                       <td className="px-4 py-4 text-right">
                         <div className="font-bold text-slate-900 font-mono">{lrsCount}</div>
-                        <div className="text-[10px] text-slate-400 font-mono">{formatCurrency(lrsTotal)}</div>
+                        <div className="text-[11px] text-slate-400 font-mono">{formatCurrency(lrsTotal)}</div>
                       </td>
 
                       <td className="px-4 py-4 text-right font-bold text-slate-900 font-mono">
@@ -915,7 +919,7 @@ export default function StaffManager() {
 
       {/* Add / Edit Staff Account Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={staffFormDialog} role="dialog" aria-modal="true" aria-label="Staff account" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
           <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl rounded-3xl p-6">
             <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
               <div>
@@ -940,8 +944,8 @@ export default function StaffManager() {
 
               <form onSubmit={handleSave} className="space-y-4 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Full Name</label>
-                  <Input
+                  <label htmlFor="staffmanager-full-name" className="block font-semibold text-slate-700 mb-1">Full Name</label>
+                  <Input id="staffmanager-full-name"
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
@@ -951,8 +955,8 @@ export default function StaffManager() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Email Address *</label>
-                  <Input
+                  <label htmlFor="staffmanager-email-address" className="block font-semibold text-slate-700 mb-1">Email Address *</label>
+                  <Input id="staffmanager-email-address"
                     type="email"
                     required
                     value={email}
@@ -977,8 +981,8 @@ export default function StaffManager() {
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Account Role *</label>
-                  <select
+                  <label htmlFor="staffmanager-account-role" className="block font-semibold text-slate-700 mb-1">Account Role *</label>
+                  <select id="staffmanager-account-role"
                     value={role}
                     onChange={(e) => setRole(e.target.value as 'staff' | 'admin')}
                     className="w-full h-10 px-3 bg-white border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#0A2030]/10"
@@ -1009,7 +1013,7 @@ export default function StaffManager() {
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={staffDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete staff account" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
           <Card className="w-full max-w-sm bg-white border border-slate-200 shadow-2xl rounded-3xl p-6">
             <CardHeader className="p-0 mb-4 border-b border-slate-100 pb-3">
               <CardTitle className="text-base font-bold text-red-700">Delete Staff Account</CardTitle>

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Customer } from '@/types/cargo';
 import { PAYMENT_METHODS } from '@/lib/paymentMethod';
 import { downloadCSV } from '@/lib/exportUtils';
+import { fetchAllPages } from '@/lib/fetchAll';
 
 interface CashPayment {
   id: string;
@@ -54,12 +55,15 @@ interface Props {
   onNavigateToShipments?: () => void;
 }
 
+/** The Cash Book opens on cash payments; other modes are a filter. */
+const DEFAULT_MODE = 'Cash';
+
 export default function CashBookView({ customers = [], onNavigateToShipments }: Props) {
   const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo, setDateTo] = useState(today());
   const [staffId, setStaffId] = useState('');
   const [customerCode, setCustomerCode] = useState('');
-  const [mode, setMode] = useState<string>('Cash');
+  const [mode, setMode] = useState<string>(DEFAULT_MODE);
 
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [payments, setPayments] = useState<CashPayment[]>([]);
@@ -79,14 +83,12 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const paymentsParams = new URLSearchParams({ from: dateFrom, to: dateTo, limit: '500' });
+      const paymentsParams = new URLSearchParams({ from: dateFrom, to: dateTo });
       if (mode !== 'All') paymentsParams.set('method', mode);
       if (staffId) paymentsParams.set('recordedBy', staffId);
       if (customerCode) paymentsParams.set('customerCode', customerCode);
 
-      const paymentsRes = await fetch(`/api/payments?${paymentsParams.toString()}`);
-      const paymentsData = paymentsRes.ok ? await paymentsRes.json() : { payments: [] };
-      setPayments(paymentsData.payments ?? []);
+      setPayments(await fetchAllPages<CashPayment>(`/api/payments?${paymentsParams.toString()}`, 'payments'));
 
       if (mode !== 'All') {
         const expectedParams = new URLSearchParams({ dateFrom, dateTo, mode });
@@ -147,20 +149,49 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
     }
   };
 
+  const staffName = staffOptions.find((o) => o.id === staffId);
+  const customerName = customers.find((c) => (c.code || '') === customerCode)?.name;
+  const isDefaultRange = dateFrom === monthStart() && dateTo === today();
+  /** Human-readable list of the filters that narrow the list beyond "this month, all". */
+  const activeFilters = [
+    !isDefaultRange && `${dateFrom} to ${dateTo}`,
+    staffId && `Staff: ${staffName?.full_name || staffName?.email || 'selected'}`,
+    customerCode && `Customer: ${customerName || customerCode}`,
+    mode !== DEFAULT_MODE && `Mode: ${mode === 'All' ? 'All modes' : mode}`,
+  ].filter(Boolean) as string[];
+
+  const clearFilters = () => {
+    setDateFrom(monthStart());
+    setDateTo(today());
+    setStaffId('');
+    setCustomerCode('');
+    setMode(DEFAULT_MODE);
+  };
+
   const handleExportCSV = () => {
+    const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const nameParts = [
+      'cash_book',
+      dateFrom,
+      'to',
+      dateTo,
+      mode !== 'All' && slug(mode),
+      staffId && slug(staffName?.full_name || staffName?.email || 'staff'),
+      customerCode && slug(customerName || customerCode),
+    ].filter(Boolean);
     downloadCSV(
       ['LR No', 'Date', 'Customer', 'Amount', 'Mode', 'Recorded By', 'Notes', 'Voided'],
       payments.map((p) => [
         p.docket_no,
         p.paid_at.split('T')[0],
-        p.customer_code || '',
+        customers.find((c) => c.code && c.code === p.customer_code)?.name || p.customer_code || '',
         p.amount,
         p.method,
         p.recorded_by_name,
         p.notes || '',
         p.voided ? 'Yes' : 'No',
       ]),
-      `cash_book_${dateFrom}_to_${dateTo}.csv`
+      `${nameParts.join('_')}.csv`
     );
   };
 
@@ -168,25 +199,29 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-slate-900">Cash Book</h2>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Cash Book</h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Collected = staff who physically received the payment. Expected = staff who booked the LR and logged the customer&apos;s promise — these are often different people.
           </p>
         </div>
         <button
           onClick={handleExportCSV}
-          className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 rounded-md text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+          disabled={loading || payments.length === 0}
+          title={activeFilters.length ? `Exports only the rows matching: ${activeFilters.join(', ')}` : 'Exports this month’s payments'}
+          className="shrink-0 flex items-center gap-1.5 px-3 h-9 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-3.5 h-3.5" />
-          Export CSV
+          {loading
+            ? 'Export CSV'
+            : `Export ${payments.length} ${payments.length === 1 ? 'row' : 'rows'}${activeFilters.length ? ' (filtered)' : ''}`}
         </button>
       </div>
 
       {/* Filters */}
       <Card className="p-3 flex flex-wrap items-end gap-3 border border-slate-200/90 rounded-2xl">
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1">From</label>
-          <input
+          <label htmlFor="cashbookview-from" className="block text-[11px] font-medium text-slate-500 mb-1">From</label>
+          <input id="cashbookview-from"
             type="date"
             value={dateFrom}
             onChange={(e) => setDateFrom(e.target.value)}
@@ -194,8 +229,8 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
           />
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1">To</label>
-          <input
+          <label htmlFor="cashbookview-to" className="block text-[11px] font-medium text-slate-500 mb-1">To</label>
+          <input id="cashbookview-to"
             type="date"
             value={dateTo}
             onChange={(e) => setDateTo(e.target.value)}
@@ -203,8 +238,8 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
           />
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1">Staff</label>
-          <select
+          <label htmlFor="cashbookview-staff" className="block text-[11px] font-medium text-slate-500 mb-1">Staff</label>
+          <select id="cashbookview-staff"
             value={staffId}
             onChange={(e) => setStaffId(e.target.value)}
             className="h-8 px-2 border border-slate-200 rounded-md text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -218,8 +253,8 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
           </select>
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1">Customer</label>
-          <select
+          <label htmlFor="cashbookview-customer" className="block text-[11px] font-medium text-slate-500 mb-1">Customer</label>
+          <select id="cashbookview-customer"
             value={customerCode}
             onChange={(e) => setCustomerCode(e.target.value)}
             className="h-8 px-2 border border-slate-200 rounded-md text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -233,8 +268,8 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
           </select>
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-slate-500 mb-1">Mode</label>
-          <select
+          <label htmlFor="cashbookview-mode" className="block text-[11px] font-medium text-slate-500 mb-1">Mode</label>
+          <select id="cashbookview-mode"
             value={mode}
             onChange={(e) => setMode(e.target.value)}
             className="h-8 px-2 border border-slate-200 rounded-md text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -248,6 +283,28 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
           </select>
         </div>
       </Card>
+
+      {/* What the list, totals and export currently cover */}
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 -mt-1" aria-live="polite">
+        <span className="font-medium">
+          {loading ? 'Loading…' : `${payments.length} ${payments.length === 1 ? 'payment' : 'payments'}`}
+        </span>
+        {activeFilters.length === 0 ? (
+          <span className="text-slate-500">· This month, cash only, all staff and customers</span>
+        ) : (
+          <>
+            <span className="text-slate-500">· Filtered by</span>
+            {activeFilters.map((f) => (
+              <span key={f} className="px-2 py-0.5 rounded-full bg-[#0A2030]/10 text-[#0A2030] font-medium">
+                {f}
+              </span>
+            ))}
+            <button type="button" onClick={clearFilters} className="font-semibold text-[#0A2030] hover:underline cursor-pointer">
+              Clear filters
+            </button>
+          </>
+        )}
+      </div>
 
       {/* Two visually distinct totals — never summed together */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -378,8 +435,8 @@ export default function CashBookView({ customers = [], onNavigateToShipments }: 
                       ₹{Number(p.amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                     </td>
                     <td className="px-5 py-3">
-                      <Badge variant="secondary" className="font-mono text-[10px]">{p.method}</Badge>
-                      {p.voided && <Badge variant="destructive" className="font-mono text-[10px] ml-1">Voided</Badge>}
+                      <Badge variant="secondary" className="font-mono text-[11px]">{p.method}</Badge>
+                      {p.voided && <Badge variant="destructive" className="font-mono text-[11px] ml-1">Voided</Badge>}
                     </td>
                     <td className="px-5 py-3 font-medium text-slate-700">{p.recorded_by_name || 'Staff'}</td>
                     <td className="px-5 py-3 text-slate-500 italic">{p.notes || '—'}</td>

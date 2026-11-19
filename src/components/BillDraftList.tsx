@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect, useMemo } from 'react';
 import { BillDraft } from '@/types/cargo';
 import { FileText, Edit2, Trash2, Search, User } from 'lucide-react';
@@ -23,6 +24,8 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
   const [deleteTarget, setDeleteTarget] = useState<BillDraft | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState('');
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const billDraftDeleteDialog = useDialog(() => setDeleteTarget(null));
 
   const fetchDrafts = async () => {
     setLoading(true);
@@ -161,11 +164,11 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
                 {/* Middle: Details (Items & Amount) */}
                 <div className="flex items-center gap-6 text-xs text-slate-600 shrink-0">
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 block uppercase font-medium">Line Items</span>
+                    <span className="text-[11px] text-slate-400 block uppercase font-medium">Line Items</span>
                     <span className="font-semibold text-slate-900 text-sm">{itemCount} items</span>
                   </div>
                   <div className="space-y-0.5">
-                    <span className="text-[10px] text-slate-400 block uppercase font-medium">Est. Amount</span>
+                    <span className="text-[11px] text-slate-400 block uppercase font-medium">Est. Amount</span>
                     <span className="font-semibold text-slate-900 text-sm">
                       {grandTotal > 0 ? `${formatRupees(grandTotal)}` : '—'}
                     </span>
@@ -197,7 +200,7 @@ export default function BillDraftList({ onEdit }: { onEdit: (draft: BillDraft) =
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
+        <div ref={billDraftDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete draft" className="fixed inset-0 bg-slate-900/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl p-5 max-w-sm w-full border border-slate-200 shadow-lg space-y-3">
             <h3 className="text-sm font-bold text-slate-900">Delete Bill Draft</h3>
             <p className="text-xs text-slate-500">

@@ -103,6 +103,27 @@ function serializeDocket(d: DocketWithActors, paidByDocket: Map<string, number>)
   };
 }
 
+/** Table sort options; ties fall back to newest first so paging stays stable. */
+function sortOrder(sort: string | null): Prisma.CargoDocketOrderByWithRelationInput[] {
+  const newest: Prisma.CargoDocketOrderByWithRelationInput = { createdAt: 'desc' };
+  switch (sort) {
+    case 'date_asc':
+      return [{ bookingDate: 'asc' }, { createdAt: 'asc' }];
+    case 'date_desc':
+      return [{ bookingDate: 'desc' }, newest];
+    case 'amount_asc':
+      return [{ grandTotal: 'asc' }, newest];
+    case 'amount_desc':
+      return [{ grandTotal: 'desc' }, newest];
+    case 'docket_asc':
+      return [{ docketNo: 'asc' }];
+    case 'docket_desc':
+      return [{ docketNo: 'desc' }];
+    default:
+      return [newest];
+  }
+}
+
 export async function GET(req: Request) {
   try {
     // Rate limit: 200 requests per minute per IP (dashboard polls frequently)
@@ -151,7 +172,8 @@ export async function GET(req: Request) {
     }
 
     if (paymentMode && ['Paid', 'To Pay', 'Credit'].includes(paymentMode)) {
-      where.paymentMode = paymentMode as Prisma.CargoDocketWhereInput['paymentMode'];
+      // Prisma takes the enum key ('To_Pay'), not the mapped DB label ('To Pay').
+      where.paymentMode = paymentMode.replace(' ', '_') as Prisma.CargoDocketWhereInput['paymentMode'];
     }
 
     if (transportMode && ['Road', 'Air', 'Train'].includes(transportMode)) {
@@ -166,10 +188,21 @@ export async function GET(req: Request) {
       where.customerCode = customerCode;
     }
 
+    // Booking-date range (inclusive), as YYYY-MM-DD.
+    const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+    const dateFrom = searchParams.get('dateFrom')?.trim();
+    const dateTo = searchParams.get('dateTo')?.trim();
+    if ((dateFrom && isoDate.test(dateFrom)) || (dateTo && isoDate.test(dateTo))) {
+      where.bookingDate = {
+        ...(dateFrom && isoDate.test(dateFrom) ? { gte: new Date(`${dateFrom}T00:00:00Z`) } : {}),
+        ...(dateTo && isoDate.test(dateTo) ? { lte: new Date(`${dateTo}T00:00:00Z`) } : {}),
+      };
+    }
+
     const [dockets, total] = await Promise.all([
       prisma.cargoDocket.findMany({
         where,
-        orderBy: { createdAt: 'desc' },
+        orderBy: sortOrder(searchParams.get('sort')),
         take: limit,
         skip: offset,
         include: {

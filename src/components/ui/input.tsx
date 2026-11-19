@@ -6,6 +6,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className = '', error, type, ...props }, ref) => {
+    const errorId = React.useId();
     return (
       <div className="w-full">
         <input
@@ -14,9 +15,15 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             error ? 'border-red-500 focus:ring-red-500/10' : ''
           } ${className}`}
           ref={ref}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : props['aria-describedby']}
           {...props}
         />
-        {error && <p className="mt-1.5 text-xs font-medium text-red-600">{error}</p>}
+        {error && (
+          <p id={errorId} className="mt-1.5 text-xs font-medium text-red-600">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

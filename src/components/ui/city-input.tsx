@@ -85,6 +85,8 @@ export function CityInput({ value, onChange, extraCities, className = '', ...inp
               selectCity(matches[highlight]);
               return;
             } else if (e.key === 'Escape') {
+              // Close only the suggestion list, not a dialog this input sits in.
+              e.preventDefault();
               setOpen(false);
               return;
             }

@@ -14,7 +14,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Rudra Cargo - Digital LR & Billing System",
+  title: {
+    default: 'Rudra Cargo - Digital LR & Billing System',
+    template: '%s · Rudra Cargo',
+  },
   description: "Digital Lorry Receipt (LR) & GST Tax Invoice Management",
   icons: {
     icon: [
@@ -38,7 +41,7 @@ export default function RootLayout({
         <link rel="shortcut icon" href="/rudra-logo.png" type="image/png" />
         <link rel="apple-touch-icon" href="/rudra-logo.png" />
       </head>
-      <body className="antialiased bg-slate-100 text-slate-900 min-h-screen font-sans" suppressHydrationWarning>
+      <body className="antialiased bg-[#F6F8FB] text-slate-900 min-h-screen font-sans" suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

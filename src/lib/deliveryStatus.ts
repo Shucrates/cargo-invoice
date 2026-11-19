@@ -56,3 +56,18 @@ export function fromDeliveryStatusEnum(value: string): string {
   const match = DELIVERY_STATUSES.find((label) => DELIVERY_STATUS_TO_PRISMA_ENUM[label] === value);
   return match ?? value;
 }
+
+/** Badge colour for an LR's payment mode — one mapping used everywhere. */
+export function paymentModeBadgeVariant(mode: string | undefined, voided = false): NonNullable<BadgeProps['variant']> {
+  if (voided) return 'destructive';
+  switch (mode) {
+    case 'Paid':
+      return 'success';
+    case 'Credit':
+      return 'warning';
+    case 'To Pay':
+      return 'info';
+    default:
+      return 'secondary';
+  }
+}

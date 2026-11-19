@@ -15,6 +15,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { DEFAULT_COMPANY_SETTINGS } from '@/lib/companyConfig';
+import { useDialog } from '@/lib/useDialog';
 
 interface Checkpoint {
   status: string;
@@ -132,22 +133,38 @@ function TrackingContent() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    if (!showContactModal) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setShowContactModal(false);
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showContactModal]);
+  const contactDialog = useDialog(() => setShowContactModal(false));
 
+  const inputRef = useRef<HTMLInputElement>(null);
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!query.trim()) {
+      setError('Enter the LR number printed on your Lorry Receipt.');
+      inputRef.current?.focus();
+      return;
+    }
     fetchTracking(query);
+  };
+
+  const trackAnother = () => {
+    setTrackingResult(null);
+    setQuery('');
+    setError(null);
+    lastFetchedRef.current = null;
+    window.history.replaceState(null, '', '/tracking');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setTimeout(() => inputRef.current?.focus(), 300);
   };
 
   return (
     <div className="min-h-screen bg-[#F6F8FB] text-slate-900 font-sans flex flex-col">
       {/* Hero with search */}
-      <section className="relative w-full min-h-[560px] h-[78svh] max-h-[760px] flex flex-col overflow-hidden">
+      {/* Hero shrinks once a result is showing, so the result sits near the top. */}
+      <section
+        className={`relative w-full flex flex-col overflow-hidden transition-[height] ${
+          trackingResult ? 'h-auto pb-10 sm:pb-12' : 'min-h-[560px] h-[78svh] max-h-[760px]'
+        }`}
+      >
         <img
           src="/images/tracking-hero.jpg"
           alt=""
@@ -191,7 +208,10 @@ function TrackingContent() {
               <Search className="ml-2 w-5 h-5 text-slate-400 shrink-0" />
               <input
                 id="tracking-query"
+                ref={inputRef}
                 type="text"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'tracking-error' : undefined}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. LR-2026-01070"
@@ -201,7 +221,8 @@ function TrackingContent() {
               />
               <button
                 type="submit"
-                disabled={loading || !query.trim()}
+                disabled={loading}
+                aria-label={loading ? 'Tracking' : 'Track shipment'}
                 className="h-11 px-5 sm:px-6 bg-[#0A2030] hover:bg-[#071520] disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors cursor-pointer flex items-center gap-2 shrink-0"
               >
                 {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 sm:hidden" />}
@@ -212,6 +233,7 @@ function TrackingContent() {
 
           {error && (
             <div
+              id="tracking-error"
               role="alert"
               className="mt-4 p-3.5 bg-white border border-red-200 rounded-xl text-sm text-[#D14343] flex items-start gap-2 text-left shadow-sm"
             >
@@ -224,8 +246,17 @@ function TrackingContent() {
 
       <main className="flex-1 w-full px-4 sm:px-6 py-10 sm:py-14 space-y-14 sm:space-y-20">
         {trackingResult ? (
-          <div ref={resultsRef} className="max-w-3xl mx-auto scroll-mt-6">
+          <div ref={resultsRef} className="max-w-3xl mx-auto scroll-mt-6 space-y-4">
             <ShipmentResult data={trackingResult} />
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={trackAnother}
+                className="text-sm font-semibold text-[#0A2030] underline underline-offset-4 hover:text-[#071520] cursor-pointer"
+              >
+                Track another shipment
+              </button>
+            </div>
           </div>
         ) : (
         <section
@@ -292,6 +323,7 @@ function TrackingContent() {
           onClick={() => setShowContactModal(false)}
         >
           <div
+            ref={contactDialog}
             role="dialog"
             aria-modal="true"
             aria-labelledby="contact-title"
@@ -417,6 +449,9 @@ function ShipmentResult({ data }: { data: TrackingData }) {
       {/* Timeline */}
       <div className="border-t border-[#EEF1F4] p-6 sm:p-8">
         <h3 className="text-sm font-semibold text-slate-900">Shipment updates</h3>
+        {data.checkpoints.length === 0 && (
+          <p className="mt-4 text-sm text-slate-500">No updates yet. Your shipment has been booked.</p>
+        )}
         <ol className="mt-5">
           {data.checkpoints.map((cp, idx) => {
             const isLatest = idx === 0;

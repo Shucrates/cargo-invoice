@@ -1,8 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import QRCode from 'qrcode';
 import { CargoDocket, Bill, ExpenseLedger, ExpenseEntry } from '@/types/cargo';
-import { getCompanySettings, getActivePaymentQr, buildUpiUri } from '@/lib/companyConfig';
+import { getCompanySettings, getActivePaymentQr } from '@/lib/companyConfig';
 import { RUDRA_LOGO_BASE64 } from '@/lib/logoData';
 
 function numberToWords(num: number): string {
@@ -619,7 +618,6 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
 
   // --- GOOGLE PAY PAYMENT QR CODE & SIGNATURES AREA (3 Equal Columns) ---
   const activeQr = getActivePaymentQr(settings);
-  const upiPayee = activeQr.payeeName || settings.payeeName || settings.tradeName;
   const upiId = activeQr.upiId || settings.upiId;
   const gpayNo = activeQr.gpayNo || settings.gpayNo;
 
@@ -643,25 +641,20 @@ export async function buildInvoicePDF(docket: CargoDocket): Promise<jsPDF> {
     doc.text(`UPI: ${displayUpi}`, rightColX + 2, sigY + 16);
   }
 
-  doc.setFontSize(6);
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(15, 23, 42);
-  doc.text('Scan & Pay', rightColX + 2, sigY + 22);
+  const hasUploadedQr = Boolean((activeQr.qrCodeUrl || settings.qrCodeUrl)?.startsWith('data:image/'));
+  if (hasUploadedQr) {
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('Scan & Pay', rightColX + 2, sigY + 22);
+  }
 
   // Render Scannable GPay UPI QR Code Image (Size 20mm x 20mm at X = rightColX + 23 = 158mm to 178mm)
   try {
-    let qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
-    if (!qrDataUrl || !qrDataUrl.startsWith('data:image/')) {
-      const upiUri = buildUpiUri(upiId, upiPayee, settings.tradeName);
-      if (upiUri) {
-        qrDataUrl = await QRCode.toDataURL(upiUri, {
-          margin: 0,
-          width: 250,
-          color: { dark: '#000000', light: '#ffffff' },
-        });
-      }
-    }
-    if (qrDataUrl) {
+    // Only the QR image uploaded in Company Settings is printed — never one
+    // generated from the UPI ID, which did not scan reliably.
+    const qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
+    if (qrDataUrl && qrDataUrl.startsWith('data:image/')) {
       doc.addImage(qrDataUrl, 'PNG', rightColX + 23, sigY + 3.5, 20, 20);
     }
   } catch (e) {
@@ -1017,18 +1010,10 @@ export async function generateBillPDF(bill: Bill, dockets: BillLineDocket[]) {
 
   // UPI QR Code
   try {
-    let qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
-    if (!qrDataUrl || !qrDataUrl.startsWith('data:image/')) {
-      const upiUri = buildUpiUri(upiId, upiPayee, settings.tradeName);
-      if (upiUri) {
-        qrDataUrl = await QRCode.toDataURL(upiUri, {
-          margin: 0,
-          width: 200,
-          color: { dark: '#0A2030', light: '#ffffff' },
-        });
-      }
-    }
-    if (qrDataUrl) {
+    // Only the QR image uploaded in Company Settings is printed — never one
+    // generated from the UPI ID, which did not scan reliably.
+    const qrDataUrl = activeQr.qrCodeUrl || settings.qrCodeUrl;
+    if (qrDataUrl && qrDataUrl.startsWith('data:image/')) {
       doc.addImage(qrDataUrl, 'PNG', marginX, totalsTop + 14.5, 15, 15);
     }
     doc.setFontSize(6.5);

@@ -86,18 +86,6 @@ export const companyConfig = {
   jurisdiction: 'All Matter are Subject To Mumbai Jurisdiction Only',
 };
 
-/** Constructs an NPCI standard UPI Payment URI */
-export function buildUpiUri(upiId: string, payeeName?: string, tradeName?: string, note?: string): string {
-  const cleanId = (upiId || '').trim();
-  if (!cleanId) return '';
-  const cleanName = (payeeName || tradeName || 'RUDRA CARGO AND TRANSPORT NX').trim();
-  let uri = `upi://pay?pa=${cleanId}&pn=${encodeURIComponent(cleanName)}&cu=INR`;
-  if (note) {
-    uri += `&tn=${encodeURIComponent(note)}`;
-  }
-  return uri;
-}
-
 /** Resolves the currently active SavedPaymentQr configuration with safe fallbacks */
 export function getActivePaymentQr(settings: CompanySettings): SavedPaymentQr {
   if (settings.savedQrCodes && settings.savedQrCodes.length > 0) {

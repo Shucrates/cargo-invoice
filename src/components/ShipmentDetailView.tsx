@@ -1,10 +1,11 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { CargoDocket } from '@/types/cargo';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
-import { deliveryStatusBadgeVariant } from '@/lib/deliveryStatus';
+import { deliveryStatusBadgeVariant, paymentModeBadgeVariant } from '@/lib/deliveryStatus';
 import { formatCreatedAt } from '@/lib/formatDate';
 import RecordPaymentModal from '@/components/RecordPaymentModal';
 import TrackingTimelineModal from '@/components/TrackingTimelineModal';
@@ -118,6 +119,9 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
   const [eventsLoading, setEventsLoading] = useState(true);
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [auditLoading, setAuditLoading] = useState(true);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const detailDialog = useDialog(onBack);
+  const voidDialog = useDialog(() => setShowVoidModal(false));
 
   const { data: session } = useSession();
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
@@ -202,7 +206,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden font-sans text-slate-900">
+    <div ref={detailDialog} role="dialog" aria-modal="true" aria-label="LR details" className="fixed inset-0 z-50 overflow-hidden font-sans text-slate-900">
       {/* Backdrop overlay */}
       <div
         className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs transition-opacity animate-fade-in"
@@ -234,7 +238,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
                     {docket.docket_no}
                   </h2>
                   <Badge
-                    variant={isVoided ? 'destructive' : docket.payment_mode === 'Paid' ? 'success' : 'secondary'}
+                    variant={paymentModeBadgeVariant(docket.payment_mode, isVoided)}
                     className="font-mono text-xs uppercase"
                   >
                     {isVoided ? 'Voided' : docket.payment_mode}
@@ -411,15 +415,15 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
 
                 <div className="grid grid-cols-3 gap-2 pt-2 text-center">
                   <div className="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="text-[10px] text-slate-400 font-medium">Grand Total</div>
+                    <div className="text-[11px] text-slate-400 font-medium">Grand Total</div>
                     <div className="text-xs font-bold text-slate-900 font-mono">{formatAmount(grandTotal)}</div>
                   </div>
                   <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-100">
-                    <div className="text-[10px] text-emerald-700 font-medium">Paid</div>
+                    <div className="text-[11px] text-emerald-700 font-medium">Paid</div>
                     <div className="text-xs font-bold text-emerald-700 font-mono">{formatAmount(amountPaid)}</div>
                   </div>
                   <div className="p-2 rounded-xl bg-amber-50 border border-amber-100">
-                    <div className="text-[10px] text-amber-700 font-medium">Due</div>
+                    <div className="text-[11px] text-amber-700 font-medium">Due</div>
                     <div className="text-xs font-bold text-amber-700 font-mono">{formatAmount(amountDue)}</div>
                   </div>
                 </div>
@@ -469,7 +473,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
                           </span>
                         )}
                         {ev.description && <span className="text-[11px] text-slate-600 block">{ev.description}</span>}
-                        <span className="text-[10px] text-slate-400 font-mono block">
+                        <span className="text-[11px] text-slate-400 font-mono block">
                           {new Date(ev.event_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                           {' · '}
                           {ev.created_by_name}
@@ -500,7 +504,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
                         <span className="font-bold text-slate-800 flex items-center gap-1">
                           {AUDIT_ACTION_LABELS[entry.action] ?? entry.action}
                         </span>
-                        <span className="text-[10px] text-slate-400 font-mono">
+                        <span className="text-[11px] text-slate-400 font-mono">
                           {new Date(entry.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                         </span>
                       </div>
@@ -516,7 +520,7 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
 
       {/* Void Modal */}
       {showVoidModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={voidDialog} role="dialog" aria-modal="true" aria-label="Void LR" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
           <Card className="w-full max-w-md bg-white border border-slate-200 shadow-xl rounded-xl p-5 space-y-4">
             <div className="flex items-center gap-2 text-red-600 font-bold text-base">
               <AlertTriangle className="w-5 h-5" />
@@ -527,8 +531,8 @@ export default function ShipmentDetailView({ docket, isOpen = true, onBack, onVo
             </p>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Reason for Voiding *</label>
-              <textarea
+              <label htmlFor="shipmentdetailview-reason-for-voiding" className="block text-xs font-semibold text-slate-700 mb-1">Reason for Voiding *</label>
+              <textarea id="shipmentdetailview-reason-for-voiding"
                 required
                 rows={3}
                 value={voidReason}

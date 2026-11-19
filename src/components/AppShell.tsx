@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { ReactNode, useState, useRef, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import {
@@ -45,11 +46,16 @@ interface AppShellProps {
   onTabChange: (tab: NavTab) => void;
   children: ReactNode;
   navCounts?: Partial<Record<NavTab, number>>;
+  /** Header docket search; typing opens the Shipments tab filtered by it. */
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
 }
 
-export default function AppShell({ activeTab, onTabChange, children, navCounts }: AppShellProps) {
+export default function AppShell({ activeTab, onTabChange, children, navCounts, searchValue = '', onSearchChange }: AppShellProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const mobileNavDialog = useDialog(() => setMobileMenuOpen(false));
   const { data: session } = useSession();
   const userName = session?.user?.name || 'Logistics Admin';
   const userEmail = session?.user?.email || '';
@@ -59,11 +65,17 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
   // Account dropdown state
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
+  // The phone header has its own copy of the menu; clicks inside either one
+  // must not count as "outside", or the menu unmounts before the click lands.
+  const mobileAccountRef = useRef<HTMLDivElement>(null);
 
   // Close menu on outside click or Escape key
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (accountRef.current && !accountRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideMenu =
+        accountRef.current?.contains(target) || mobileAccountRef.current?.contains(target);
+      if (!insideMenu) {
         setAccountMenuOpen(false);
       }
     }
@@ -142,10 +154,6 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
     await signOut({ callbackUrl: '/login' });
   };
 
-  const navigateTab = (tab: NavTab) => {
-    onTabChange(tab);
-    setAccountMenuOpen(false);
-  };
 
   return (
     <div className="min-h-screen bg-[#F6F8FB] flex text-slate-900 font-sans">
@@ -173,6 +181,8 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
               </div>
               <button
                 onClick={() => setCollapsed(!collapsed)}
+                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-expanded={!collapsed}
                 className="w-7 h-7 shrink-0 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 flex items-center justify-center transition-saas cursor-pointer"
                 title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
@@ -186,7 +196,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
             {/* MAIN SECTION */}
             <div className="space-y-1">
               {!collapsed && (
-                <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                   OVERVIEW
                 </div>
               )}
@@ -199,6 +209,8 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     key={item.id}
                     onClick={() => onTabChange(item.id)}
                     title={collapsed ? item.label : undefined}
+                    aria-label={collapsed ? item.label : undefined}
+                    aria-current={isActive ? 'page' : undefined}
                     className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-saas cursor-pointer ${
                       collapsed ? 'justify-center' : ''
                     } ${
@@ -211,7 +223,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     {!collapsed && <span className="flex-1 text-left">{item.label}</span>}
                     {!collapsed && !!count && (
                       <span
-                        className={`text-[10px] font-mono tabular-nums ${
+                        className={`text-[11px] font-mono tabular-nums ${
                           isActive ? 'text-[#0A2030]/70' : 'text-slate-400'
                         }`}
                       >
@@ -226,7 +238,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
             {/* FINANCE SECTION */}
             <div className="space-y-1">
               {!collapsed && (
-                <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                   FINANCE & REPORTS
                 </div>
               )}
@@ -240,6 +252,8 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                       key={item.id}
                       onClick={() => onTabChange(item.id)}
                       title={collapsed ? item.label : undefined}
+                      aria-label={collapsed ? item.label : undefined}
+                      aria-current={isActive ? 'page' : undefined}
                       className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium transition-saas cursor-pointer ${
                         collapsed ? 'justify-center' : ''
                       } ${
@@ -259,7 +273,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
             {isAdmin && (
               <div className="pt-3 border-t border-slate-100 space-y-1">
                 {!collapsed && (
-                  <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                  <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                     SYSTEM
                   </div>
                 )}
@@ -331,10 +345,16 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
             <div className="relative w-40 sm:w-56">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
               <input
-                type="text"
+                type="search"
+                aria-label="Search dockets"
                 placeholder="Search dockets..."
-                onFocus={() => {
+                value={searchValue}
+                onChange={(e) => {
+                  onSearchChange?.(e.target.value);
                   if (activeTab !== 'shipments') onTabChange('shipments');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && activeTab !== 'shipments') onTabChange('shipments');
                 }}
                 className="w-full h-9 pl-9 pr-3 bg-[#F8FAFC] border border-slate-200/80 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-[#0A2030] focus:ring-4 focus:ring-[#0A2030]/10 transition-saas"
               />
@@ -362,7 +382,9 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     ? 'border-[#0A2030] bg-[#0A2030]/5 ring-2 ring-[#0A2030]/10'
                     : 'border-slate-200/80 bg-white hover:bg-slate-50/80'
                 }`}
-                aria-label="User Account Menu"
+                aria-label="Account menu"
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
               >
                 <div className="w-8 h-8 rounded-lg bg-[#0A2030]/10 text-[#0A2030] font-bold text-xs flex items-center justify-center font-mono border border-slate-200 shrink-0">
                   {userInitials}
@@ -391,7 +413,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                         <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
                         <div className="mt-1">
                           <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold font-mono uppercase tracking-wider ${
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold font-mono uppercase tracking-wider ${
                               isAdmin
                                 ? 'bg-[#0A2030]/10 text-[#0A2030] border border-[#0A2030]/20'
                                 : 'bg-slate-100 text-slate-700 border border-slate-200'
@@ -402,81 +424,6 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="p-2 space-y-0.5">
-                    <button
-                      onClick={() => navigateTab('shipments')}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                        activeTab === 'shipments'
-                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                      }`}
-                    >
-                      <Package className={`w-4 h-4 transition-colors ${activeTab === 'shipments' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                      <span>All Shipments</span>
-                    </button>
-                    <button
-                      onClick={() => navigateTab('billing')}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                        activeTab === 'billing'
-                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                      }`}
-                    >
-                      <Receipt className={`w-4 h-4 transition-colors ${activeTab === 'billing' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                      <span>Billing & Invoices</span>
-                    </button>
-                    <button
-                      onClick={() => navigateTab('expenses')}
-                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                        activeTab === 'expenses'
-                          ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                          : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                      }`}
-                    >
-                      <Wallet className={`w-4 h-4 transition-colors ${activeTab === 'expenses' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                      <span>Expense Ledgers</span>
-                    </button>
-
-                    {isAdmin && (
-                      <>
-                        <div className="my-1 border-t border-slate-100" />
-                        <button
-                          onClick={() => navigateTab('reports')}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                            activeTab === 'reports'
-                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                          }`}
-                        >
-                          <BarChart3 className={`w-4 h-4 transition-colors ${activeTab === 'reports' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                          <span>Reports & Analytics</span>
-                        </button>
-                        <button
-                          onClick={() => navigateTab('staff')}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                            activeTab === 'staff'
-                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                          }`}
-                        >
-                          <ShieldCheck className={`w-4 h-4 transition-colors ${activeTab === 'staff' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                          <span>Staff Management</span>
-                        </button>
-                        <button
-                          onClick={() => navigateTab('settings')}
-                          className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors cursor-pointer group ${
-                            activeTab === 'settings'
-                              ? 'bg-[#0A2030]/10 text-[#0A2030] font-semibold'
-                              : 'text-slate-700 hover:bg-[#0A2030]/5 hover:text-[#0A2030] font-medium'
-                          }`}
-                        >
-                          <Settings className={`w-4 h-4 transition-colors ${activeTab === 'settings' ? 'text-[#0A2030]' : 'text-slate-400 group-hover:text-[#0A2030]'}`} />
-                          <span>Company Settings</span>
-                        </button>
-                      </>
-                    )}
                   </div>
 
                   <div className="p-2 border-t border-slate-100 bg-slate-50/50">
@@ -524,11 +471,13 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
             </button>
 
             {/* Mobile User Profile Avatar Menu */}
-            <div className="relative">
+            <div className="relative" ref={mobileAccountRef}>
               <button
                 onClick={() => setAccountMenuOpen(!accountMenuOpen)}
                 className="w-8 h-8 rounded-xl bg-[#0A2030]/10 text-[#0A2030] font-mono font-bold text-xs flex items-center justify-center border border-slate-200 cursor-pointer"
-                aria-label="Mobile User Account Menu"
+                aria-label="Account menu"
+                aria-haspopup="menu"
+                aria-expanded={accountMenuOpen}
               >
                 {userInitials}
               </button>
@@ -544,7 +493,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                       <div className="text-[11px] text-slate-500 truncate">{userEmail}</div>
                       <div className="mt-0.5">
                         <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[8.5px] font-bold font-mono uppercase tracking-wider ${
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold font-mono uppercase tracking-wider ${
                             isAdmin
                               ? 'bg-[#0A2030]/10 text-[#0A2030] border border-[#0A2030]/20'
                               : 'bg-slate-100 text-slate-700 border border-slate-200'
@@ -555,24 +504,12 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                       </div>
                     </div>
                   </div>
-                  <div className="p-2 space-y-1">
-                    <button
-                      onClick={() => navigateTab('shipments')}
-                      className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-xl"
-                    >
-                      Shipments
-                    </button>
-                    <button
-                      onClick={() => navigateTab('billing')}
-                      className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 rounded-xl"
-                    >
-                      Billing
-                    </button>
+                  <div className="p-2">
                     <button
                       onClick={handleSignOut}
                       className="w-full text-left px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl"
                     >
-                      Sign Out
+                      Sign out
                     </button>
                   </div>
                 </div>
@@ -583,7 +520,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
 
         {/* Mobile Sliding Navigation Drawer */}
         {mobileMenuOpen && (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex md:hidden">
+          <div ref={mobileNavDialog} role="dialog" aria-modal="true" aria-label="Navigation" className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex md:hidden">
             <div className="w-72 bg-white h-full p-5 flex flex-col justify-between overflow-y-auto animate-in slide-in-from-left duration-200 shadow-2xl">
               <div className="space-y-6">
                 {/* Header in Mobile Drawer */}
@@ -594,11 +531,12 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                     </div>
                     <div>
                       <span className="font-extrabold text-sm text-slate-900 block leading-none">Rudra Cargo</span>
-                      <span className="text-[10px] text-slate-400 font-medium">Navigation</span>
+                      <span className="text-[11px] text-slate-400 font-medium">Navigation</span>
                     </div>
                   </div>
                   <button
                     onClick={() => setMobileMenuOpen(false)}
+                    aria-label="Close menu"
                     className="w-8 h-8 rounded-xl border border-slate-200 text-slate-400 hover:text-slate-700 flex items-center justify-center cursor-pointer"
                   >
                     <X className="w-4 h-4" />
@@ -609,7 +547,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                 <div className="space-y-5">
                   {/* OVERVIEW */}
                   <div className="space-y-1">
-                    <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                    <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                       OVERVIEW
                     </div>
                     {mainNavItems.map((item) => {
@@ -632,7 +570,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                           <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#0A2030]' : 'text-slate-400'}`} />
                           <span className="flex-1 text-left">{item.label}</span>
                           {!!count && (
-                            <span className="text-[10px] font-mono text-slate-400">{count}</span>
+                            <span className="text-[11px] font-mono text-slate-400">{count}</span>
                           )}
                         </button>
                       );
@@ -641,7 +579,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
 
                   {/* FINANCE */}
                   <div className="space-y-1">
-                    <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                    <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                       FINANCE & REPORTS
                     </div>
                     {financeNavItems
@@ -672,7 +610,7 @@ export default function AppShell({ activeTab, onTabChange, children, navCounts }
                   {/* SYSTEM */}
                   {isAdmin && (
                     <div className="pt-3 border-t border-slate-100 space-y-1">
-                      <div className="px-3 text-[10px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
+                      <div className="px-3 text-[11px] font-bold tracking-wider text-slate-400 uppercase font-mono mb-1.5">
                         SYSTEM
                       </div>
                       <button

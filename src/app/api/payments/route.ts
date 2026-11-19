@@ -29,6 +29,7 @@ export async function GET(req: Request) {
       Math.max(Number(searchParams.get('limit')) || DEFAULT_LIMIT, 1),
       MAX_LIMIT
     );
+    const offset = Math.max(Number(searchParams.get('offset')) || 0, 0);
 
     const where: Prisma.DocketPaymentWhereInput = {};
     if (!includeVoided) {
@@ -50,16 +51,17 @@ export async function GET(req: Request) {
       where.docket = { customerCode };
     }
 
-    const payments = await prisma.docketPayment.findMany({
+    const [payments, total] = await Promise.all([prisma.docketPayment.findMany({
       where,
-      orderBy: { paidAt: 'desc' },
+      orderBy: [{ paidAt: 'desc' }, { id: 'desc' }],
       take: limit,
+      skip: offset,
       include: {
         docket: { select: { docketNo: true, customerCode: true } },
         recorder: { select: { fullName: true, email: true } },
         voider: { select: { fullName: true, email: true } },
       },
-    });
+    }), prisma.docketPayment.count({ where })]);
 
     return NextResponse.json({
       payments: payments.map((p) => ({
@@ -78,6 +80,10 @@ export async function GET(req: Request) {
         voided_at: p.voidedAt ? p.voidedAt.toISOString() : null,
         voided_by_name: p.voider?.fullName || p.voider?.email || '',
       })),
+      total,
+      limit,
+      offset,
+      hasMore: offset + payments.length < total,
     });
   } catch (error: unknown) {
     console.error('Failed to list payments:', error);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
@@ -401,6 +402,11 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
   const [sortField, setSortField] = useState<'name' | 'totalBilled' | 'outstandingCredit' | 'totalPaid'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const bulkPaymentDialog = useDialog(() => setShowPaymentModal(false));
+  const lrPaymentDialog = useDialog(() => setSelectedLrForPayment(null));
+  const customerFormDialog = useDialog(() => setShowModal(false));
+  const customerDeleteDialog = useDialog(() => { setDeleteTarget(null); setDeleteError(null); });
 
   const handleSort = (field: 'name' | 'totalBilled' | 'outstandingCredit' | 'totalPaid') => {
     if (sortField === field) {
@@ -790,7 +796,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                                 </div>
                                 <div className="flex items-center gap-1.5">
                                   <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                                       d.payment_mode === 'Credit'
                                         ? 'bg-amber-100 text-amber-900 border border-amber-200'
                                         : d.payment_mode === 'Paid'
@@ -828,15 +834,15 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
                               <div className="grid grid-cols-3 gap-2 bg-slate-50/60 border border-slate-200/60 rounded-xl p-2 text-center text-xs">
                                 <div>
-                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Total</div>
+                                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Total</div>
                                   <div className="font-mono font-bold text-slate-900 mt-0.5">{formatCurrency(d.grand_total)}</div>
                                 </div>
                                 <div className="border-x border-slate-200/60 px-1">
-                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Paid</div>
+                                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Paid</div>
                                   <div className="font-mono font-bold text-emerald-700 mt-0.5">{formatCurrency(d.total_paid)}</div>
                                 </div>
                                 <div>
-                                  <div className="text-[10px] text-slate-400 uppercase font-semibold">Balance</div>
+                                  <div className="text-[11px] text-slate-400 uppercase font-semibold">Balance</div>
                                   <div className={`font-mono font-bold mt-0.5 ${d.outstanding_amount > 0 ? 'text-[#D14343]' : 'text-slate-400'}`}>
                                     {formatCurrency(d.outstanding_amount)}
                                   </div>
@@ -1085,7 +1091,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
         {/* ── RECORD BULK SETTLEMENT MODAL ── */}
         {showPaymentModal && customerDetail && (
-          <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div ref={bulkPaymentDialog} role="dialog" aria-modal="true" aria-label="Record payment" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
             <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl rounded-3xl p-6">
               <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
                 <div>
@@ -1155,8 +1161,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Amount Received (₹) *</label>
-                    <Input
+                    <label htmlFor="customermanager-amount-received" className="block font-semibold text-slate-700 mb-1">Amount Received (₹) *</label>
+                    <Input id="customermanager-amount-received"
                       type="number"
                       step="0.01"
                       required
@@ -1188,8 +1194,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Payment Date</label>
-                    <Input
+                    <label htmlFor="customermanager-payment-date" className="block font-semibold text-slate-700 mb-1">Payment Date</label>
+                    <Input id="customermanager-payment-date"
                       type="date"
                       value={payDate}
                       onChange={(e) => setPayDate(e.target.value)}
@@ -1198,8 +1204,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Remarks / Transaction Reference</label>
-                    <Input
+                    <label htmlFor="customermanager-remarks-transaction-reference" className="block font-semibold text-slate-700 mb-1">Remarks / Transaction Reference</label>
+                    <Input id="customermanager-remarks-transaction-reference"
                       value={payNotes}
                       onChange={(e) => setPayNotes(e.target.value)}
                       placeholder="e.g. NEFT Ref #998877 / Part settlement"
@@ -1223,7 +1229,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
         {/* ── RECORD SINGLE LR PAYMENT MODAL ── */}
         {selectedLrForPayment && (
-          <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div ref={lrPaymentDialog} role="dialog" aria-modal="true" aria-label="Record LR payment" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
             <Card className="w-full max-w-md bg-white border border-slate-200 shadow-2xl rounded-3xl p-6">
               <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
                 <div>
@@ -1253,8 +1259,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Amount Received (₹) *</label>
-                    <Input
+                    <label htmlFor="customermanager-amount-received-2" className="block font-semibold text-slate-700 mb-1">Amount Received (₹) *</label>
+                    <Input id="customermanager-amount-received-2"
                       type="number"
                       step="0.01"
                       required
@@ -1286,8 +1292,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Payment Date</label>
-                    <Input
+                    <label htmlFor="customermanager-payment-date-2" className="block font-semibold text-slate-700 mb-1">Payment Date</label>
+                    <Input id="customermanager-payment-date-2"
                       type="date"
                       value={lrPayDate}
                       onChange={(e) => setLrPayDate(e.target.value)}
@@ -1296,8 +1302,8 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Remarks / Transaction Ref</label>
-                    <Input
+                    <label htmlFor="customermanager-remarks-transaction-ref" className="block font-semibold text-slate-700 mb-1">Remarks / Transaction Ref</label>
+                    <Input id="customermanager-remarks-transaction-ref"
                       value={lrPayNotes}
                       onChange={(e) => setLrPayNotes(e.target.value)}
                       placeholder="e.g. UPI Ref #12345 / Cheque #004"
@@ -1714,7 +1720,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                             Due {formatCurrency(credDue)}
                           </span>
                         ) : (
-                          <Badge variant="success" className="text-[10px] shrink-0 font-medium">
+                          <Badge variant="success" className="text-[11px] shrink-0 font-medium">
                             Clear
                           </Badge>
                         )}
@@ -1747,19 +1753,19 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
                       {/* 3-Metric Financial Box */}
                       <div className="grid grid-cols-3 gap-2 bg-[#F8FAFC]/90 p-2.5 rounded-xl border border-slate-100 text-center">
                         <div>
-                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Billed</div>
+                          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Billed</div>
                           <div className="text-xs font-bold text-slate-800 font-mono mt-0.5 truncate">
                             {formatCurrency(totBilled)}
                           </div>
                         </div>
                         <div className="border-x border-slate-200/60 px-1">
-                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Paid</div>
+                          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Paid</div>
                           <div className="text-xs font-bold text-emerald-700 font-mono mt-0.5 truncate">
                             {formatCurrency(totPaid)}
                           </div>
                         </div>
                         <div>
-                          <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Outstanding</div>
+                          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Outstanding</div>
                           <div className={`text-xs font-bold font-mono mt-0.5 truncate ${credDue > 0 ? 'text-[#D14343]' : 'text-slate-500'}`}>
                             {formatCurrency(credDue)}
                           </div>
@@ -1822,7 +1828,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
       {/* ── NEW / EDIT CUSTOMER MODAL ── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+        <div ref={customerFormDialog} role="dialog" aria-modal="true" aria-label="Customer details" className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
           <Card className="w-full max-w-lg bg-white border border-slate-200/90 shadow-2xl rounded-2xl sm:rounded-3xl p-5 sm:p-6">
             <CardHeader className="flex flex-row items-center justify-between pb-4 p-0 mb-4 border-b border-slate-100">
               <CardTitle className="text-base sm:text-lg font-bold text-slate-900">
@@ -1842,51 +1848,51 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
               <form onSubmit={handleSaveCustomer} className="space-y-3.5 text-xs">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Company / Customer Name *</label>
-                  <Input required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tata Consumer Products Ltd" />
+                  <label htmlFor="customermanager-company-customer-name" className="block font-semibold text-slate-700 mb-1">Company / Customer Name *</label>
+                  <Input id="customermanager-company-customer-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Tata Consumer Products Ltd" />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Contact Person</label>
-                    <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="e.g. Rajesh Sharma (Manager)" />
+                    <label htmlFor="customermanager-contact-person" className="block font-semibold text-slate-700 mb-1">Contact Person</label>
+                    <Input id="customermanager-contact-person" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="e.g. Rajesh Sharma (Manager)" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Phone Number</label>
-                    <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 9822019482" />
+                    <label htmlFor="customermanager-phone-number" className="block font-semibold text-slate-700 mb-1">Phone Number</label>
+                    <Input id="customermanager-phone-number" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 9822019482" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">GSTIN Number</label>
-                    <Input value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="27AAACT2727Q1ZB" className="font-mono text-[11px]" />
+                    <label htmlFor="customermanager-gstin-number" className="block font-semibold text-slate-700 mb-1">GSTIN Number</label>
+                    <Input id="customermanager-gstin-number" value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="27AAACT2727Q1ZB" className="font-mono text-[11px]" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">Email Address</label>
-                    <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="logistics@tataconsumer.com" />
+                    <label htmlFor="customermanager-email-address" className="block font-semibold text-slate-700 mb-1">Email Address</label>
+                    <Input id="customermanager-email-address" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="logistics@tataconsumer.com" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Billing Address</label>
-                  <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Plot No. 12, Kagal Five Star MIDC" />
+                  <label htmlFor="customermanager-billing-address" className="block font-semibold text-slate-700 mb-1">Billing Address</label>
+                  <Input id="customermanager-billing-address" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Plot No. 12, Kagal Five Star MIDC" />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">City</label>
-                    <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Kolhapur" />
+                    <label htmlFor="customermanager-city" className="block font-semibold text-slate-700 mb-1">City</label>
+                    <Input id="customermanager-city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Kolhapur" />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-700 mb-1">PIN Code</label>
-                    <Input value={pinCode} onChange={(e) => setPinCode(e.target.value)} placeholder="416236" className="font-mono" />
+                    <label htmlFor="customermanager-pin-code" className="block font-semibold text-slate-700 mb-1">PIN Code</label>
+                    <Input id="customermanager-pin-code" value={pinCode} onChange={(e) => setPinCode(e.target.value)} placeholder="416236" className="font-mono" />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Internal Account Notes</label>
-                  <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special delivery instructions, account notes..." />
+                  <label htmlFor="customermanager-internal-account-notes" className="block font-semibold text-slate-700 mb-1">Internal Account Notes</label>
+                  <Input id="customermanager-internal-account-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special delivery instructions, account notes..." />
                 </div>
 
                 <div className="pt-3 flex justify-end gap-2">
@@ -1905,7 +1911,7 @@ export default function CustomerManager({ onSelectCustomer, isOpen = true, onClo
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={customerDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete customer" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-300 shadow-xl space-y-4">
             <h3 className="text-lg font-bold text-[#D14343]">Delete Customer Account</h3>
             <p className="text-xs text-slate-600">

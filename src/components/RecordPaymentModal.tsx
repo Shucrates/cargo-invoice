@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect } from 'react';
 import { X, Wallet, IndianRupee, Ban } from 'lucide-react';
 import { CargoDocket } from '@/types/cargo';
@@ -32,6 +33,8 @@ interface Props {
 }
 
 export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin }: Props) {
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const paymentsDialog = useDialog(onClose);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [grandTotal, setGrandTotal] = useState(docket.grand_total);
   const [amountPaid, setAmountPaid] = useState(docket.amount_paid ?? 0);
@@ -144,7 +147,7 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
+    <div ref={paymentsDialog} role="dialog" aria-modal="true" aria-label="Payments" className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
       <div className="bg-white rounded-xl border border-slate-200 shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div>
@@ -162,15 +165,15 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-              <div className="text-[10px] text-slate-500 font-medium">Grand Total</div>
+              <div className="text-[11px] text-slate-500 font-medium">Grand Total</div>
               <div className="text-sm font-bold text-slate-900 font-mono">₹{grandTotal.toFixed(2)}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-green-50 border border-green-200">
-              <div className="text-[10px] text-green-700 font-medium">Paid</div>
+              <div className="text-[11px] text-green-700 font-medium">Paid</div>
               <div className="text-sm font-bold text-green-700 font-mono">₹{amountPaid.toFixed(2)}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
-              <div className="text-[10px] text-amber-700 font-medium">Due</div>
+              <div className="text-[11px] text-amber-700 font-medium">Due</div>
               <div className="text-sm font-bold text-amber-700 font-mono">₹{amountDue.toFixed(2)}</div>
             </div>
           </div>
@@ -195,13 +198,13 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
                       <span className="ml-1 font-normal text-slate-500">via {p.method}</span>
                     </div>
                     {p.notes && <div className="text-[11px] text-slate-500 mt-0.5">{p.notes}</div>}
-                    <div className="text-[10px] text-slate-400 font-mono mt-1">
+                    <div className="text-[11px] text-slate-400 font-mono mt-1">
                       {new Date(p.paid_at).toLocaleDateString('en-IN', { dateStyle: 'medium' })}
                       {' · '}
                       {p.recorded_by_name}
                     </div>
                     {p.voided && (
-                      <div className="text-[10px] text-red-600 mt-1">
+                      <div className="text-[11px] text-red-600 mt-1">
                         Voided by {p.voided_by_name || 'admin'}{p.void_reason ? `: ${p.void_reason}` : ''}
                       </div>
                     )}
@@ -256,8 +259,8 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
               )}
               <div className="grid grid-cols-2 gap-2.5">
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Amount *</label>
-                  <input
+                  <label htmlFor="recordpaymentmodal-amount" className="block text-[11px] font-medium text-slate-700 mb-1">Amount *</label>
+                  <input id="recordpaymentmodal-amount"
                     type="number"
                     step="0.01"
                     min="0.01"
@@ -268,8 +271,8 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-slate-700 mb-1">Date *</label>
-                  <input
+                  <label htmlFor="recordpaymentmodal-date" className="block text-[11px] font-medium text-slate-700 mb-1">Date *</label>
+                  <input id="recordpaymentmodal-date"
                     type="date"
                     required
                     value={paidAt}
@@ -311,8 +314,8 @@ export default function RecordPaymentModal({ docket, onClose, onSettled, isAdmin
                 </label>
               )}
               <div>
-                <label className="block text-[11px] font-medium text-slate-700 mb-1">Note (optional)</label>
-                <input
+                <label htmlFor="recordpaymentmodal-note-optional" className="block text-[11px] font-medium text-slate-700 mb-1">Note (optional)</label>
+                <input id="recordpaymentmodal-note-optional"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. Collected at delivery"

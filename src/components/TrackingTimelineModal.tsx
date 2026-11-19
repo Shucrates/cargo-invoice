@@ -1,5 +1,6 @@
 'use client';
 
+import { useDialog } from '@/lib/useDialog';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { X, Plus, Pencil, Trash2, MapPin, Truck } from 'lucide-react';
@@ -49,6 +50,9 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
 
   const [deleteTarget, setDeleteTarget] = useState<TrackingEvent | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Modal behaviour (Escape, focus in/out, Tab trap) for this component's dialogs.
+  const timelineDialog = useDialog(onClose);
+  const timelineDeleteDialog = useDialog(() => setDeleteTarget(null));
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -145,7 +149,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+    <div ref={timelineDialog} role="dialog" aria-modal="true" aria-label="Tracking timeline" className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden transition-all">
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/60">
@@ -200,7 +204,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
                           {ev.description}
                         </div>
                       )}
-                      <div className="text-[10px] text-slate-400 font-mono mt-1.5">
+                      <div className="text-[11px] text-slate-400 font-mono mt-1.5">
                         {new Date(ev.event_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                         {' · by '}
                         <span className="font-semibold text-slate-600">{ev.created_by_name}</span>
@@ -252,8 +256,8 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
               )}
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Status *</label>
-                <select
+                <label htmlFor="trackingtimelinemodal-status" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Status *</label>
+                <select id="trackingtimelinemodal-status"
                   required
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
@@ -268,8 +272,8 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Location</label>
-                  <input
+                  <label htmlFor="trackingtimelinemodal-location" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Location</label>
+                  <input id="trackingtimelinemodal-location"
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder="e.g. Mumbai Central Hub"
@@ -277,8 +281,8 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Date &amp; Time</label>
-                  <input
+                  <label htmlFor="trackingtimelinemodal-date-amp-time" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Date &amp; Time</label>
+                  <input id="trackingtimelinemodal-date-amp-time"
                     type="datetime-local"
                     required
                     value={eventAt}
@@ -289,8 +293,8 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Customer Note (Optional)</label>
-                <input
+                <label htmlFor="trackingtimelinemodal-customer-note-optional" className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">Customer Note (Optional)</label>
+                <input id="trackingtimelinemodal-customer-note-optional"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Visible on live tracking page"
@@ -332,7 +336,7 @@ export default function TrackingTimelineModal({ docket, onClose }: Props) {
       </div>
 
       {deleteTarget && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+        <div ref={timelineDeleteDialog} role="dialog" aria-modal="true" aria-label="Delete tracking update" className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full border border-slate-200 shadow-2xl space-y-4">
             <h4 className="text-sm font-extrabold text-red-600">Delete Checkpoint</h4>
             <p className="text-xs text-slate-600 leading-relaxed">

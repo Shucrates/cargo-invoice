@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { CargoDocket } from '@/types/cargo';
 
 const IST_TZ = 'Asia/Kolkata';
 
@@ -33,9 +32,8 @@ function formatDateLabel(dateStr: string): string {
   });
 }
 
-interface ChartsProps {
-  dockets: CargoDocket[];
-}
+/** Weeks of history the KPI endpoint returns daily booking counts for. */
+const BOOKING_HISTORY_WEEKS = 12;
 
 /**
  * Shown instead of a chart when there is no data to plot. Previously these
@@ -51,35 +49,22 @@ function ChartEmptyState({ message }: { message: string }) {
   );
 }
 
-export function RevenueLineChart({ dockets }: ChartsProps) {
+/** Revenue per IST calendar month ('YYYY-MM' -> rupees), aggregated server-side. */
+export function RevenueLineChart({ revenueByMonth }: { revenueByMonth: Record<string, number> }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
-  // Generate last 6 months
+  // Last 6 months, ending with the current IST month.
   const monthlyData: { month: string; yearMonth: string; revenue: number }[] = [];
-  const now = new Date();
+  const [curYear, curMonth] = todayIST().split('-').map(Number);
 
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthShort = d.toLocaleString('en-US', { month: 'short' });
-    const yearMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    monthlyData.push({ month: monthShort, yearMonth, revenue: 0 });
+    const d = new Date(Date.UTC(curYear, curMonth - 1 - i, 1));
+    const monthShort = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+    const yearMonth = d.toISOString().slice(0, 7);
+    monthlyData.push({ month: monthShort, yearMonth, revenue: revenueByMonth[yearMonth] ?? 0 });
   }
 
-  // Aggregate active dockets into monthly revenue
-  const activeDockets = dockets.filter((doc) => doc.status === 'issued');
-
-  let hasRealMonthlyData = false;
-  activeDockets.forEach((doc) => {
-    const dateStr = doc.booking_date || doc.created_at;
-    if (dateStr) {
-      const docYM = dateStr.slice(0, 7);
-      const match = monthlyData.find((m) => m.yearMonth === docYM);
-      if (match) {
-        match.revenue += Number(doc.grand_total || 0);
-        hasRealMonthlyData = true;
-      }
-    }
-  });
+  const hasRealMonthlyData = monthlyData.some((m) => m.revenue > 0);
 
   // No invented trend line. If there is nothing in the last six months, say so.
   if (!hasRealMonthlyData) {
@@ -288,7 +273,8 @@ export function RevenueLineChart({ dockets }: ChartsProps) {
   );
 }
 
-export function ShipmentsBarChart({ dockets }: ChartsProps) {
+/** Daily booking counts ('YYYY-MM-DD' -> count) for recent weeks, aggregated server-side. */
+export function ShipmentsBarChart({ bookingsByDay }: { bookingsByDay: Record<string, number> }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   // 0 = current week (Mon-Sun, IST), 1 = last week, 2 = two weeks ago, etc.
   const [weekOffset, setWeekOffset] = useState(0);
@@ -315,15 +301,9 @@ export function ShipmentsBarChart({ dockets }: ChartsProps) {
   const weekEnd = addDays(weekStart, 6);
   const rangeLabel = `${formatDateLabel(weekStart)} – ${formatDateLabel(weekEnd)}, ${weekEnd.slice(0, 4)}`;
 
-  // Only dockets booked within the selected Mon-Sun window.
-  const dayCounts = [0, 0, 0, 0, 0, 0, 0];
-  let hasRealCounts = false;
-  dockets.forEach((doc) => {
-    const dateStr = (doc.booking_date || doc.created_at || '').slice(0, 10);
-    if (!dateStr || dateStr < weekStart || dateStr > weekEnd) return;
-    dayCounts[weekdayIndexMon0(dateStr)] += 1;
-    hasRealCounts = true;
-  });
+  // Bookings within the selected Mon-Sun window.
+  const dayCounts = [0, 0, 0, 0, 0, 0, 0].map((_, i) => bookingsByDay[addDays(weekStart, i)] ?? 0);
+  const hasRealCounts = dayCounts.some((c) => c > 0);
 
   const finalCounts = dayCounts;
   const maxCount = Math.max(...finalCounts, 10);
@@ -363,9 +343,10 @@ export function ShipmentsBarChart({ dockets }: ChartsProps) {
   const weekNav = (
     <div className="flex items-center justify-between mb-2">
       <button
-        onClick={() => setWeekOffset((o) => o + 1)}
+        onClick={() => setWeekOffset((o) => Math.min(BOOKING_HISTORY_WEEKS - 1, o + 1))}
+        disabled={weekOffset >= BOOKING_HISTORY_WEEKS - 1}
         aria-label="Previous week"
-        className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
+        className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
       >
         <ChevronLeft className="w-3.5 h-3.5" />
       </button>
